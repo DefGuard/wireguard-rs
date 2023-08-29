@@ -1,0 +1,53 @@
+[package]
+name = "defguard-wireguard"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+boringtun = ["dep:boringtun"]
+
+[dependencies]
+async-stream = "0.3"
+base64 = "0.13"
+boringtun = { version = "0.4", optional = true }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
+clap = { version = "4.3", features = ["derive", "env"] }
+env_logger = "0.9"
+gethostname = "0.4"
+log = "0.4"
+prost = "0.11"
+syslog = "6.1"
+thiserror = "1.0"
+tonic = { version = "0.9", features = ["gzip", "tls", "tls-roots"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio-stream = { version = "0.1", features = [] }
+toml = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-std", "io-util"] }
+x25519-dalek = { version = "2.0.0-rc.3", features = [
+    "getrandom",
+    "static_secrets",
+] }
+
+[build-dependencies]
+tonic-build = { version = "0.9" }
+prost-build = { version = "0.11" }
+
+[target.'cfg(target_os = "freebsd")'.dependencies]
+nix = { version = "0.26", features = ["ioctl", "socket"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-packet-core = "0.7"
+netlink-packet-generic = "0.3"
+netlink-packet-route = "0.17"
+netlink-packet-wireguard = "0.2"
+netlink-sys = "0.8"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
