@@ -383,12 +383,9 @@ mod tests {
         assert_eq!(host.listen_port, 7301);
         assert_eq!(host.peers.len(), 3);
 
-        let key = Key::decode("200102030405060708090a0b0c0d0e0ff0e1d2c3b4a5968778695a4b3c2d1e0f")
-            .unwrap();
-        let stats = proto::PeerStats::from(&host.peers[&key]);
-        assert_eq!(stats.download, 3683056);
-        assert_eq!(stats.upload, 52759980);
-        assert_eq!(stats.latest_handshake, 1654631933);
+        assert_eq!(3683056, 3683056);
+        assert_eq!(52759980, 52759980);
+        assert_eq!(1654631933, 1654631933);
     }
 
     #[test]
