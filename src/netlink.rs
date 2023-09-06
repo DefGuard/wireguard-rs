@@ -4,7 +4,6 @@ use std::{
     net::{IpAddr, Ipv4Addr},
 };
 
-use net::{Host, IpAddrMask, Peer};
 use netlink_packet_core::{
     NetlinkDeserializable, NetlinkMessage, NetlinkPayload, NetlinkSerializable, NLM_F_ACK,
     NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
@@ -20,6 +19,11 @@ use netlink_packet_route::{
 };
 use netlink_packet_wireguard::{nlas::WgDeviceAttrs, Wireguard, WireguardCmd};
 use netlink_sys::{constants::NETLINK_GENERIC, protocols::NETLINK_ROUTE, Socket, SocketAddr};
+
+use crate::{
+    host::{Host, Peer},
+    net::IpAddrMask,
+};
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
 

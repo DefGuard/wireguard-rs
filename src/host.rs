@@ -12,8 +12,7 @@ use netlink_packet_wireguard::{
     nlas::{WgAllowedIpAttrs, WgDeviceAttrs, WgPeer, WgPeerAttrs},
 };
 
-use super::{IpAddrMask, Key};
-use crate::proto;
+use crate::{key::Key, net::IpAddrMask};
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Peer {
