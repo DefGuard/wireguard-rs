@@ -8,7 +8,7 @@ edition = "2021"
 base64 = "0.13"
 log = "0.4"
 thiserror = "1.0"
-tokio = "1.32.0"
+tokio = "1.32"
 boringtun = { version = "0.4", optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
