@@ -3,12 +3,9 @@ name = "defguard_wireguard"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-boringtun = ["dep:boringtun"]
 
 [dependencies]
 base64 = "0.13"
-boringtun = { version = "0.4", optional = true }
 log = "0.4"
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
