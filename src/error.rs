@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum DefguardWireguardError {
+pub enum WireguardError {
     #[error("Interface setup error: {0}")]
     Interface(String),
     #[cfg(feature = "boringtun")]

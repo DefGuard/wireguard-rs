@@ -19,7 +19,7 @@ extern crate log;
 
 use std::{process::Command, str::FromStr};
 use wgapi::WGApi;
-use crate::error::DefguardWireguardError;
+use crate::error::WireguardError;
 
 #[derive(Debug, Clone)]
 pub struct InterfaceConfiguration {
@@ -37,7 +37,7 @@ pub struct InterfaceConfiguration {
 ///
 /// * `name` - Interface name
 #[cfg(feature = "boringtun")]
-pub fn create_interface_userspace(ifname: &str) -> Result<(), DefguardWireguardError> {
+pub fn create_interface_userspace(ifname: &str) -> Result<(), WireguardError> {
     let enable_drop_privileges = true;
 
     let config = DeviceConfig::default();
@@ -62,7 +62,7 @@ pub fn create_interface_userspace(ifname: &str) -> Result<(), DefguardWireguardE
 ///
 /// * `interface` - Interface name
 /// * `addr` - Address to assign to interface
-pub fn assign_addr(ifname: &str, addr: &IpAddrMask) -> Result<(), DefguardWireguardError> {
+pub fn assign_addr(ifname: &str, addr: &IpAddrMask) -> Result<(), WireguardError> {
     if cfg!(target_os = "linux") {
         #[cfg(target_os = "linux")]
         netlink::address_interface(ifname, addr)?;
@@ -86,7 +86,7 @@ pub fn setup_interface(
     ifname: &str,
     userspace: bool,
     config: &InterfaceConfiguration,
-) -> Result<(), DefguardWireguardError> {
+) -> Result<(), WireguardError> {
     if userspace {
         #[cfg(feature = "boringtun")]
         create_interface_userspace(ifname)?;
