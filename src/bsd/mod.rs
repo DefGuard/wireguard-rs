@@ -11,7 +11,10 @@ use self::{
     timespec::{pack_timespec, unpack_timespec},
     wgio::{WgDataIo, WgIoError},
 };
-use super::{Host, IpAddrMask, Peer};
+use crate::{
+    host::{Host, Peer},
+    net::IpAddrMask,
+};
 
 // nvlist key names
 static NV_LISTEN_PORT: &str = "listen-port";
