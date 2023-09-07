@@ -21,6 +21,7 @@ use std::{process::Command, str::FromStr};
 use wgapi::WGApi;
 use crate::error::WireguardError;
 
+/// Wireguard Interface configuration
 #[derive(Debug, Clone)]
 pub struct InterfaceConfiguration {
     pub name: String,
