@@ -1,0 +1,39 @@
+name: Continuous integration
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'LICENSE'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'LICENSE'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: self-hosted
+    container: rust:1.71
+
+    steps:
+      - name: Debug
+        run: echo ${{ github.ref_name }}
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Check format
+        run: |
+          rustup component add rustfmt
+          cargo fmt -- --check
+      - name: Run tests
+        run: cargo test --locked --no-fail-fast
