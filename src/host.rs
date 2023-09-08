@@ -17,13 +17,13 @@ use crate::{key::Key, net::IpAddrMask};
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Peer {
     pub public_key: Key,
-    pub(super) preshared_key: Option<Key>,
-    pub(super) protocol_version: Option<u32>,
-    pub(super) endpoint: Option<SocketAddr>,
+    pub preshared_key: Option<Key>,
+    pub protocol_version: Option<u32>,
+    pub endpoint: Option<SocketAddr>,
     pub last_handshake: Option<SystemTime>,
-    pub(super) tx_bytes: u64,
-    pub(super) rx_bytes: u64,
-    pub(super) persistent_keepalive_interval: Option<u16>,
+    pub tx_bytes: u64,
+    pub rx_bytes: u64,
+    pub persistent_keepalive_interval: Option<u16>,
     pub allowed_ips: Vec<IpAddrMask>,
 }
 
