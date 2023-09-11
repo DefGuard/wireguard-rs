@@ -56,7 +56,6 @@ impl Peer {
             output.push('\n');
         }
         if let Some(endpoint) = &self.endpoint {
-            println!("assigning endpoint: {endpoint}");
             output.push_str("endpoint=");
             output.push_str(&endpoint.to_string());
             output.push('\n');
