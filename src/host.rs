@@ -56,6 +56,7 @@ impl Peer {
             output.push('\n');
         }
         if let Some(endpoint) = &self.endpoint {
+            println!("assigning endpoint: {endpoint}");
             output.push_str("endpoint=");
             output.push_str(&endpoint.to_string());
             output.push('\n');
@@ -147,6 +148,10 @@ impl Peer {
         let mut attrs = vec![WgPeerAttrs::PublicKey(self.public_key.as_array())];
         if let Some(keepalive) = self.persistent_keepalive_interval {
             attrs.push(WgPeerAttrs::PersistentKeepalive(keepalive));
+        }
+
+        if let Some(endpoint) = self.endpoint {
+            attrs.push(WgPeerAttrs::Endpoint(endpoint));
         }
         attrs.push(WgPeerAttrs::Flags(WGPEER_F_REPLACE_ALLOWEDIPS));
         let allowed_ips = self

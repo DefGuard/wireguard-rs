@@ -1,12 +1,12 @@
 #[cfg(target_os = "freebsd")]
 pub mod bsd;
+pub mod error;
 pub mod host;
 pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
 pub mod netlink;
 pub mod wgapi;
-pub mod error;
 
 #[cfg(feature = "boringtun")]
 use boringtun::{
@@ -17,9 +17,9 @@ use boringtun::{
 #[macro_use]
 extern crate log;
 
+use crate::error::WireguardError;
 use std::{process::Command, str::FromStr};
 use wgapi::WGApi;
-use crate::error::WireguardError;
 
 /// Wireguard Interface configuration
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ pub struct InterfaceConfiguration {
     pub prvkey: String,
     pub address: String,
     pub port: u32,
-    pub peers: Vec<Peer>
+    pub peers: Vec<Peer>,
 }
 
 /// Creates wireguard interface using userspace implementation.
