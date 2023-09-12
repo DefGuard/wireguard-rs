@@ -18,7 +18,7 @@ env:
 jobs:
   test:
     runs-on: self-hosted
-    container: rust:1.71
+    container: rust:1.72
 
     steps:
       - name: Debug

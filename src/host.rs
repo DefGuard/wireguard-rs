@@ -148,6 +148,10 @@ impl Peer {
         if let Some(keepalive) = self.persistent_keepalive_interval {
             attrs.push(WgPeerAttrs::PersistentKeepalive(keepalive));
         }
+
+        if let Some(endpoint) = self.endpoint {
+            attrs.push(WgPeerAttrs::Endpoint(endpoint));
+        }
         attrs.push(WgPeerAttrs::Flags(WGPEER_F_REPLACE_ALLOWEDIPS));
         let allowed_ips = self
             .allowed_ips
