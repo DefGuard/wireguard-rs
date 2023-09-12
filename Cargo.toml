@@ -11,6 +11,12 @@ thiserror = "1.0"
 tokio = "1.32"
 boringtun = { version = "0.4", optional = true }
 
+[dev-dependencies]
+x25519-dalek = { version = "2.0.0-rc.3", features = [
+    "getrandom",
+    "static_secrets",
+] }
+
 [target.'cfg(target_os = "freebsd")'.dependencies]
 nix = { version = "0.26", features = ["ioctl", "socket"] }
 
