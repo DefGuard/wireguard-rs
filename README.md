@@ -18,7 +18,7 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
   - macOS
   - Windows
   - FreeBSD
-  - ... and all other supported by wireguard-go
+  - ... and all other supported by boringtun/wireguard-go
 
 ## Examples
 
