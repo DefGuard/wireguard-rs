@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use log;
 #[cfg(target_os = "linux")]
 use wireguard_rs::netlink::{address_interface, create_interface};
 use wireguard_rs::{wgapi::WGApi, Host, IpAddrMask, Key, Peer};
@@ -8,9 +9,9 @@ use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     {
-        println!("create interface");
+        log::debug!("create interface");
         create_interface("wg0")?;
-        println!("address interface");
+        log::debug!("address interface");
         let addr = IpAddrMask::from_str("10.20.30.40/24").unwrap();
         address_interface("wg0", &addr)?;
     }
@@ -20,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WGApi::new("utun3".into(), true)
     };
     let host = api.read_host()?;
-    println!("{host:#?}");
+    log::debug!("{host:#?}");
 
     // host
     let secret = StaticSecret::random();
@@ -32,11 +33,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer = Peer::new(peer_key.clone());
     let addr = IpAddrMask::from_str("10.20.30.40/24").unwrap();
     peer.allowed_ips.push(addr);
+    // Insert peers to host
     host.peers.insert(peer_key, peer);
 
+    // Create host interfaces
     api.write_host(&host)?;
 
-    // peer
+    // Create peers
     for _ in 0..32 {
         let secret = EphemeralSecret::random();
         let key = PublicKey::from(&secret);
