@@ -11,7 +11,7 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 
 * Native OS Kernel
   - Linux
-  - FreeBSD
+  - FreeBSD (and pfSense/OPNSense)
   - Windows (in development)
 * User space using [boringtun](https://github.com/cloudflare/boringtun) and [wireguard-go](https://github.com/WireGuard/wireguard-go)
   - Linux
