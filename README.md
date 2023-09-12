@@ -13,7 +13,7 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
   - Linux
   - FreeBSD
   - Windows (in development)
-* User space using [wireguard-go](https://github.com/WireGuard/wireguard-go)
+* User space using [boringtun](https://github.com/cloudflare/boringtun) and [wireguard-go](https://github.com/WireGuard/wireguard-go)
   - Linux
   - macOS
   - Windows
