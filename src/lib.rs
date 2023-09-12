@@ -17,7 +17,7 @@ use boringtun::{
 #[macro_use]
 extern crate log;
 
-use crate::error::WireguardError;
+use self::error::WireguardError;
 use std::{process::Command, str::FromStr};
 use wgapi::WGApi;
 
