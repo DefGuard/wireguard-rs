@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use base64::{decode, encode, DecodeError};
+use base64::{prelude::BASE64_STANDARD, DecodeError, Engine};
 
 const KEY_LENGTH: usize = 32;
 
@@ -92,7 +92,7 @@ impl TryFrom<&str> for Key {
     type Error = DecodeError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let v = decode(value)?;
+        let v = BASE64_STANDARD.decode(value)?;
         if v.len() == KEY_LENGTH {
             let buf = v.try_into().map_err(|_| Self::Error::InvalidLength)?;
             Ok(Self::new(buf))
@@ -120,7 +120,7 @@ impl FromStr for Key {
     type Err = DecodeError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let v = decode(value)?;
+        let v = BASE64_STANDARD.decode(value)?;
         if v.len() == KEY_LENGTH {
             let buf = v.try_into().map_err(|_| Self::Err::InvalidLength)?;
             Ok(Self::new(buf))
@@ -152,7 +152,7 @@ impl fmt::Debug for Key {
 
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", encode(self.0))
+        write!(f, "{}", BASE64_STANDARD.encode(self.0))
     }
 }
 

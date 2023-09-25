@@ -5,7 +5,7 @@ edition = "2021"
 
 
 [dependencies]
-base64 = "0.20"
+base64 = "0.21"
 log = "0.4"
 thiserror = "1.0"
 tokio = "1.32"
