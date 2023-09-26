@@ -1,13 +1,15 @@
-use crate::error::WireguardInterfaceError;
-use crate::wireguard_interface::WireguardInterfaceApi;
-use crate::{Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
-use std::io;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
-use std::process::Command;
-use std::str::FromStr;
-use std::time::Duration;
+use crate::{
+    error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
+    WireguardInterfaceApi,
+};
+use std::{
+    io::{self, BufRead, BufReader, Read, Write},
+    net::Shutdown,
+    os::unix::net::UnixStream,
+    process::Command,
+    str::FromStr,
+    time::Duration,
+};
 
 const USERSPACE_EXECUTABLE: &str = "wireguard-go";
 
