@@ -1,15 +1,15 @@
 use crate::error::WireguardInterfaceError;
-use crate::{Host, InterfaceConfiguration, Peer};
+use crate::{Host, InterfaceConfiguration, IpAddrMask, Peer};
 
 /// API for managing a WireGuard interface.
 ///
 /// Specific interface being managed is identified by name.
 pub trait WireguardInterfaceApi {
-    /// Creates a new instance of the API struct.
-    fn new(ifname: String) -> Self;
-
     /// Creates a new WireGuard interface.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError>;
+
+    /// Assigns IP address to an existing interface.
+    fn assign_address(&self, addr: &IpAddrMask) -> Result<(), WireguardInterfaceError>;
 
     /// Updates configuration of an existing WireGuard interface.
     fn configure_interface(&self, config: &InterfaceConfiguration);
