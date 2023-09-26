@@ -86,9 +86,17 @@ impl WireguardApiUserspace {
 impl WireguardInterfaceApi for WireguardApiUserspace {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating userspace interface {}", self.ifname);
-        Command::new(USERSPACE_EXECUTABLE)
+        let output = Command::new(USERSPACE_EXECUTABLE)
             .arg(&self.ifname)
             .output()?;
+        if !output.status.success() {
+            let error_message =
+                String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");
+            error!("Failed to create userspace interface: {error_message}");
+            return Err(WireguardInterfaceError::CommandExecutionError {
+                stderr: error_message,
+            });
+        }
         Ok(())
     }
 

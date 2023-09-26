@@ -6,7 +6,7 @@ use std::{
 use wireguard_rs::{
     InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardApiUserspace, WireguardInterfaceApi,
 };
-use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn pause() {
     let mut stdout = stdout();
