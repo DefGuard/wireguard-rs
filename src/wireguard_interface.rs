@@ -1,5 +1,5 @@
 use crate::error::WireguardInterfaceError;
-use crate::{Host, InterfaceConfiguration, IpAddrMask, Peer};
+use crate::{Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
 
 /// API for managing a WireGuard interface.
 ///
@@ -26,7 +26,7 @@ pub trait WireguardInterfaceApi {
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError>;
 
     /// Removes a configured peer with a given pubkey.
-    fn remove_peer(&self, peer_pubkey: &str) -> Result<(), WireguardInterfaceError>;
+    fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError>;
 
     /// Reads current WireGuard interface configuration and stats.
     ///

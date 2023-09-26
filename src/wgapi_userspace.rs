@@ -1,6 +1,6 @@
 use crate::error::WireguardInterfaceError;
 use crate::wireguard_interface::WireguardInterfaceApi;
-use crate::{Host, InterfaceConfiguration, IpAddrMask, Peer};
+use crate::{Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
@@ -109,6 +109,10 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         &self,
         config: &InterfaceConfiguration,
     ) -> Result<(), WireguardInterfaceError> {
+        info!(
+            "Configuring interface {} with config: {config:?}",
+            self.ifname
+        );
         // create interface
         self.create_interface()?;
 
@@ -123,6 +127,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
+        info!("Removing interface {}", self.ifname);
         // 'wireguard-go` should by design shut down if the socket is removed
         let socket = self.socket()?;
         socket.shutdown(Shutdown::Both).map_err(|err| {
@@ -133,14 +138,46 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     }
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
-        todo!()
+        info!("Configuring peer {peer:?} on interface {}", self.ifname);
+        let mut socket = self.socket()?;
+        socket.write_all(b"set=1\n")?;
+        socket.write_all(peer.as_uapi_update().as_bytes())?;
+        socket.write_all(b"\n")?;
+
+        if Self::parse_errno(socket) != 0 {
+            Err(WireguardInterfaceError::PeerConfigurationError)
+        } else {
+            Ok(())
+        }
     }
 
-    fn remove_peer(&self, peer_pubkey: &str) -> Result<(), WireguardInterfaceError> {
-        todo!()
+    fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {
+        info!(
+            "Removing peer with public key {peer_pubkey} from interface {}",
+            self.ifname
+        );
+        let mut socket = self.socket()?;
+        socket.write_all(b"set=1\n")?;
+        socket.write_all(
+            format!("public_key={}\nremove=true\n", peer_pubkey.to_lower_hex()).as_bytes(),
+        )?;
+        socket.write_all(b"\n")?;
+
+        if Self::parse_errno(socket) != 0 {
+            Err(WireguardInterfaceError::PeerConfigurationError)
+        } else {
+            Ok(())
+        }
     }
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
-        todo!()
+        debug!("Reading host interface info");
+        match self.read_host() {
+            Ok(host) => Ok(host),
+            Err(err) => {
+                error!("Failed to read interface {} data: {err}", self.ifname);
+                Err(WireguardInterfaceError::ReadInterfaceError(err.to_string()))
+            }
+        }
     }
 }
