@@ -28,7 +28,7 @@ impl WGApi {
         Ok(socket)
     }
 
-    // FIXME: currenty other errors are ignored and result in 0 being returned.
+    // FIXME: currently other errors are ignored and result in 0 being returned.
     fn parse_errno(buf: impl Read) -> u32 {
         let reader = BufReader::new(buf);
         for line_result in reader.lines() {
