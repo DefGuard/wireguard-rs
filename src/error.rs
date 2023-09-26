@@ -14,4 +14,6 @@ pub enum WireguardInterfaceError {
     IpAddrMask(#[from] crate::net::IpAddrParseError),
     #[error("{0} executable not found in system PATH")]
     ExecutableNotFound(String),
+    #[error("Unix socket error: {0}")]
+    UnixSockerError(String),
 }

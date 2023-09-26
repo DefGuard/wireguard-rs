@@ -3,6 +3,7 @@ use crate::wireguard_interface::WireguardInterfaceApi;
 use crate::{Host, InterfaceConfiguration, IpAddrMask, Peer};
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::process::Command;
 use std::str::FromStr;
@@ -122,7 +123,13 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
-        todo!()
+        // 'wireguard-go` should by design shut down if the socket is removed
+        let socket = self.socket()?;
+        socket.shutdown(Shutdown::Both).map_err(|err| {
+            error!("Failed to shutdown socket: {err}");
+            WireguardInterfaceError::UnixSockerError(err.to_string())
+        })?;
+        Ok(())
     }
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
