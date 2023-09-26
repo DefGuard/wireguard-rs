@@ -23,6 +23,7 @@ pub use {
     key::Key,
     net::{IpAddrMask, IpAddrParseError},
     wgapi_userspace::WireguardApiUserspace,
+    wireguard_interface::WireguardInterfaceApi,
 };
 
 /// Wireguard Interface configuration
