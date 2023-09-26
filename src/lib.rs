@@ -7,8 +7,10 @@ pub mod net;
 #[cfg(target_os = "linux")]
 pub mod netlink;
 pub mod wgapi;
-pub mod wgapi_userspace;
-pub mod wireguard_interface;
+mod wgapi_freebsd;
+mod wgapi_linux;
+mod wgapi_userspace;
+mod wireguard_interface;
 
 #[macro_use]
 extern crate log;
