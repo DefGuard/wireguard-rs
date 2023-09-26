@@ -9,7 +9,7 @@ pub enum WireguardInterfaceError {
     #[error("WireGuard key error")]
     KeyDecode(#[from] base64::DecodeError),
     #[error("Command returned error status")]
-    CommandExecutionError { stderr: String },
+    CommandExecutionError { stdout: String, stderr: String },
     #[error("IP address/mask error")]
     IpAddrMask(#[from] crate::net::IpAddrParseError),
     #[error("{0} executable not found in system PATH")]

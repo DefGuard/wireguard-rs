@@ -2,12 +2,13 @@ use crate::{
     error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     WireguardInterfaceApi,
 };
-use std::process::Output;
 use std::{
+    fs,
     io::{self, BufRead, BufReader, Read, Write},
     net::Shutdown,
     os::unix::net::UnixStream,
     process::Command,
+    process::Output,
     str::FromStr,
     time::Duration,
 };
@@ -33,8 +34,12 @@ impl WireguardApiUserspace {
         Ok(WireguardApiUserspace { ifname })
     }
 
+    fn socket_path(&self) -> String {
+        format!("/var/run/wireguard/{}.sock", self.ifname)
+    }
+
     fn socket(&self) -> io::Result<UnixStream> {
-        let path = format!("/var/run/wireguard/{}.sock", self.ifname);
+        let path = self.socket_path();
         let socket = UnixStream::connect(path)?;
         socket.set_read_timeout(Some(Duration::new(3, 0)))?;
         Ok(socket)
@@ -86,11 +91,12 @@ impl WireguardApiUserspace {
 
 fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
     if !output.status.success() {
-        let error_message =
+        let stdout =
+            String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
+        let stderr =
             String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");
-        error!("Failed to create userspace interface: {error_message}");
         return Err(WireguardInterfaceError::CommandExecutionError {
-            stderr: error_message,
+            stdout, stderr,
         });
     }
     Ok(())
@@ -151,6 +157,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
             error!("Failed to shutdown socket: {err}");
             WireguardInterfaceError::UnixSockerError(err.to_string())
         })?;
+        fs::remove_file(self.socket_path())?;
         Ok(())
     }
 
