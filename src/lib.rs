@@ -7,19 +7,23 @@ pub mod net;
 #[cfg(target_os = "linux")]
 pub mod netlink;
 pub mod wgapi;
-
-#[cfg(feature = "boringtun")]
-use boringtun::{
-    device::drop_privileges::drop_privileges,
-    device::{DeviceConfig, DeviceHandle},
-};
+pub mod wgapi_userspace;
+pub mod wireguard_interface;
 
 #[macro_use]
 extern crate log;
 
-use self::error::WireguardError;
 use std::{process::Command, str::FromStr};
 use wgapi::WGApi;
+
+// public reexports
+pub use {
+    self::error::WireguardInterfaceError,
+    host::{Host, Peer},
+    key::Key,
+    net::{IpAddrMask, IpAddrParseError},
+    wgapi_userspace::WireguardApiUserspace,
+};
 
 /// Wireguard Interface configuration
 #[derive(Debug, Clone)]
@@ -31,30 +35,20 @@ pub struct InterfaceConfiguration {
     pub peers: Vec<Peer>,
 }
 
-/// Creates wireguard interface using userspace implementation.
-/// https://github.com/cloudflare/boringtun
-///
-/// # Arguments
-///
-/// * `name` - Interface name
-#[cfg(feature = "boringtun")]
-pub fn create_interface_userspace(ifname: &str) -> Result<(), WireguardError> {
-    let enable_drop_privileges = true;
+impl TryFrom<&InterfaceConfiguration> for Host {
+    type Error = WireguardInterfaceError;
 
-    let config = DeviceConfig::default();
-
-    let mut device_handle = DeviceHandle::new(ifname, config).map_err(GatewayError::BorningTun)?;
-
-    if enable_drop_privileges {
-        if let Err(e) = drop_privileges() {
-            error!("Failed to drop privileges: {:?}", e);
+    fn try_from(config: &InterfaceConfiguration) -> Result<Self, Self::Error> {
+        let key = config.prvkey.as_str().try_into()?;
+        let mut host = Host::new(config.port as u16, key);
+        for peercfg in &config.peers {
+            let key: Key = peercfg.public_key.clone();
+            let mut peer = Peer::new(key.clone());
+            peer.set_allowed_ips(peercfg.allowed_ips.clone());
+            host.peers.insert(key, peer);
         }
+        Ok(host)
     }
-
-    tokio::spawn(async move {
-        device_handle.wait();
-    });
-    Ok(())
 }
 
 /// Assigns address to interface.
@@ -63,7 +57,7 @@ pub fn create_interface_userspace(ifname: &str) -> Result<(), WireguardError> {
 ///
 /// * `interface` - Interface name
 /// * `addr` - Address to assign to interface
-pub fn assign_addr(ifname: &str, addr: &IpAddrMask) -> Result<(), WireguardError> {
+pub fn assign_addr(ifname: &str, addr: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
     if cfg!(target_os = "linux") {
         #[cfg(target_os = "linux")]
         netlink::address_interface(ifname, addr)?;
@@ -87,7 +81,7 @@ pub fn setup_interface(
     ifname: &str,
     userspace: bool,
     config: &InterfaceConfiguration,
-) -> Result<(), WireguardError> {
+) -> Result<(), WireguardInterfaceError> {
     if userspace {
         #[cfg(feature = "boringtun")]
         create_interface_userspace(ifname)?;
@@ -112,9 +106,3 @@ pub fn setup_interface(
 
     Ok(())
 }
-
-pub use {
-    host::{Host, Peer},
-    key::Key,
-    net::{IpAddrMask, IpAddrParseError},
-};
