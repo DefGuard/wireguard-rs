@@ -2,6 +2,7 @@ use crate::{
     error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     WireguardInterfaceApi,
 };
+use std::process::Output;
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
     net::Shutdown,
@@ -83,35 +84,41 @@ impl WireguardApiUserspace {
     }
 }
 
+fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
+    if !output.status.success() {
+        let error_message =
+            String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");
+        error!("Failed to create userspace interface: {error_message}");
+        return Err(WireguardInterfaceError::CommandExecutionError {
+            stderr: error_message,
+        });
+    }
+    Ok(())
+}
+
 impl WireguardInterfaceApi for WireguardApiUserspace {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating userspace interface {}", self.ifname);
         let output = Command::new(USERSPACE_EXECUTABLE)
             .arg(&self.ifname)
             .output()?;
-        if !output.status.success() {
-            let error_message =
-                String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");
-            error!("Failed to create userspace interface: {error_message}");
-            return Err(WireguardInterfaceError::CommandExecutionError {
-                stderr: error_message,
-            });
-        }
+        check_command_output_status(output)?;
         Ok(())
     }
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
-        if cfg!(target_os = "macos") {
+        let output = if cfg!(target_os = "macos") {
             // On macOS, interface is point-to-point and requires a pair of addresses
             let address_string = address.ip.to_string();
             Command::new("ifconfig")
                 .args([&self.ifname, &address_string, &address_string])
-                .output()?;
+                .output()?
         } else {
             Command::new("ifconfig")
                 .args([&self.ifname, &address.to_string()])
-                .output()?;
+                .output()?
         };
+        check_command_output_status(output)?;
         Ok(())
     }
 
