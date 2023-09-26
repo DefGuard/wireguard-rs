@@ -91,13 +91,9 @@ impl WireguardApiUserspace {
 
 fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
     if !output.status.success() {
-        let stdout =
-            String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
-        let stderr =
-            String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");
-        return Err(WireguardInterfaceError::CommandExecutionError {
-            stdout, stderr,
-        });
+        let stdout = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
+        let stderr = String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");
+        return Err(WireguardInterfaceError::CommandExecutionError { stdout, stderr });
     }
     Ok(())
 }
