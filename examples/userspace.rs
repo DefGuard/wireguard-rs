@@ -1,8 +1,19 @@
-use std::{net::SocketAddr, str::FromStr};
+use std::{
+    io::{stdin, stdout, Read, Write},
+    net::SocketAddr,
+    str::FromStr,
+};
 use wireguard_rs::{
     InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardApiUserspace, WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+
+fn pause() {
+    let mut stdout = stdout();
+    stdout.write(b"Press Enter to continue...").unwrap();
+    stdout.flush().unwrap();
+    stdin().read(&mut [0]).unwrap();
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup API struct for interface management
@@ -51,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_into()
         .unwrap();
     let interface_config = InterfaceConfiguration {
-        name: ifname,
+        name: ifname.clone(),
         prvkey: prvkey.to_lower_hex(),
         address: "10.6.0.30".to_string(),
         port: 12345,
@@ -59,6 +70,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     api.configure_interface(&interface_config)?;
+
+    println!("Interface {ifname} configured.");
+    pause();
+
+    api.remove_interface()?;
+
+    println!("Interface {ifname} removed.");
 
     Ok(())
 }
