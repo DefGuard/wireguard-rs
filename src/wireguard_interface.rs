@@ -9,7 +9,7 @@ pub trait WireguardInterfaceApi {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError>;
 
     /// Assigns IP address to an existing interface.
-    fn assign_address(&self, addr: &IpAddrMask) -> Result<(), WireguardInterfaceError>;
+    fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError>;
 
     /// Updates configuration of an existing WireGuard interface.
     fn configure_interface(
