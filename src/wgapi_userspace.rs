@@ -109,6 +109,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     }
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
+        debug!("Assigning address {address} to interface {}", self.ifname);
         let output = if cfg!(target_os = "macos") {
             // On macOS, interface is point-to-point and requires a pair of addresses
             let address_string = address.ip.to_string();
@@ -191,7 +192,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     }
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
-        debug!("Reading host interface info");
+        debug!("Reading host info for interface {}", self.ifname);
         match self.read_host() {
             Ok(host) => Ok(host),
             Err(err) => {
