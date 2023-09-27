@@ -1,30 +1,27 @@
 use std::{
     alloc::{alloc, dealloc, Layout},
-    error::Error,
-    fmt,
     os::fd::RawFd,
     ptr::null_mut,
     slice::from_raw_parts,
 };
+use thiserror::Error;
 
+use crate::WireguardInterfaceError;
 use nix::{errno::Errno, ioctl_readwrite, sys::socket};
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum WgIoError {
+    #[error("Memory allocation error")]
     MemAlloc,
+    #[error("Read error {0}")]
     ReadIo(Errno),
+    #[error("Write error {0}")]
     WriteIo(Errno),
 }
 
-impl Error for WgIoError {}
-
-impl fmt::Display for WgIoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MemAlloc => write!(f, "memory allocation"),
-            Self::ReadIo(errno) => write!(f, "read error {errno}"),
-            Self::WriteIo(errno) => write!(f, "write error {errno}"),
-        }
+impl From<WgIoError> for WireguardInterfaceError {
+    fn from(error: WgIoError) -> Self {
+        WireguardInterfaceError::BsdError(error.to_string())
     }
 }
 

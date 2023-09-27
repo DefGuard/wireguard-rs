@@ -9,12 +9,14 @@ use self::{
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
-    wgio::{WgDataIo, WgIoError},
+    wgio::WgDataIo,
 };
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
 };
+
+pub use wgio::WgIoError;
 
 // nvlist key names
 static NV_LISTEN_PORT: &str = "listen-port";

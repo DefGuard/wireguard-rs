@@ -28,7 +28,7 @@ use thiserror::Error;
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
-    Key,
+    Key, WireguardInterfaceError,
 };
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
@@ -57,6 +57,12 @@ pub enum NetlinkError {
     CreateInterfaceError,
     #[error("Failed to delete WireGuard interface")]
     DeleteInterfaceError,
+}
+
+impl From<NetlinkError> for WireguardInterfaceError {
+    fn from(error: NetlinkError) -> Self {
+        WireguardInterfaceError::NetlinkError(error.to_string())
+    }
 }
 
 pub type NetlinkResult<T> = Result<T, NetlinkError>;
