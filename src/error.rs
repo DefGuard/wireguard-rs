@@ -1,3 +1,4 @@
+use crate::netlink::NetlinkError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,4 +21,6 @@ pub enum WireguardInterfaceError {
     PeerConfigurationError,
     #[error("Interface data read error: {0}")]
     ReadInterfaceError(String),
+    #[error(transparent)]
+    NetlinkError(#[from] NetlinkError),
 }

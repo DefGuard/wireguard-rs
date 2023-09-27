@@ -1,6 +1,5 @@
 use std::{
     fmt::Debug,
-    io,
     net::{IpAddr, Ipv4Addr},
 };
 
@@ -17,15 +16,50 @@ use netlink_packet_route::{
     link::nlas::{Info, InfoKind, Nla},
     AddressMessage, LinkHeader, LinkMessage, RtnlMessage, AF_INET, AF_INET6, IFF_UP,
 };
-use netlink_packet_wireguard::{nlas::WgDeviceAttrs, Wireguard, WireguardCmd};
+use netlink_packet_utils::errors::DecodeError;
+use netlink_packet_wireguard::{
+    constants::WGPEER_F_REMOVE_ME,
+    nlas::{WgDeviceAttrs, WgPeer, WgPeerAttrs},
+    Wireguard, WireguardCmd,
+};
 use netlink_sys::{constants::NETLINK_GENERIC, protocols::NETLINK_ROUTE, Socket, SocketAddr};
+use thiserror::Error;
 
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
+    Key,
 };
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
+
+#[derive(Debug, Error)]
+pub enum NetlinkError {
+    #[error("Unexpected netlink payload")]
+    UnexpectedPayload,
+    #[error("Failed to send netlink request")]
+    SendFailure,
+    #[error(
+        "Serialized netlink packet ({0} bytes) larger than maximum size {SOCKET_BUFFER_LENGTH}"
+    )]
+    InvalidPacketLength(usize),
+    #[error("Attribute value not found")]
+    AttributeNotFound,
+    #[error("Socket error: {0}")]
+    SocketError(String),
+    #[error("Invalid Netlink data")]
+    InvalidData,
+    #[error("Failed to read response")]
+    ResponseError(#[from] DecodeError),
+    #[error("Netlink payload error: {0}")]
+    PayloadError(netlink_packet_core::ErrorMessage),
+    #[error("Failed to create WireGuard interface")]
+    CreateInterfaceError,
+    #[error("Failed to delete WireGuard interface")]
+    DeleteInterfaceError,
+}
+
+pub type NetlinkResult<T> = Result<T, NetlinkError>;
 
 macro_rules! get_nla_value {
     ($nlas:expr, $e:ident, $v:ident) => {
@@ -39,7 +73,7 @@ macro_rules! get_nla_value {
 pub fn netlink_request_genl<F>(
     mut message: GenlMessage<F>,
     flags: u16,
-) -> io::Result<Vec<NetlinkMessage<GenlMessage<F>>>>
+) -> NetlinkResult<Vec<NetlinkMessage<GenlMessage<F>>>>
 where
     F: GenlFamily + Clone + Debug + Eq,
     GenlMessage<F>: Clone + Debug + Eq + NetlinkSerializable + NetlinkDeserializable,
@@ -61,15 +95,10 @@ where
                 ..
             }) => {
                 let family_id = get_nla_value!(nlas, GenlCtrlAttrs, FamilyId)
-                    .ok_or_else(|| io::ErrorKind::NotFound)?;
+                    .ok_or_else(|| NetlinkError::AttributeNotFound)?;
                 message.set_resolved_family_id(*family_id);
             }
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Unexpected netlink payload",
-                ))
-            }
+            _ => return Err(NetlinkError::UnexpectedPayload),
         };
     }
     netlink_request(message, flags, NETLINK_GENERIC)
@@ -79,7 +108,7 @@ pub fn netlink_request<I>(
     message: I,
     flags: u16,
     socket: isize,
-) -> io::Result<Vec<NetlinkMessage<I>>>
+) -> NetlinkResult<Vec<NetlinkMessage<I>>>
 where
     NetlinkPayload<I>: From<I>,
     I: Clone + Debug + Eq + NetlinkSerializable + NetlinkDeserializable,
@@ -88,13 +117,11 @@ where
     let mut req = NetlinkMessage::from(message);
 
     if req.buffer_len() > SOCKET_BUFFER_LENGTH {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
+        error!(
                 "Serialized netlink packet ({} bytes) larger than maximum size {SOCKET_BUFFER_LENGTH}: {req:?}",
                 req.buffer_len(),
-            ),
-        ));
+            );
+        return Err(NetlinkError::InvalidPacketLength(req.buffer_len()));
     }
 
     req.header.flags = flags;
@@ -103,30 +130,38 @@ where
     req.serialize(&mut buf);
     let len = req.buffer_len();
 
-    let socket = Socket::new(socket)?;
+    let socket = Socket::new(socket).map_err(|err| {
+        error!("Failed to open socket: {err}");
+        NetlinkError::SocketError(err.to_string())
+    })?;
     let kernel_addr = SocketAddr::new(0, 0);
-    socket.connect(&kernel_addr)?;
-    let n_sent = socket.send(&buf[..len], 0)?;
+    socket.connect(&kernel_addr).map_err(|err| {
+        error!("Failed to connect to socket: {err}");
+        NetlinkError::SocketError(err.to_string())
+    })?;
+    let n_sent = socket.send(&buf[..len], 0).map_err(|err| {
+        error!("Failed to send to socket: {err}");
+        NetlinkError::SocketError(err.to_string())
+    })?;
     if n_sent != len {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "failed to send netlink request",
-        ));
+        return Err(NetlinkError::SendFailure);
     }
 
     let mut responses = Vec::new();
     loop {
-        let n_received = socket.recv(&mut &mut buf[..], 0)?;
+        let n_received = socket.recv(&mut &mut buf[..], 0).map_err(|err| {
+            error!("Failed to receive from socket: {err}");
+            NetlinkError::SocketError(err.to_string())
+        })?;
         let mut offset = 0;
         loop {
-            let response = NetlinkMessage::<I>::deserialize(&buf[offset..])
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            let response = NetlinkMessage::<I>::deserialize(&buf[offset..])?;
             debug!("Read netlink response from socket: {response:?}");
             match response.payload {
                 // We've parsed all parts of the response and can leave the loop.
                 NetlinkPayload::Error(msg) if msg.code.is_none() => return Ok(responses),
                 NetlinkPayload::Done(_) => return Ok(responses),
-                NetlinkPayload::Error(msg) => return Err(msg.into()),
+                NetlinkPayload::Error(msg) => return Err(NetlinkError::PayloadError(msg)),
                 _ => {}
             }
             let header_length = response.header.length as usize;
@@ -142,7 +177,7 @@ where
 }
 
 /// Create WireGuard interface.
-pub fn create_interface(ifname: &str) -> io::Result<()> {
+pub fn create_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.header.flags = IFF_UP;
     message.header.change_mask = IFF_UP;
@@ -151,17 +186,19 @@ pub fn create_interface(ifname: &str) -> io::Result<()> {
         .nlas
         .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
 
-    match netlink_request(
+    netlink_request(
         RtnlMessage::NewLink(message),
         NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
         NETLINK_ROUTE,
-    ) {
-        Err(e) if e.kind() != io::ErrorKind::AlreadyExists => Err(e),
-        _ => Ok(()),
-    }
+    )
+    .map_err(|err| {
+        error!("Failed to create WireGuard interface: {err}");
+        NetlinkError::CreateInterfaceError
+    })?;
+    Ok(())
 }
 
-fn set_address(ifindex: u32, address: &IpAddrMask) -> io::Result<()> {
+fn set_address(ifindex: u32, address: &IpAddrMask) -> NetlinkResult<()> {
     let mut message = AddressMessage::default();
 
     message.header.prefix_len = address.cidr;
@@ -214,7 +251,7 @@ fn set_address(ifindex: u32, address: &IpAddrMask) -> io::Result<()> {
     Ok(())
 }
 
-pub fn address_interface(ifname: &str, address: &IpAddrMask) -> io::Result<()> {
+pub fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.nlas.push(Nla::IfName(ifname.into()));
     message
@@ -249,24 +286,26 @@ pub fn address_interface(ifname: &str, address: &IpAddrMask) -> io::Result<()> {
 }
 
 /// Delete WireGuard interface.
-pub fn delete_interface(ifname: &str) -> io::Result<()> {
+pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.nlas.push(Nla::IfName(ifname.into()));
     message
         .nlas
         .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
 
-    match netlink_request(
+    netlink_request(
         RtnlMessage::DelLink(message),
         NLM_F_REQUEST | NLM_F_ACK,
         NETLINK_ROUTE,
-    ) {
-        Err(e) if e.kind() != io::ErrorKind::AlreadyExists => Err(e),
-        _ => Ok(()),
-    }
+    )
+    .map_err(|err| {
+        error!("Failed to delete WireGuard interface: {err}");
+        NetlinkError::DeleteInterfaceError
+    })?;
+    Ok(())
 }
 
-pub fn get_host(ifname: &str) -> Result<Host, io::Error> {
+pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
     debug!("Reading Netlink data for interface {ifname}");
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::GetDevice,
@@ -283,17 +322,14 @@ pub fn get_host(ifname: &str) -> Result<Host, io::Error> {
         {
             host.append_nlas(&message.payload.nlas);
         } else {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("unexpected netlink payload: {nlmsg:?}"),
-            ));
+            return Err(NetlinkError::UnexpectedPayload);
         }
     }
 
     Ok(host)
 }
 
-pub fn set_host(ifname: &str, host: &Host) -> io::Result<()> {
+pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
         nlas: host.as_nlas(ifname),
@@ -302,7 +338,7 @@ pub fn set_host(ifname: &str, host: &Host) -> io::Result<()> {
     Ok(())
 }
 
-pub fn set_peer(ifname: &str, peer: &Peer) -> io::Result<()> {
+pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
         nlas: peer.as_nlas(ifname),
@@ -311,10 +347,17 @@ pub fn set_peer(ifname: &str, peer: &Peer) -> io::Result<()> {
     Ok(())
 }
 
-pub fn delete_peer(ifname: &str, peer: &Peer) -> io::Result<()> {
+pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
+    let nlas_remove = vec![
+        WgDeviceAttrs::IfName(ifname.into()),
+        WgDeviceAttrs::Peers(vec![WgPeer(vec![
+            WgPeerAttrs::PublicKey(public_key.as_array()),
+            WgPeerAttrs::Flags(WGPEER_F_REMOVE_ME),
+        ])]),
+    ];
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
-        nlas: peer.as_nlas_remove(ifname),
+        nlas: nlas_remove,
     });
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     Ok(())
