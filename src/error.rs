@@ -24,4 +24,8 @@ pub enum WireguardInterfaceError {
     NetlinkError(String),
     #[error("BSD error: {0}")]
     BsdError(String),
+    #[error("Userspace support is not available on this platform")]
+    UserspaceNotSupported,
+    #[error("Kernel support is not available on this platform")]
+    KernelNotSupported,
 }
