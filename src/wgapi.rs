@@ -1,8 +1,12 @@
 #[cfg(target_os = "freebsd")]
-use crate::bsd::{delete_peer, get_host, set_host, set_peer};
+use crate::WireguardApiFreebsd;
+#[cfg(target_os = "linux")]
+use crate::WireguardApiLinux;
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+use crate::WireguardApiUserspace;
 use crate::{
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardApiLinux, WireguardApiUserspace,
-    WireguardInterfaceApi, WireguardInterfaceError,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    WireguardInterfaceError,
 };
 
 pub struct WGApi(Box<dyn WireguardInterfaceApi>);
