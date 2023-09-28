@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::{
     fmt::Debug,
     net::{IpAddr, Ipv4Addr},
@@ -57,6 +58,8 @@ pub enum NetlinkError {
     CreateInterfaceError,
     #[error("Failed to delete WireGuard interface")]
     DeleteInterfaceError,
+    #[error("File already exists")]
+    FileAlreadyExists,
 }
 
 impl From<NetlinkError> for WireguardInterfaceError {
@@ -167,7 +170,12 @@ where
                 // We've parsed all parts of the response and can leave the loop.
                 NetlinkPayload::Error(msg) if msg.code.is_none() => return Ok(responses),
                 NetlinkPayload::Done(_) => return Ok(responses),
-                NetlinkPayload::Error(msg) => return Err(NetlinkError::PayloadError(msg)),
+                NetlinkPayload::Error(msg) => {
+                    return match msg.to_io().kind() {
+                        ErrorKind::AlreadyExists => Err(NetlinkError::FileAlreadyExists),
+                        _ => Err(NetlinkError::PayloadError(msg)),
+                    }
+                }
                 _ => {}
             }
             let header_length = response.header.length as usize;
