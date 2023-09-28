@@ -200,16 +200,18 @@ pub fn create_interface(ifname: &str) -> NetlinkResult<()> {
         .nlas
         .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
 
-    netlink_request(
+    match netlink_request(
         RtnlMessage::NewLink(message),
         NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
         NETLINK_ROUTE,
-    )
-    .map_err(|err| {
-        error!("Failed to create WireGuard interface: {err}");
-        NetlinkError::CreateInterfaceError
-    })?;
-    Ok(())
+    ) {
+        Ok(_msg) => Ok(()),
+        Err(NetlinkError::FileAlreadyExists) => Ok(()),
+        Err(err) => {
+            error!("Failed to create WireGuard interface: {err}");
+            Err(NetlinkError::CreateInterfaceError)
+        }
+    }
 }
 
 fn set_address(ifindex: u32, address: &IpAddrMask) -> NetlinkResult<()> {
