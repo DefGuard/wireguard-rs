@@ -12,7 +12,7 @@ pub mod wgapi;
 mod wgapi_freebsd;
 #[cfg(target_os = "linux")]
 mod wgapi_linux;
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[cfg(target_family = "unix")]
 mod wgapi_userspace;
 mod wireguard_interface;
 
@@ -26,7 +26,7 @@ use std::process::Output;
 pub use wgapi_freebsd::WireguardApiFreebsd;
 #[cfg(target_os = "linux")]
 pub use wgapi_linux::WireguardApiLinux;
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[cfg(target_family = "unix")]
 pub use wgapi_userspace::WireguardApiUserspace;
 pub use {
     self::error::WireguardInterfaceError,

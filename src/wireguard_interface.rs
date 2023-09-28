@@ -1,5 +1,4 @@
-use crate::error::WireguardInterfaceError;
-use crate::{Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
+use crate::{error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
 
 /// API for managing a WireGuard interface.
 ///

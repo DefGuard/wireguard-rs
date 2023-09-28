@@ -2,7 +2,7 @@
 use crate::WireguardApiFreebsd;
 #[cfg(target_os = "linux")]
 use crate::WireguardApiLinux;
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+#[cfg(target_family = "unix")]
 use crate::WireguardApiUserspace;
 use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
@@ -14,11 +14,7 @@ pub struct WGApi(Box<dyn WireguardInterfaceApi>);
 impl WGApi {
     pub fn new(ifname: String, userspace: bool) -> Result<Self, WireguardInterfaceError> {
         if userspace {
-            if cfg!(any(
-                target_os = "linux",
-                target_os = "macos",
-                target_os = "freebsd"
-            )) {
+            if cfg!(target_family = "unix") {
                 Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)))
             } else {
                 Err(WireguardInterfaceError::UserspaceNotSupported)
