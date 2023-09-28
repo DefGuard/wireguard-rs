@@ -10,9 +10,9 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn pause() {
     let mut stdout = stdout();
-    stdout.write(b"Press Enter to continue...").unwrap();
+    stdout.write_all(b"Press Enter to continue...").unwrap();
     stdout.flush().unwrap();
-    stdin().read(&mut [0]).unwrap();
+    stdin().read_exact(&mut [0]).unwrap();
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

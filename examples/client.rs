@@ -1,29 +1,18 @@
 use std::{net::SocketAddr, str::FromStr};
 
-#[cfg(target_os = "linux")]
-use wireguard_rs::netlink::{address_interface, create_interface, delete_interface};
-use wireguard_rs::{wgapi::WGApi, Host, IpAddrMask, Key, Peer};
-use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+use wireguard_rs::{
+    wgapi::WGApi, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(target_os = "linux")]
-    {
-        log::info!("create interface");
-        create_interface("wg0")?;
-        log::info!("address interface");
-        // Set interface address
-        let addr = IpAddrMask::from_str("10.6.0.30").unwrap();
-        address_interface("wg0", &addr)?;
-    }
     // Create new api object for interface
-    let api = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
-        WGApi::new("wg0".into(), false)
+    let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
+        "wg0".into()
     } else {
-        WGApi::new("utun3".into(), true)
+        "utun3".into()
     };
-    // host
-    let secret = StaticSecret::random();
-    let host = Host::new(12345, secret.to_bytes().as_ref().try_into().unwrap());
+    let wgapi = WGApi::new(ifname.clone(), false)?;
 
     // Peer configuration
     let secret = EphemeralSecret::random();
@@ -46,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         peer.allowed_ips.push(addr);
         // Add a route for the allowed IP using the `ip -4 route add` command
         let output = std::process::Command::new("ip")
-            .args(&["-4", "route", "add", allowed_ip, "dev", "wg0"])
+            .args(["-4", "route", "add", allowed_ip, "dev", "wg0"])
             .output()?;
 
         if output.status.success() {
@@ -55,11 +44,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::error!("Failed to add route for {}: {:?}", allowed_ip, output);
         }
     }
-    api.write_host(&host)?;
-    api.write_peer(&peer)?;
 
-    // Remove interface
-    delete_interface("wg0")?;
+    // interface configuration
+    let interface_config = InterfaceConfiguration {
+        name: ifname.clone(),
+        prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
+        address: "10.6.0.30".to_string(),
+        port: 12345,
+        peers: vec![peer],
+    };
+
+    wgapi.configure_interface(&interface_config)?;
 
     Ok(())
 }
