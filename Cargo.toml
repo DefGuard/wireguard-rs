@@ -8,7 +8,6 @@ edition = "2021"
 base64 = "0.21"
 log = "0.4"
 thiserror = "1.0"
-tokio = "1.32"
 
 [dev-dependencies]
 x25519-dalek = { version = "2.0", features = [
