@@ -9,7 +9,7 @@ use crate::{
     WireguardInterfaceError,
 };
 
-pub struct WGApi(Box<dyn WireguardInterfaceApi>);
+pub struct WGApi(Box<dyn WireguardInterfaceApi + Send>);
 
 impl WGApi {
     pub fn new(ifname: String, userspace: bool) -> Result<Self, WireguardInterfaceError> {
