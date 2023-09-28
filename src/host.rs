@@ -8,7 +8,7 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use netlink_packet_wireguard::{
-    constants::{WGDEVICE_F_REPLACE_PEERS, WGPEER_F_REMOVE_ME, WGPEER_F_REPLACE_ALLOWEDIPS},
+    constants::{WGDEVICE_F_REPLACE_PEERS, WGPEER_F_REPLACE_ALLOWEDIPS},
     nlas::{WgAllowedIpAttrs, WgDeviceAttrs, WgPeer, WgPeerAttrs},
 };
 
@@ -128,17 +128,6 @@ impl Peer {
         vec![
             WgDeviceAttrs::IfName(ifname.into()),
             WgDeviceAttrs::Peers(vec![self.as_nlas_peer()]),
-        ]
-    }
-
-    #[must_use]
-    pub fn as_nlas_remove(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
-        vec![
-            WgDeviceAttrs::IfName(ifname.into()),
-            WgDeviceAttrs::Peers(vec![WgPeer(vec![
-                WgPeerAttrs::PublicKey(self.public_key.as_array()),
-                WgPeerAttrs::Flags(WGPEER_F_REMOVE_ME),
-            ])]),
         ]
     }
 

@@ -66,7 +66,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
             "Removing peer with public key {peer_pubkey} from interface {}",
             self.ifname
         );
-        bsd::delete_peer(&self.ifname, peer)?;
+        bsd::delete_peer(&self.ifname, peer_pubkey)?;
         Ok(())
     }
 

@@ -79,6 +79,19 @@ macro_rules! get_nla_value {
     };
 }
 
+impl Key {
+    #[must_use]
+    pub fn as_nlas_remove(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
+        vec![
+            WgDeviceAttrs::IfName(ifname.into()),
+            WgDeviceAttrs::Peers(vec![WgPeer(vec![
+                WgPeerAttrs::PublicKey(self.as_array()),
+                WgPeerAttrs::Flags(WGPEER_F_REMOVE_ME),
+            ])]),
+        ]
+    }
+}
+
 pub fn netlink_request_genl<F>(
     mut message: GenlMessage<F>,
     flags: u16,
@@ -364,16 +377,9 @@ pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
 }
 
 pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
-    let nlas_remove = vec![
-        WgDeviceAttrs::IfName(ifname.into()),
-        WgDeviceAttrs::Peers(vec![WgPeer(vec![
-            WgPeerAttrs::PublicKey(public_key.as_array()),
-            WgPeerAttrs::Flags(WGPEER_F_REMOVE_ME),
-        ])]),
-    ];
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
-        nlas: nlas_remove,
+        nlas: public_key.as_nlas_remove(ifname),
     });
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     Ok(())
