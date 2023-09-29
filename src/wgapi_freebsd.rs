@@ -18,12 +18,40 @@ impl WireguardApiFreebsd {
 }
 
 impl WireguardInterfaceApi for WireguardApiFreebsd {
+    /// Creates a WireGuard interface using `ifconfig`
+    ///
+    /// There's no dedicated exit code to indicate that an interface already exists,
+    /// so we have to check command output.
+    ///
+    /// Example error: `CommandExecutionError { stdout: "wg7\n", stderr: "ifconfig: ioctl SIOCSIFNAME (set name): File exists\n" }`
+    ///
+    /// Additionally since `ifconfig` creates an interface first and then tries to rename it
+    /// it leaves a temporary interface that we have to manually destroy.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating interface {}", self.ifname);
         let output = Command::new("ifconfig")
             .args(["wg", "create", "name", &self.ifname])
             .output()?;
-        check_command_output_status(output)
+        // in case of error check if interface existed already
+        if !output.status.success() {
+            let stdout = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
+            let stderr = String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");
+            if stderr == "ifconfig: ioctl SIOCSIFNAME (set name): File exists\n" {
+                debug!("Interface {} already exists", self.ifname);
+                let mut temp_ifname = stdout;
+                // remove trailing newline from temporary interface name
+                if temp_ifname.ends_with('\n') {
+                    temp_ifname.pop();
+                }
+                debug!("Removing temporary interface {temp_ifname}");
+                let output = Command::new("ifconfig")
+                    .args(["wg", &self.ifname, "destroy"])
+                    .output()?;
+                return check_command_output_status(output);
+            }
+            return Err(WireguardInterfaceError::CommandExecutionError { stdout, stderr });
+        }
+        Ok(())
     }
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
@@ -57,7 +85,10 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
-        todo!()
+        let output = Command::new("ifconfig")
+            .args(["wg", &self.ifname, "destroy"])
+            .output()?;
+        check_command_output_status(output)
     }
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
