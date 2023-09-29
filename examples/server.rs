@@ -1,51 +1,47 @@
 use std::str::FromStr;
 
-use log;
-#[cfg(target_os = "linux")]
-use wireguard_rs::netlink::{address_interface, create_interface};
-use wireguard_rs::{wgapi::WGApi, Host, IpAddrMask, Key, Peer};
-use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+use wireguard_rs::{
+    wgapi::WGApi, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(target_os = "linux")]
-    {
-        log::debug!("create interface");
-        create_interface("wg0")?;
-        log::debug!("address interface");
-        let addr = IpAddrMask::from_str("10.20.30.40/24").unwrap();
-        address_interface("wg0", &addr)?;
-    }
-    let api = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
-        WGApi::new("wg0".into(), false)
+    // Create new api object for interface
+    let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
+        "wg0".into()
     } else {
-        WGApi::new("utun3".into(), true)
+        "utun3".into()
     };
-    let host = api.read_host()?;
+    let wgapi = WGApi::new(ifname.clone(), false)?;
+    let host = wgapi.read_interface_data()?;
     log::debug!("{host:#?}");
 
     // host
-    let secret = StaticSecret::random();
-    let mut host = Host::new(12345, secret.to_bytes().as_ref().try_into().unwrap());
-
     let secret = EphemeralSecret::random();
     let key = PublicKey::from(&secret);
     let peer_key: Key = key.as_ref().try_into().unwrap();
     let mut peer = Peer::new(peer_key.clone());
     let addr = IpAddrMask::from_str("10.20.30.40/24").unwrap();
     peer.allowed_ips.push(addr);
-    // Insert peers to host
-    host.peers.insert(peer_key, peer);
 
     // Create host interfaces
-    api.write_host(&host)?;
+    let interface_config = InterfaceConfiguration {
+        name: ifname.clone(),
+        prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
+        address: "10.6.0.30".to_string(),
+        port: 12345,
+        peers: vec![peer],
+    };
+
+    wgapi.configure_interface(&interface_config)?;
 
     // Create peers
     for _ in 0..32 {
         let secret = EphemeralSecret::random();
         let key = PublicKey::from(&secret);
         let peer = Peer::new(key.as_ref().try_into().unwrap());
-        api.write_peer(&peer)?;
-        api.delete_peer(&peer)?;
+        wgapi.configure_peer(&peer)?;
+        wgapi.remove_peer(&peer.public_key)?;
     }
 
     Ok(())

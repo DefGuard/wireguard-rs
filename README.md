@@ -2,7 +2,7 @@
     <img src="docs/header.png" alt="defguard">
  </p>
 
-**wireguard-rs** is a Rust library providing a unified interface to WireGuard native OS Kernel and user space implementations.
+**wireguard-rs** is a Rust library providing a unified high-level API for managing WireGuard interfaces using native OS kernel and userspace WireGuard protocol implementations.
 It can be used to create your own [WireGuard:tm:](https://www.wireguard.com/) VPN servers or clients for secure and private networking.
 
 It was developed as part of [defguard](https://github.com/defguard/defguard) security platform and used in the [gateway/server](https://github.com/defguard/gateway) as well as [desktop client](https://github.com/defguard/client).
@@ -13,12 +13,10 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
   - Linux
   - FreeBSD (and pfSense/OPNSense)
   - Windows (in development)
-* User space using [boringtun](https://github.com/cloudflare/boringtun) and [wireguard-go](https://github.com/WireGuard/wireguard-go)
+* Userspace using [wireguard-go](https://github.com/WireGuard/wireguard-go)
   - Linux
   - macOS
-  - Windows
   - FreeBSD
-  - ... and all other supported by boringtun/wireguard-go
 
 ## Examples
 

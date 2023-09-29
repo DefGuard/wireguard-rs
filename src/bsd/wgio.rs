@@ -1,30 +1,27 @@
 use std::{
     alloc::{alloc, dealloc, Layout},
-    error::Error,
-    fmt,
-    os::fd::RawFd,
+    os::fd::{AsRawFd, OwnedFd},
     ptr::null_mut,
     slice::from_raw_parts,
 };
+use thiserror::Error;
 
+use crate::WireguardInterfaceError;
 use nix::{errno::Errno, ioctl_readwrite, sys::socket};
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum WgIoError {
+    #[error("Memory allocation error")]
     MemAlloc,
+    #[error("Read error {0}")]
     ReadIo(Errno),
+    #[error("Write error {0}")]
     WriteIo(Errno),
 }
 
-impl Error for WgIoError {}
-
-impl fmt::Display for WgIoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MemAlloc => write!(f, "memory allocation"),
-            Self::ReadIo(errno) => write!(f, "read error {errno}"),
-            Self::WriteIo(errno) => write!(f, "write error {errno}"),
-        }
+impl From<WgIoError> for WireguardInterfaceError {
+    fn from(error: WgIoError) -> Self {
+        WireguardInterfaceError::BsdError(error.to_string())
     }
 }
 
@@ -33,7 +30,7 @@ ioctl_readwrite!(write_wireguard_data, b'i', 210, WgDataIo);
 ioctl_readwrite!(read_wireguard_data, b'i', 211, WgDataIo);
 
 /// Create socket for ioctl communication.
-fn get_dgram_socket() -> Result<RawFd, Errno> {
+fn get_dgram_socket() -> Result<OwnedFd, Errno> {
     socket::socket(
         socket::AddressFamily::Inet,
         socket::SockType::Datagram,
@@ -90,11 +87,11 @@ impl WgDataIo {
         let socket = get_dgram_socket().map_err(WgIoError::ReadIo)?;
         unsafe {
             // First do ioctl with empty `wg_data` to obtain buffer size.
-            read_wireguard_data(socket, self).map_err(WgIoError::ReadIo)?;
+            read_wireguard_data(socket.as_raw_fd(), self).map_err(WgIoError::ReadIo)?;
             // Allocate buffer.
             self.alloc_data()?;
             // Second call to ioctl with allocated buffer.
-            read_wireguard_data(socket, self).map_err(WgIoError::ReadIo)?;
+            read_wireguard_data(socket.as_raw_fd(), self).map_err(WgIoError::ReadIo)?;
         }
 
         Ok(())
@@ -103,7 +100,7 @@ impl WgDataIo {
     pub(super) fn write_data(&mut self) -> Result<(), WgIoError> {
         let socket = get_dgram_socket().map_err(WgIoError::WriteIo)?;
         unsafe {
-            write_wireguard_data(socket, self).map_err(WgIoError::WriteIo)?;
+            write_wireguard_data(socket.as_raw_fd(), self).map_err(WgIoError::WriteIo)?;
         }
 
         Ok(())

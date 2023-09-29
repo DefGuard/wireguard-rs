@@ -1,18 +1,28 @@
-use std::{net::SocketAddr, str::FromStr};
-
+use std::{
+    io::{stdin, stdout, Read, Write},
+    net::SocketAddr,
+    str::FromStr,
+};
 use wireguard_rs::{
-    wgapi::WGApi, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardApiUserspace, WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
+fn pause() {
+    let mut stdout = stdout();
+    stdout.write_all(b"Press Enter to continue...").unwrap();
+    stdout.flush().unwrap();
+    stdin().read_exact(&mut [0]).unwrap();
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create new api object for interface
+    // Setup API struct for interface management
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
         "wg0".into()
     } else {
         "utun3".into()
     };
-    let wgapi = WGApi::new(ifname.clone(), false)?;
+    let api = WireguardApiUserspace::new(ifname.clone())?;
 
     // Peer configuration
     let secret = EphemeralSecret::random();
@@ -23,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("endpoint");
     // Your wireguard server endpoint which peer connects too
-    let endpoint: SocketAddr = "<server_ip>:<server_port>".parse().unwrap();
+    let endpoint: SocketAddr = "10.20.30.40:55001".parse().unwrap();
     // Peer endpoint and interval
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);
@@ -33,16 +43,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for allowed_ip in allowed_ips {
         let addr = IpAddrMask::from_str(allowed_ip)?;
         peer.allowed_ips.push(addr);
-        // Add a route for the allowed IP using the `ip -4 route add` command
-        let output = std::process::Command::new("ip")
-            .args(["-4", "route", "add", allowed_ip, "dev", "wg0"])
-            .output()?;
-
-        if output.status.success() {
-            log::info!("Added route for {}", allowed_ip);
-        } else {
-            log::error!("Failed to add route for {}: {:?}", allowed_ip, output);
-        }
     }
 
     // interface configuration
@@ -54,7 +54,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         peers: vec![peer],
     };
 
-    wgapi.configure_interface(&interface_config)?;
+    api.configure_interface(&interface_config)?;
+
+    println!("Interface {ifname} configured.");
+    pause();
+
+    api.remove_interface()?;
+
+    println!("Interface {ifname} removed.");
 
     Ok(())
 }

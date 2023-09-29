@@ -9,12 +9,15 @@ use self::{
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
-    wgio::{WgDataIo, WgIoError},
+    wgio::WgDataIo,
 };
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
+    Key,
 };
+
+pub use wgio::WgIoError;
 
 // nvlist key names
 static NV_LISTEN_PORT: &str = "listen-port";
@@ -205,12 +208,14 @@ impl<'a> Peer {
         nvlist.append_nvlist_array_next();
         nvlist
     }
+}
 
+impl<'a> Key {
     #[must_use]
     fn as_nvlist_for_removal(&'a self) -> NvList<'a> {
         let mut nvlist = NvList::new();
 
-        nvlist.append_binary(NV_PUBLIC_KEY, self.public_key.as_slice());
+        nvlist.append_binary(NV_PUBLIC_KEY, self.as_slice());
         nvlist.append_bool(NV_REMOVE, true);
 
         nvlist.append_nvlist_array_next();
@@ -256,11 +261,11 @@ pub fn set_peer(if_name: &str, peer: &Peer) -> Result<(), WgIoError> {
     wg_data.write_data()
 }
 
-pub fn delete_peer(if_name: &str, peer: &Peer) -> Result<(), WgIoError> {
+pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), WgIoError> {
     let mut wg_data = WgDataIo::new(if_name);
 
     let mut nvlist = NvList::new();
-    nvlist.append_nvlist_array(NV_PEERS, vec![peer.as_nvlist_for_removal()]);
+    nvlist.append_nvlist_array(NV_PEERS, vec![public_key.as_nvlist_for_removal()]);
     // FIXME: use proper error, here and above
     let mut buf = nvlist.pack().map_err(|_| WgIoError::MemAlloc)?;
 
