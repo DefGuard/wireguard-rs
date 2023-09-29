@@ -20,7 +20,10 @@ impl WireguardApiFreebsd {
 impl WireguardInterfaceApi for WireguardApiFreebsd {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating interface {}", self.ifname);
-        unimplemented!()
+        let output = Command::new("ifconfig")
+            .args(["wg", "create", "name", &self.ifname])
+            .output()?;
+        check_command_output_status(output)
     }
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
@@ -28,8 +31,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         let output = Command::new("ifconfig")
             .args([&self.ifname, &address.to_string()])
             .output()?;
-        check_command_output_status(output)?;
-        Ok(())
+        check_command_output_status(output)
     }
 
     fn configure_interface(
@@ -40,6 +42,9 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
+        // create interface
+        self.create_interface()?;
+
         // assign IP address to interface
         let address = IpAddrMask::from_str(&config.address)?;
         self.assign_address(&address)?;
