@@ -2,7 +2,7 @@ use crate::{
     bsd, check_command_output_status, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     WireguardInterfaceApi, WireguardInterfaceError,
 };
-use std::process::Command;
+use std::{process::Command, str::FromStr};
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
@@ -46,7 +46,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
 
         // configure interface
         let host = config.try_into()?;
-        bsd::set_host(&self.ifname, host)?;
+        bsd::set_host(&self.ifname, &host)?;
         Ok(())
     }
 

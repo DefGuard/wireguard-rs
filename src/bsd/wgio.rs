@@ -1,6 +1,6 @@
 use std::{
     alloc::{alloc, dealloc, Layout},
-    os::fd::RawFd,
+    os::fd::{AsRawFd, RawFd},
     ptr::null_mut,
     slice::from_raw_parts,
 };
@@ -31,12 +31,13 @@ ioctl_readwrite!(read_wireguard_data, b'i', 211, WgDataIo);
 
 /// Create socket for ioctl communication.
 fn get_dgram_socket() -> Result<RawFd, Errno> {
-    socket::socket(
+    let fd = socket::socket(
         socket::AddressFamily::Inet,
         socket::SockType::Datagram,
         socket::SockFlag::empty(),
         None,
-    )
+    )?;
+    Ok(fd.as_raw_fd())
 }
 
 /// Represent `struct wg_data_io` defined in

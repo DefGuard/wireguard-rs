@@ -11,7 +11,11 @@ use self::{
     timespec::{pack_timespec, unpack_timespec},
     wgio::WgDataIo,
 };
-use crate::{host::{Host, Peer}, Key, net::IpAddrMask};
+use crate::{
+    host::{Host, Peer},
+    net::IpAddrMask,
+    Key,
+};
 
 pub use wgio::WgIoError;
 
@@ -200,17 +204,6 @@ impl<'a> Peer {
             let allowed_ips = self.allowed_ips.iter().map(IpAddrMask::as_nvlist).collect();
             nvlist.append_nvlist_array(NV_ALLOWED_IPS, allowed_ips);
         }
-
-        nvlist.append_nvlist_array_next();
-        nvlist
-    }
-
-    #[must_use]
-    fn as_nvlist_for_removal(&'a self) -> NvList<'a> {
-        let mut nvlist = NvList::new();
-
-        nvlist.append_binary(NV_PUBLIC_KEY, self.public_key.as_slice());
-        nvlist.append_bool(NV_REMOVE, true);
 
         nvlist.append_nvlist_array_next();
         nvlist
