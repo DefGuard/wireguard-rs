@@ -1,6 +1,6 @@
-use std::io::ErrorKind;
 use std::{
     fmt::Debug,
+    io::ErrorKind,
     net::{IpAddr, Ipv4Addr},
 };
 
