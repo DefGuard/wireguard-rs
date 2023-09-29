@@ -1,6 +1,6 @@
 use std::{
     alloc::{alloc, dealloc, Layout},
-    os::fd::{AsRawFd, RawFd},
+    os::fd::{AsRawFd, OwnedFd},
     ptr::null_mut,
     slice::from_raw_parts,
 };
@@ -30,14 +30,13 @@ ioctl_readwrite!(write_wireguard_data, b'i', 210, WgDataIo);
 ioctl_readwrite!(read_wireguard_data, b'i', 211, WgDataIo);
 
 /// Create socket for ioctl communication.
-fn get_dgram_socket() -> Result<RawFd, Errno> {
-    let fd = socket::socket(
+fn get_dgram_socket() -> Result<OwnedFd, Errno> {
+    socket::socket(
         socket::AddressFamily::Inet,
         socket::SockType::Datagram,
         socket::SockFlag::empty(),
         None,
-    )?;
-    Ok(fd.as_raw_fd())
+    )
 }
 
 /// Represent `struct wg_data_io` defined in
@@ -88,11 +87,11 @@ impl WgDataIo {
         let socket = get_dgram_socket().map_err(WgIoError::ReadIo)?;
         unsafe {
             // First do ioctl with empty `wg_data` to obtain buffer size.
-            read_wireguard_data(socket, self).map_err(WgIoError::ReadIo)?;
+            read_wireguard_data(socket.as_raw_fd(), self).map_err(WgIoError::ReadIo)?;
             // Allocate buffer.
             self.alloc_data()?;
             // Second call to ioctl with allocated buffer.
-            read_wireguard_data(socket, self).map_err(WgIoError::ReadIo)?;
+            read_wireguard_data(socket.as_raw_fd(), self).map_err(WgIoError::ReadIo)?;
         }
 
         Ok(())
@@ -101,7 +100,7 @@ impl WgDataIo {
     pub(super) fn write_data(&mut self) -> Result<(), WgIoError> {
         let socket = get_dgram_socket().map_err(WgIoError::WriteIo)?;
         unsafe {
-            write_wireguard_data(socket, self).map_err(WgIoError::WriteIo)?;
+            write_wireguard_data(socket.as_raw_fd(), self).map_err(WgIoError::WriteIo)?;
         }
 
         Ok(())
