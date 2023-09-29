@@ -45,7 +45,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
                 }
                 debug!("Removing temporary interface {temp_ifname}");
                 let output = Command::new("ifconfig")
-                    .args(["wg", temp_ifname, "destroy"])
+                    .args(["wg", &temp_ifname, "destroy"])
                     .output()?;
                 return check_command_output_status(output);
             }
