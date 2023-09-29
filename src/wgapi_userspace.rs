@@ -123,8 +123,6 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
-        // create interface
-        self.create_interface()?;
 
         // assign IP address to interface
         let address = IpAddrMask::from_str(&config.address)?;
