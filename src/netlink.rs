@@ -1,3 +1,5 @@
+//! Netlink utilities for controlling network interfaces on Linux
+
 use std::{
     fmt::Debug,
     io::ErrorKind,
@@ -68,6 +70,7 @@ impl From<NetlinkError> for WireguardInterfaceError {
     }
 }
 
+/// Wrapper `Result` type for Netlink operations
 pub type NetlinkResult<T> = Result<T, NetlinkError>;
 
 macro_rules! get_nla_value {
@@ -92,7 +95,7 @@ impl Key {
     }
 }
 
-pub fn netlink_request_genl<F>(
+fn netlink_request_genl<F>(
     mut message: GenlMessage<F>,
     flags: u16,
 ) -> NetlinkResult<Vec<NetlinkMessage<GenlMessage<F>>>>
@@ -126,7 +129,7 @@ where
     netlink_request(message, flags, NETLINK_GENERIC)
 }
 
-pub fn netlink_request<I>(
+fn netlink_request<I>(
     message: I,
     flags: u16,
     socket: isize,
@@ -280,6 +283,7 @@ fn set_address(ifindex: u32, address: &IpAddrMask) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Set IP address of a WireGuard network interface
 pub fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.nlas.push(Nla::IfName(ifname.into()));
@@ -314,7 +318,7 @@ pub fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()
     Ok(())
 }
 
-/// Delete WireGuard interface.
+/// Delete WireGuard interface
 pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.nlas.push(Nla::IfName(ifname.into()));
@@ -334,6 +338,7 @@ pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Read host interface data
 pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
     debug!("Reading Netlink data for interface {ifname}");
     let genlmsg = GenlMessage::from_payload(Wireguard {
@@ -358,6 +363,7 @@ pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
     Ok(host)
 }
 
+/// Perform interface configuration
 pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -367,6 +373,7 @@ pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Save or update WireGuard peer configuration
 pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -376,6 +383,7 @@ pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Delete a WireGuard peer from interface
 pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,

@@ -1,3 +1,5 @@
+//! Network address utilities
+
 use std::{error, fmt, net::IpAddr, str::FromStr};
 
 #[cfg(target_os = "linux")]
@@ -6,6 +8,7 @@ use netlink_packet_wireguard::{
     nlas::{WgAllowedIp, WgAllowedIpAttrs},
 };
 
+/// IP address with CIDR.
 #[derive(Debug, PartialEq, Clone)]
 pub struct IpAddrMask {
     // IP v4 or v6

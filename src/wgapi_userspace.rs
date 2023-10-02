@@ -23,6 +23,10 @@ pub struct WireguardApiUserspace {
 }
 
 impl WireguardApiUserspace {
+    /// Create new instance of `WireguardApiUserspace`.
+    ///
+    /// # Errors
+    /// Will return `WireguardInterfaceError` if `wireguard-go` can't be found.
     pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
         // check that `wireguard-go` is available
         Command::new(USERSPACE_EXECUTABLE).arg("--version").output().map_err(|err| {
@@ -37,6 +41,7 @@ impl WireguardApiUserspace {
         format!("/var/run/wireguard/{}.sock", self.ifname)
     }
 
+    /// Create UNIX socket to communicate with `wireguard-go`.
     fn socket(&self) -> io::Result<UnixStream> {
         let path = self.socket_path();
         let socket = UnixStream::connect(path)?;
@@ -64,6 +69,7 @@ impl WireguardApiUserspace {
         0
     }
 
+    /// Read host information using user-space API.
     pub fn read_host(&self) -> io::Result<Host> {
         debug!("Reading host interface info");
         let mut socket = self.socket()?;
@@ -71,19 +77,20 @@ impl WireguardApiUserspace {
         Host::parse_uapi(socket)
     }
 
+    /// Write host information using user-space API.
     pub fn write_host(&self, host: &Host) -> io::Result<()> {
         let mut socket = self.socket()?;
         socket.write_all(b"set=1\n")?;
         socket.write_all(host.as_uapi().as_bytes())?;
         socket.write_all(b"\n")?;
 
-        if Self::parse_errno(socket) != 0 {
+        if Self::parse_errno(socket) == 0 {
+            Ok(())
+        } else {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "write configuration error",
             ))
-        } else {
-            Ok(())
         }
     }
 }
@@ -153,10 +160,10 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         socket.write_all(peer.as_uapi_update().as_bytes())?;
         socket.write_all(b"\n")?;
 
-        if Self::parse_errno(socket) != 0 {
-            Err(WireguardInterfaceError::PeerConfigurationError)
-        } else {
+        if Self::parse_errno(socket) == 0 {
             Ok(())
+        } else {
+            Err(WireguardInterfaceError::PeerConfigurationError)
         }
     }
 
@@ -172,10 +179,10 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         )?;
         socket.write_all(b"\n")?;
 
-        if Self::parse_errno(socket) != 0 {
-            Err(WireguardInterfaceError::PeerConfigurationError)
-        } else {
+        if Self::parse_errno(socket) == 0 {
             Ok(())
+        } else {
+            Err(WireguardInterfaceError::PeerConfigurationError)
         }
     }
 

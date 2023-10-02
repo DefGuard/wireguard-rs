@@ -1,3 +1,54 @@
+//! # `defguard_wireguard_rs`
+//!
+//! `defguard_wireguard_rs` is a multi-platform Rust library providing a unified high-level API
+//! for managing WireGuard interfaces using native OS kernel and userspace WireGuard protocol implementations.
+//!
+//! It can be used to create your own [WireGuard:tm:](https://www.wireguard.com/) VPN servers or clients for secure and private networking.
+//!
+//! It was developed as part of [defguard](https://github.com/defguard/defguard) security platform and used in the [gateway/server](https://github.com/defguard/gateway) as well as [desktop client](https://github.com/defguard/client).
+//!
+//! ## Example
+//!
+//! ```no_run
+//! use x25519_dalek::{EphemeralSecret, PublicKey};
+//! use defguard_wireguard_rs::{InterfaceConfiguration, WGApi, WireguardInterfaceApi, host::Peer};
+//! # use defguard_wireguard_rs::error::WireguardInterfaceError;
+//!
+//! // Create new API struct for interface
+//! let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
+//!     "wg0".into()
+//! } else {
+//!     "utun3".into()
+//! };
+//! let wgapi = WGApi::new(ifname.clone(), false)?;
+//!
+//! // Create host interfaces
+//! wgapi.create_interface()?;
+//!
+//! // Configure host interface
+//! let interface_config = InterfaceConfiguration {
+//!     name: ifname.clone(),
+//!     prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
+//!     address: "10.6.0.30".to_string(),
+//!     port: 12345,
+//!     peers: vec![],
+//! };
+//! wgapi.configure_interface(&interface_config)?;
+//!
+//! // Create, add & remove peers
+//! for _ in 0..32 {
+//!     let secret = EphemeralSecret::random();
+//!     let key = PublicKey::from(&secret);
+//!     let peer = Peer::new(key.as_ref().try_into().unwrap());
+//!     wgapi.configure_peer(&peer)?;
+//!     wgapi.remove_peer(&peer.public_key)?;
+//! }
+//!
+//! // Remove host interface
+//! wgapi.remove_interface()?;
+//! # Ok::<(), WireguardInterfaceError>(())
+//! ```
+
 #[cfg(target_os = "freebsd")]
 pub mod bsd;
 pub mod error;
@@ -6,7 +57,7 @@ pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
 pub mod netlink;
-pub mod wgapi;
+mod wgapi;
 
 #[cfg(target_os = "freebsd")]
 mod wgapi_freebsd;
@@ -21,23 +72,24 @@ extern crate log;
 
 use std::process::Output;
 
-// public reexports
+use self::{
+    error::WireguardInterfaceError,
+    host::{Host, Peer},
+    key::Key,
+    net::IpAddrMask,
+};
+
+// public re-exports
+pub use wgapi::WGApi;
 #[cfg(target_os = "freebsd")]
 pub use wgapi_freebsd::WireguardApiFreebsd;
 #[cfg(target_os = "linux")]
 pub use wgapi_linux::WireguardApiLinux;
 #[cfg(target_family = "unix")]
 pub use wgapi_userspace::WireguardApiUserspace;
-pub use {
-    self::error::WireguardInterfaceError,
-    host::{Host, Peer},
-    key::Key,
-    net::{IpAddrMask, IpAddrParseError},
-    wgapi::WGApi,
-    wireguard_interface::WireguardInterfaceApi,
-};
+pub use wireguard_interface::WireguardInterfaceApi;
 
-/// Wireguard Interface configuration
+/// Host WireGuard interface configuration
 #[derive(Debug, Clone)]
 pub struct InterfaceConfiguration {
     pub name: String,
@@ -63,8 +115,8 @@ impl TryFrom<&InterfaceConfiguration> for Host {
     }
 }
 
-/// Util function which checks external command output status.
-pub fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
+/// Utility function which checks external command output status.
+fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
     if !output.status.success() {
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
         let stderr = String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");

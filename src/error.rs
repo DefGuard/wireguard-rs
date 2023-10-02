@@ -1,3 +1,5 @@
+//! Interface management errors
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]

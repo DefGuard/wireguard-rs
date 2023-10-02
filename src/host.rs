@@ -1,3 +1,5 @@
+//! Host interface configuration
+
 use std::{
     collections::HashMap,
     io::{self, BufRead, BufReader, Read},
@@ -14,6 +16,7 @@ use netlink_packet_wireguard::{
 
 use crate::{key::Key, net::IpAddrMask};
 
+/// WireGuard peer representation.
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Peer {
     pub public_key: Key,
@@ -28,6 +31,7 @@ pub struct Peer {
 }
 
 impl Peer {
+    /// Create new `Peer` with a given `public_key`.
     #[must_use]
     pub fn new(public_key: Key) -> Self {
         Self {
@@ -153,6 +157,7 @@ impl Peer {
     }
 }
 
+/// WireGuard host representation.
 #[derive(Debug, Default)]
 pub struct Host {
     pub listen_port: u16,
@@ -162,6 +167,7 @@ pub struct Host {
 }
 
 impl Host {
+    /// Create new `Host` with a given `listen_port` and `private_key`.
     #[must_use]
     pub fn new(listen_port: u16, private_key: Key) -> Self {
         Self {

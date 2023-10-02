@@ -1,10 +1,11 @@
+use defguard_wireguard_rs::{
+    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, WireguardApiUserspace,
+    WireguardInterfaceApi,
+};
 use std::{
     io::{stdin, stdout, Read, Write},
     net::SocketAddr,
     str::FromStr,
-};
-use wireguard_rs::{
-    InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardApiUserspace, WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
