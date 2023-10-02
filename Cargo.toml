@@ -1,8 +1,14 @@
 [package]
-name = "wireguard_rs"
+name = "defguard_wireguard_rs"
 version = "0.1.0"
 edition = "2021"
-
+description = "A unified multi-platform high-level API for managing WireGuard interfaces"
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://github.com/DefGuard/wireguard-rs"
+repository = "https://github.com/DefGuard/wireguard-rs"
+keywords = ["wireguard", "network", "vpn"]
+categories = ["network-programming"]
 
 [dependencies]
 base64 = "0.21"
