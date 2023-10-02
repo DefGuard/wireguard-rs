@@ -10,6 +10,7 @@ use base64::{prelude::BASE64_STANDARD, DecodeError, Engine};
 
 const KEY_LENGTH: usize = 32;
 
+/// WireGuard key representation in binary form.
 #[derive(Clone, Default)]
 pub struct Key([u8; KEY_LENGTH]);
 
@@ -33,6 +34,7 @@ impl fmt::Display for KeyError {
 }
 
 impl Key {
+    /// Create a new key from buffer.
     #[must_use]
     pub fn new(buf: [u8; KEY_LENGTH]) -> Self {
         Self(buf)
@@ -48,6 +50,7 @@ impl Key {
         self.0.as_slice()
     }
 
+    /// Converts `Key` to `String` of lower case hexadecimal digits.
     #[must_use]
     pub fn to_lower_hex(&self) -> String {
         let mut hex = String::with_capacity(64);
@@ -64,6 +67,11 @@ impl Key {
         hex
     }
 
+    /// Converts a text string of hexadecimal digits to `Key`.
+    ///
+    /// # Errors
+    /// Will return `KeyError` if text string has wrong length,
+    /// or contains an invalid character.
     pub fn decode<T: AsRef<[u8]>>(hex: T) -> Result<Self, KeyError> {
         let hex = hex.as_ref();
         let length = hex.len();

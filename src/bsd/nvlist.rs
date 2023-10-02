@@ -1,5 +1,5 @@
-// https://github.com/freebsd/freebsd-src/tree/main/sys/contrib/libnv
-// https://github.com/freebsd/freebsd-src/blob/main/sys/sys/nv.h
+//! `nvlist` implementation in Rust.
+
 use std::{error::Error, ffi::CStr, fmt};
 
 /// `NV_HEADER_SIZE` is for both: `nvlist_header` and `nvpair_header`.

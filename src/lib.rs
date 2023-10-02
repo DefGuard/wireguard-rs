@@ -71,14 +71,15 @@ mod wireguard_interface;
 extern crate log;
 
 use std::process::Output;
-use {
-    self::error::WireguardInterfaceError,
+
+use self::{
+    error::WireguardInterfaceError,
     host::{Host, Peer},
     key::Key,
     net::IpAddrMask,
 };
 
-// public reexports
+// public re-exports
 pub use wgapi::WGApi;
 #[cfg(target_os = "freebsd")]
 pub use wgapi_freebsd::WireguardApiFreebsd;
@@ -114,7 +115,7 @@ impl TryFrom<&InterfaceConfiguration> for Host {
     }
 }
 
-/// Util function which checks external command output status.
+/// Utility function which checks external command output status.
 fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
     if !output.status.success() {
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");

@@ -18,6 +18,10 @@ use crate::{
 pub struct WGApi(Box<dyn WireguardInterfaceApi + Send + Sync>);
 
 impl WGApi {
+    /// Create new instance of `WGApi`.
+    ///
+    /// # Errors
+    /// Will return `WireguardInterfaceError` is platform is not supported.
     pub fn new(ifname: String, userspace: bool) -> Result<Self, WireguardInterfaceError> {
         if userspace {
             if cfg!(target_family = "unix") {
