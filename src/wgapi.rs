@@ -1,3 +1,5 @@
+//! Shared multi-platform management API abstraction
+
 #[cfg(target_os = "freebsd")]
 use crate::WireguardApiFreebsd;
 #[cfg(target_os = "linux")]
@@ -9,6 +11,10 @@ use crate::{
     WireguardInterfaceError,
 };
 
+/// Shared multi-platform WireGuard management API
+///
+/// This struct adds an additional level of abstraction and can be used
+/// to detect the correct API implementation for most common platforms.
 pub struct WGApi(Box<dyn WireguardInterfaceApi + Send + Sync>);
 
 impl WGApi {

@@ -2,7 +2,7 @@
     <img src="docs/header.png" alt="defguard">
  </p>
 
-**wireguard-rs** is a multi-platform Rust library providing a unified high-level API for managing WireGuard interfaces using native OS kernel and userspace WireGuard protocol implementations.
+**defguard_wireguard_rs** is a multi-platform Rust library providing a unified high-level API for managing WireGuard interfaces using native OS kernel and userspace WireGuard protocol implementations.
 It can be used to create your own [WireGuard:tm:](https://www.wireguard.com/) VPN servers or clients for secure and private networking.
 
 It was developed as part of [defguard](https://github.com/defguard/defguard) security platform and used in the [gateway/server](https://github.com/defguard/gateway) as well as [desktop client](https://github.com/defguard/client).
@@ -17,6 +17,11 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
   - Linux
   - macOS
   - FreeBSD
+
+### Note on `wireguard-go`
+If you intend to use the userspace WireGuard implementation you should note that currently the library assumes 
+that the `wireguard-go` binary will be available at runtime. There are some sanity checks when instantiating the API, 
+but installing it is outside the scope of this project.
 
 ## Examples
 

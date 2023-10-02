@@ -1,3 +1,5 @@
+//! Public key utilities
+
 use std::{
     error, fmt,
     hash::{Hash, Hasher},

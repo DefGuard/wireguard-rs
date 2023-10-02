@@ -1,3 +1,5 @@
+//! Host interface configuration
+
 use std::{
     collections::HashMap,
     io::{self, BufRead, BufReader, Read},

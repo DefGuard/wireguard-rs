@@ -1,3 +1,5 @@
+//! Netlink utilities for controlling network interfaces on Linux
+
 use std::{
     fmt::Debug,
     io::ErrorKind,

@@ -1,3 +1,5 @@
+//! Network address utilities
+
 use std::{error, fmt, net::IpAddr, str::FromStr};
 
 #[cfg(target_os = "linux")]
