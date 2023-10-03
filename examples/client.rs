@@ -14,6 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let wgapi = WGApi::new(ifname.clone(), false)?;
 
+    // create interface
+    wgapi.create_interface()?;
+
     // Peer configuration
     let secret = EphemeralSecret::random();
     let key = PublicKey::from(&secret);
@@ -22,8 +25,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer = Peer::new(peer_key.clone());
 
     log::info!("endpoint");
-    // Your wireguard server endpoint which peer connects too
-    let endpoint: SocketAddr = "<server_ip>:<server_port>".parse().unwrap();
+    // Your wireguard server endpoint which client connects too
+    let endpoint: SocketAddr = "10.10.10.10:55001".parse().unwrap();
     // Peer endpoint and interval
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);
