@@ -25,6 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let api = WireguardApiUserspace::new(ifname.clone())?;
 
+    // create interface
+    api.create_interface()?;
+
     // Peer configuration
     let secret = EphemeralSecret::random();
     let key = PublicKey::from(&secret);
