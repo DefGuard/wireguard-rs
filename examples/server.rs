@@ -13,8 +13,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "utun3".into()
     };
     let wgapi = WGApi::new(ifname.clone(), false)?;
+
+    // create interface
+    wgapi.create_interface()?;
+
+    // read current interface data
     let host = wgapi.read_interface_data()?;
-    log::debug!("{host:#?}");
+    println!("WireGuard interface: {host:#?}");
 
     // host
     let secret = EphemeralSecret::random();
@@ -43,6 +48,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wgapi.configure_peer(&peer)?;
         wgapi.remove_peer(&peer.public_key)?;
     }
+
+    // read current interface data
+    let host = wgapi.read_interface_data()?;
+    println!("WireGuard interface: {host:#?}");
+
+    wgapi.remove_interface()?;
 
     Ok(())
 }
