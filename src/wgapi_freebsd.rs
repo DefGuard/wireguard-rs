@@ -7,6 +7,7 @@ use std::{process::Command, str::FromStr};
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
 /// Requires FreeBSD version 14+.
+#[derive(Clone)]
 pub struct WireguardApiFreebsd {
     ifname: String,
 }
