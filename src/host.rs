@@ -145,6 +145,11 @@ impl Peer {
         if let Some(endpoint) = self.endpoint {
             attrs.push(WgPeerAttrs::Endpoint(endpoint));
         }
+
+        if let Some(preshared_key) = &self.preshared_key {
+            attrs.push(WgPeerAttrs::PresharedKey(preshared_key.as_array()));
+        }
+
         attrs.push(WgPeerAttrs::Flags(WGPEER_F_REPLACE_ALLOWEDIPS));
         let allowed_ips = self
             .allowed_ips
