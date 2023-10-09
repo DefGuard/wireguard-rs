@@ -18,6 +18,7 @@ const USERSPACE_EXECUTABLE: &str = "wireguard-go";
 ///
 /// We assume that `wireguard-go` executable is managed externally and available in `PATH`.
 /// Currently works on Unix platforms.
+#[derive(Clone)]
 pub struct WireguardApiUserspace {
     ifname: String,
 }

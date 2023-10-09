@@ -158,7 +158,7 @@ impl Peer {
 }
 
 /// WireGuard host representation.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Host {
     pub listen_port: u16,
     pub private_key: Option<Key>,

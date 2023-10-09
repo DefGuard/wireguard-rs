@@ -8,6 +8,7 @@ use std::str::FromStr;
 ///
 /// Communicates with kernel module using `Netlink` IPC protocol.
 /// Requires Linux kernel version 5.6+.
+#[derive(Clone)]
 pub struct WireguardApiLinux {
     ifname: String,
 }
