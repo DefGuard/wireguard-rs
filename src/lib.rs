@@ -70,6 +70,7 @@ mod wireguard_interface;
 #[macro_use]
 extern crate log;
 
+use serde::{Deserialize, Serialize};
 use std::process::Output;
 
 use self::{
@@ -90,7 +91,7 @@ pub use wgapi_userspace::WireguardApiUserspace;
 pub use wireguard_interface::WireguardInterfaceApi;
 
 /// Host WireGuard interface configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceConfiguration {
     pub name: String,
     pub prvkey: String,
