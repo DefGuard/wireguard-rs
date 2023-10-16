@@ -7,11 +7,12 @@ use std::{
 };
 
 use base64::{prelude::BASE64_STANDARD, DecodeError, Engine};
+use serde::{Deserialize, Serialize};
 
 const KEY_LENGTH: usize = 32;
 
 /// WireGuard key representation in binary form.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Key([u8; KEY_LENGTH]);
 
 #[derive(Debug)]
