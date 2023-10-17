@@ -107,9 +107,8 @@ impl TryFrom<&InterfaceConfiguration> for Host {
         let key = config.prvkey.as_str().try_into()?;
         let mut host = Host::new(config.port as u16, key);
         for peercfg in &config.peers {
-            let key: Key = peercfg.public_key.clone();
-            let mut peer = Peer::new(key.clone());
-            peer.set_allowed_ips(peercfg.allowed_ips.clone());
+            let peer = peercfg.clone();
+            let key: Key = peer.public_key.clone();
             host.peers.insert(key, peer);
         }
         Ok(host)
