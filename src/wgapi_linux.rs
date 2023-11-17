@@ -2,7 +2,7 @@ use crate::{
     netlink, Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
 /// Manages interfaces created with Linux kernel WireGuard module.
 ///
@@ -49,6 +49,31 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         let host = config.try_into()?;
         netlink::set_host(&self.ifname, &host)?;
 
+        Ok(())
+    }
+
+    fn route_peers(&self, peers: &Vec<Peer>) -> Result<(), WireguardInterfaceError> {
+        let mut unique_allowed_ips = HashSet::new();
+        let mut host = netlink::get_host(&self.ifname)?;
+        for peer in peers {
+            for addr in &peer.allowed_ips {
+                unique_allowed_ips.insert(addr.to_string());
+            }
+        }
+        for allowed_ip in unique_allowed_ips {
+            let is_ipv6 = allowed_ip.contains(':');
+            let proto = match is_ipv6 {
+                true => "-4",
+                false => "-6",
+            };
+            if ["0.0.0.0/0"].contains(&allowed_ip) {
+                let mut table = 51820;
+            }
+
+            std::process::Command::new("ip")
+                .args([proto, "route", "add", &allowed_ip, "dev", &self.ifname])
+                .output()?;
+        }
         Ok(())
     }
 

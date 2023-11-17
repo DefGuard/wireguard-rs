@@ -10,6 +10,11 @@ pub trait WireguardInterfaceApi {
     /// Assigns IP address to an existing interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError>;
 
+    /// Routes traffic to the specified peers allowed ips similarly to wg-quick.
+    ///
+    /// Eg. ip -4 route add 10.6.0.0/24 dev ifname
+    fn route_peers(&self, peers: &Vec<Peer>) -> Result<(), WireguardInterfaceError>;
+
     /// Updates configuration of an existing WireGuard interface.
     fn configure_interface(
         &self,

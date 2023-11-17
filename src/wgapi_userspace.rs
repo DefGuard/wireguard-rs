@@ -3,6 +3,7 @@ use crate::{
     IpAddrMask, Key, Peer, WireguardInterfaceApi,
 };
 use std::{
+    collections::HashSet,
     fs,
     io::{self, BufRead, BufReader, Read, Write},
     net::Shutdown,
@@ -139,6 +140,56 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         // configure interface
         let host = config.try_into()?;
         self.write_host(&host)?;
+        Ok(())
+    }
+
+    fn route_peers(&self, peers: &Vec<Peer>) -> Result<(), WireguardInterfaceError> {
+        let mut unique_allowed_ips = HashSet::new();
+        for peer in peers {
+            for addr in &peer.allowed_ips {
+                unique_allowed_ips.insert(addr.to_string());
+            }
+        }
+        for allowed_ip in unique_allowed_ips {
+            let is_ipv6 = allowed_ip.contains(':');
+            let output = if cfg!(target_os = "macos") {
+                // On macOS, interface is point-to-point and requires a pair of addresses
+                let proto = match is_ipv6 {
+                    true => "net",
+                    false => "-net6",
+                };
+                std::process::Command::new("route")
+                    .args(["-n", "add", proto, &allowed_ip, "-interface", &self.ifname])
+                    .output()?
+            } else if cfg!(target_os = "linux") {
+                let proto = match is_ipv6 {
+                    true => "-4",
+                    false => "-6",
+                };
+                std::process::Command::new("ip")
+                    .args([proto, "route", "add", &allowed_ip, "dev", &self.ifname])
+                    .output()?
+            } else if cfg!(target_os = "freebsd") {
+                let proto = match is_ipv6 {
+                    true => "-inet",
+                    false => "-inet6",
+                };
+                std::process::Command::new("route")
+                    .args([
+                        "-q",
+                        "-n",
+                        "add",
+                        proto,
+                        &allowed_ip,
+                        "-interface",
+                        &self.ifname,
+                    ])
+                    .output()?
+            } else {
+                unimplemented!("Unsupported operating system");
+            };
+            check_command_output_status(output)?;
+        }
         Ok(())
     }
 
