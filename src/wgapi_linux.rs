@@ -1,8 +1,10 @@
 use crate::{
-    netlink, Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    netlink,
+    utils::{add_peers_routing, clean_fwmark_rules},
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::{collections::HashSet, str::FromStr};
+use std::str::FromStr;
 
 /// Manages interfaces created with Linux kernel WireGuard module.
 ///
@@ -52,33 +54,17 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         Ok(())
     }
 
-    fn route_peers(&self, peers: &Vec<Peer>) -> Result<(), WireguardInterfaceError> {
-        let mut unique_allowed_ips = HashSet::new();
-        let mut host = netlink::get_host(&self.ifname)?;
-        for peer in peers {
-            for addr in &peer.allowed_ips {
-                unique_allowed_ips.insert(addr.to_string());
-            }
-        }
-        for allowed_ip in unique_allowed_ips {
-            let is_ipv6 = allowed_ip.contains(':');
-            let proto = match is_ipv6 {
-                true => "-4",
-                false => "-6",
-            };
-            if ["0.0.0.0/0"].contains(&allowed_ip) {
-                let mut table = 51820;
-            }
-
-            std::process::Command::new("ip")
-                .args([proto, "route", "add", &allowed_ip, "dev", &self.ifname])
-                .output()?;
-        }
+    fn route_peers(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        add_peers_routing(peers, &self.ifname)?;
         Ok(())
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
+        let host = netlink::get_host(&self.ifname)?;
+        if let Some(fwmark) = host.fwmark {
+            clean_fwmark_rules(&fwmark.to_string())?;
+        }
         netlink::delete_interface(&self.ifname)?;
         Ok(())
     }

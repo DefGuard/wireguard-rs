@@ -1,8 +1,8 @@
 use crate::{
-    bsd, check_command_output_status, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
-    WireguardInterfaceApi, WireguardInterfaceError,
+    bsd, check_command_output_status, utils::add_peers_routing, Host, InterfaceConfiguration,
+    IpAddrMask, Key, Peer, WireguardInterfaceApi, WireguardInterfaceError,
 };
-use std::{collections::HashSet, process::Command, str::FromStr};
+use std::{process::Command, str::FromStr};
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
@@ -63,31 +63,9 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         check_command_output_status(output)
     }
 
-    fn route_peers(&self, peers: Vec<Peer>) -> Result<(), WireguardInterfaceError> {
-        let mut unique_allowed_ips = HashSet::new();
-        for peer in peers {
-            for addr in &peer.allowed_ips {
-                unique_allowed_ips.insert(addr.to_string());
-            }
-        }
-        for allowed_ip in unique_allowed_ips {
-            let is_ipv6 = allowed_ip.contains(':');
-            let proto = match is_ipv6 {
-                true => "-inet",
-                false => "-inet6",
-            };
-            std::process::Command::new("route")
-                .args([
-                    "-q",
-                    "-n",
-                    "add",
-                    proto,
-                    &allowed_ip,
-                    "-interface",
-                    &self.ifname,
-                ])
-                .output()?
-        }
+    fn route_peers(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        add_peers_routing(peers, &self.ifname)?;
+        Ok(())
     }
 
     fn configure_interface(

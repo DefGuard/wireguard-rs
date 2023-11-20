@@ -67,6 +67,8 @@ mod wgapi_linux;
 mod wgapi_userspace;
 mod wireguard_interface;
 
+mod utils;
+
 #[macro_use]
 extern crate log;
 
