@@ -3,7 +3,8 @@ use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 use std::{collections::HashSet, process::Command};
 
-/// Add peer routing
+/// Add peer routing basically copy of wg-quick
+/// On linux system sysctl command is requried to work if using 0.0.0.0/0 or ::/0
 #[cfg(target_os = "linux")]
 pub(crate) fn add_peers_routing(
     peers: &[Peer],
@@ -121,8 +122,8 @@ pub(crate) fn add_peers_routing(
     for allowed_ip in unique_allowed_ips {
         let is_ipv6 = allowed_ip.contains(':');
         let (proto, route1, route2) = match is_ipv6 {
-            true => ("-inet", "0.0.0.0/1", "128.0.0.0/1"),
-            false => ("-inet6", "::/1", "8000::/1"),
+            true => ("-inet6", "::/1", "8000::/1"),
+            false => ("-inet", "0.0.0.0/1", "128.0.0.0/1"),
         };
         if ["0.0.0.0/0".to_string(), "::/0".to_string()].contains(&allowed_ip) {
             // Add table rules
@@ -134,19 +135,14 @@ pub(crate) fn add_peers_routing(
                 .output()?;
             // route endpoints
             for endpoint in &endpoints {
-                let proto = match endpoint.is_ipv4() {
-                    true => "-inet",
-                    false => "-inet6",
-                };
-                let ip_version = match endpoint.is_ipv4() {
-                    true => IpVersion::IPv4,
-                    false => IpVersion::IPv6,
+                let (ip_version, proto) = match endpoint.is_ipv4() {
+                    true => (IpVersion::IPv4, "-inet"),
+                    false => (IpVersion::IPv6, "i-net6"),
                 };
                 let gateway = collect_gateway(ip_version)?;
                 let output = Command::new("route")
                     .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
-                    .output()?;
-                check_command_output_status(output)?;
+                    .output();
                 if !gateway.is_empty() {
                     let output = Command::new("route")
                         .args([
