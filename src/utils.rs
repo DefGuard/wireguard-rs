@@ -19,8 +19,8 @@ pub(crate) fn add_peers_routing(
     for allowed_ip in unique_allowed_ips {
         let is_ipv6 = allowed_ip.contains(':');
         let proto = match is_ipv6 {
-            true => "-4",
-            false => "-6",
+            false => "-4",
+            true => "-6",
         };
         if ["0.0.0.0/0".to_string(), "::/0".to_string()].contains(&allowed_ip) {
             let mut host = netlink::get_host(ifname)?;
@@ -137,9 +137,10 @@ pub(crate) fn add_peers_routing(
             for endpoint in &endpoints {
                 let (ip_version, proto) = match endpoint.is_ipv4() {
                     true => (IpVersion::IPv4, "-inet"),
-                    false => (IpVersion::IPv6, "i-net6"),
+                    false => (IpVersion::IPv6, "-inet6"),
                 };
                 let gateway = collect_gateway(ip_version)?;
+                // Precautionary route delete don't handle exists because it may not exist
                 let output = Command::new("route")
                     .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
                     .output();
@@ -246,6 +247,5 @@ pub(crate) fn clean_fwmark_rules(fwmark: &str) -> Result<(), WireguardInterfaceE
             check_command_output_status(output)?;
         };
     }
-
     Ok(())
 }
