@@ -140,7 +140,7 @@ pub(crate) fn add_peers_routing(
                     false => (IpVersion::IPv6, "-inet6"),
                 };
                 let gateway = collect_gateway(ip_version)?;
-                // Precautionary route delete don't handle exists because it may not exist
+                // Precautionary route delete don't handle result because it may not exist
                 let output = Command::new("route")
                     .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
                     .output();
