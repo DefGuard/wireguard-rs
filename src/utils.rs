@@ -260,7 +260,9 @@ pub(crate) fn collect_gateway(ip_version: IpVersion) -> Result<String, Wireguard
         let fields: Vec<&str> = line.split_whitespace().collect();
         debug!("Processing output line: {:?}", fields);
         if fields.len() > 1 && fields[0] == "default" && !fields[1].contains("link#") {
-            return Ok(fields[1].to_string());
+            let result = fields[1].to_string();
+            debug!("Found gateway address: {}", result);
+            return Ok(result);
         }
     }
     error!("Gateway not found");
@@ -269,12 +271,12 @@ pub(crate) fn collect_gateway(ip_version: IpVersion) -> Result<String, Wireguard
 }
 
 /// Clean fwmark rules while removing interface same as in wg-quick
-/// Under the hood it runs:
-/// based on ip -4 rule show output or ip -6 rule show output
-/// ip -4 rule delete table (Interface host fwmark)
+/// Runs in order:
+/// based on ip -4 rule show output or ip -6 rule show output:
+/// ip -4 rule delete table (fwmark)
 /// ip -4 rule delete table main suppress_prefixlength 0
 /// or:
-/// ip -6 rule delete table (Interface host fwmark)
+/// ip -6 rule delete table (fwmark)
 /// ip -6 rule delete table main suppress_prefixlength 0
 #[cfg(target_os = "linux")]
 pub(crate) fn clean_fwmark_rules(fwmark: &str) -> Result<(), WireguardInterfaceError> {
