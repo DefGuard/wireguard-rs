@@ -25,8 +25,8 @@ pub(crate) fn add_peers_routing(
             let mut host = netlink::get_host(ifname)?;
             // Get fwmark table as in wg-quick
             let fwmark = match host.fwmark {
-                Some(fwmark) if fwmark != 0 => fwmark,
-                Some(_) | None => {
+                Some(fwmark) => fwmark,
+                None => {
                     let mut table = 51820;
                     loop {
                         let output = Command::new("ip")
