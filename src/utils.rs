@@ -18,15 +18,15 @@ pub(crate) fn add_peers_routing(
     for allowed_ip in unique_allowed_ips {
         let is_ipv6 = allowed_ip.contains(':');
         let proto = match is_ipv6 {
-            true => "-4",
-            false => "-6",
+            false => "-4",
+            true => "-6",
         };
         if ["0.0.0.0/0".to_string(), "::/0".to_string()].contains(&allowed_ip) {
             let mut host = netlink::get_host(ifname)?;
             // Get fwmark table as in wg-quick
             let fwmark = match host.fwmark {
-                Some(fwmark) => fwmark,
-                None => {
+                Some(fwmark) if fwmark != 0 => fwmark,
+                Some(_) | None => {
                     let mut table = 51820;
                     loop {
                         let output = Command::new("ip")
@@ -138,9 +138,9 @@ pub(crate) fn add_peers_routing(
                     true => "-inet",
                     false => "-inet6",
                 };
-                let ip_version = match endpoint.is_ipv4() {
-                    true => IpVersion::IPv4,
-                    false => IpVersion::IPv6,
+                let (ip_version, proto) = match endpoint.is_ipv4() {
+                    true => (IpVersion::IPv4, "-inet"),
+                    false => (IpVersion::IPv6, "-inet6"),
                 };
                 let gateway = collect_gateway(ip_version)?;
                 let output = Command::new("route")
@@ -250,6 +250,5 @@ pub(crate) fn clean_fwmark_rules(fwmark: &str) -> Result<(), WireguardInterfaceE
             check_command_output_status(output)?;
         };
     }
-
     Ok(())
 }
