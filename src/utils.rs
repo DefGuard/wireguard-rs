@@ -134,19 +134,15 @@ pub(crate) fn add_peers_routing(
                 .output()?;
             // route endpoints
             for endpoint in &endpoints {
-                let proto = match endpoint.is_ipv4() {
-                    true => "-inet",
-                    false => "-inet6",
-                };
                 let (ip_version, proto) = match endpoint.is_ipv4() {
                     true => (IpVersion::IPv4, "-inet"),
                     false => (IpVersion::IPv6, "-inet6"),
                 };
                 let gateway = collect_gateway(ip_version)?;
+                // Precautionary route delete don't handle exists because it may not exist
                 let output = Command::new("route")
                     .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
-                    .output()?;
-                check_command_output_status(output)?;
+                    .output();
                 if !gateway.is_empty() {
                     let output = Command::new("route")
                         .args([
