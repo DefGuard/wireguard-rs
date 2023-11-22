@@ -3,7 +3,8 @@ use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 use std::{collections::HashSet, process::Command};
 
-/// Add peer routing basically copy of wg-quick
+/// Add peer routing basically a copy of wg-quick.
+///
 /// On linux system sysctl command is requried to work if using 0.0.0.0/0 or ::/0
 /// For every allowed ip it runs ip `ip_version` route add `allowed_ip` dev `ifname`
 /// For 0.0.0.0/0 allowed ip it runs in order:
@@ -13,7 +14,6 @@ use std::{collections::HashSet, process::Command};
 /// ip -4 rule add table main supress_prefixlength 0
 /// sysctl -q net.ipv4.conf.all.src_valid_mark=1
 /// iptables-restore -n
-
 #[cfg(target_os = "linux")]
 pub(crate) fn add_peers_routing(
     peers: &[Peer],
@@ -27,112 +27,114 @@ pub(crate) fn add_peers_routing(
             unique_allowed_ips.insert(addr.to_string());
         }
     }
+    // Check if default rout is specified
+    let default_route = unique_allowed_ips
+        .iter()
+        .find(|&allowed_ip| allowed_ip == "0.0.0.0/0" || allowed_ip == "::/0");
 
-    for allowed_ip in unique_allowed_ips {
-        debug!("Processing allowed IP: {}", allowed_ip);
+    // If there is default route skip adding other routings.
+    if let Some(default_route) = default_route {
+        let is_ipv6 = default_route.contains(':');
+        let proto = if is_ipv6 { "-6" } else { "-4" };
 
-        let is_ipv6 = allowed_ip.contains(':');
-        let proto = match is_ipv6 {
-            false => "-4",
-            true => "-6",
+        let mut host = netlink::get_host(ifname)?;
+        debug!("Current host: {host:?}");
+
+        let fwmark = match host.fwmark {
+            Some(fwmark) => fwmark,
+            None => {
+                let mut table = 51820;
+                loop {
+                    let output = Command::new("ip")
+                        .args([proto, "route", "show", "table", &table.to_string()])
+                        .output()?;
+                    if output.stdout.is_empty() {
+                        host.fwmark = Some(table);
+                        netlink::set_host(ifname, &host)?;
+                        debug!("Assigned fwmark: {table}");
+                        break;
+                    } else {
+                        table += 1;
+                    }
+                }
+                table
+            }
         };
 
-        if ["0.0.0.0/0".to_string(), "::/0".to_string()].contains(&allowed_ip) {
-            debug!("Processing default route: {}", allowed_ip);
+        debug!("Using fwmark: {fwmark}");
 
-            let mut host = netlink::get_host(ifname)?;
-            debug!("Current host: {:?}", host);
+        // Add table rules
+        debug!("Adding route for allowed IP: {default_route}");
+        let output = Command::new("ip")
+            .args([
+                proto,
+                "route",
+                "add",
+                &default_route,
+                "dev",
+                ifname,
+                "table",
+                &fwmark.to_string(),
+            ])
+            .output()?;
+        check_command_output_status(output)?;
 
-            let fwmark = match host.fwmark {
-                Some(fwmark) => fwmark,
-                None => {
-                    let mut table = 51820;
-                    loop {
-                        let output = Command::new("ip")
-                            .args([proto, "route", "show", "table", &table.to_string()])
-                            .output()?;
-                        if output.stdout.is_empty() {
-                            host.fwmark = Some(table);
-                            netlink::set_host(ifname, &host)?;
-                            debug!("Assigned fwmark: {}", table);
-                            break;
-                        } else {
-                            table += 1;
-                        }
-                    }
-                    table
-                }
-            };
+        debug!("Adding rule for fwmark: {fwmark}");
+        let output = Command::new("ip")
+            .args([
+                proto,
+                "rule",
+                "add",
+                "not",
+                "fwmark",
+                &fwmark.to_string(),
+                "table",
+                &fwmark.to_string(),
+            ])
+            .output()?;
+        check_command_output_status(output)?;
 
-            debug!("Using fwmark: {}", fwmark);
+        debug!("Adding rule for main table");
+        let output = Command::new("ip")
+            .args([
+                proto,
+                "rule",
+                "add",
+                "table",
+                "main",
+                "suppress_prefixlength",
+                "0",
+            ])
+            .output()?;
+        check_command_output_status(output)?;
 
-            // Add table rules
-            debug!("Adding route for allowed IP: {}", allowed_ip);
-            let output = Command::new("ip")
-                .args([
-                    proto,
-                    "route",
-                    "add",
-                    &allowed_ip,
-                    "dev",
-                    ifname,
-                    "table",
-                    &fwmark.to_string(),
-                ])
-                .output()?;
+        if is_ipv6 {
+            debug!("Reloading ip6tables");
+            debug!("Running ip6tables-restore -n");
+            let output = Command::new("ip6tables-restore").arg("-n").output()?;
             check_command_output_status(output)?;
-
-            debug!("Adding rule for fwmark: {}", fwmark);
-            let output = Command::new("ip")
-                .args([
-                    proto,
-                    "rule",
-                    "add",
-                    "not",
-                    "fwmark",
-                    &fwmark.to_string(),
-                    "table",
-                    &fwmark.to_string(),
-                ])
-                .output()?;
-            check_command_output_status(output)?;
-
-            debug!("Adding rule for main table");
-            let output = Command::new("ip")
-                .args([
-                    proto,
-                    "rule",
-                    "add",
-                    "table",
-                    "main",
-                    "suppress_prefixlength",
-                    "0",
-                ])
-                .output()?;
-            check_command_output_status(output)?;
-
-            if is_ipv6 {
-                debug!("Reloading ip6tables");
-                debug!("Running ip6tables-restore -n");
-                let output = Command::new("ip6tables-restore").arg("-n").output()?;
-                check_command_output_status(output)?;
-            } else {
-                debug!("Setting systemctl net.ipv4.conf.all.src_valid_mark=1");
-                let output = Command::new("sysctl")
-                    .args(["-q", "net.ipv4.conf.all.src_valid_mark=1"])
-                    .output()?;
-                check_command_output_status(output)?;
-
-                debug!("Reloading iptables");
-                debug!("Running iptables-restore -n");
-                let output = Command::new("iptables-restore").arg("-n").output()?;
-                check_command_output_status(output)?;
-            }
         } else {
+            debug!("Setting systemctl net.ipv4.conf.all.src_valid_mark=1");
+            let output = Command::new("sysctl")
+                .args(["-q", "net.ipv4.conf.all.src_valid_mark=1"])
+                .output()?;
+            check_command_output_status(output)?;
+
+            debug!("Reloading iptables");
+            debug!("Running iptables-restore -n");
+            let output = Command::new("iptables-restore").arg("-n").output()?;
+            check_command_output_status(output)?;
+        }
+    } else {
+        for allowed_ip in unique_allowed_ips {
+            debug!("Processing allowed IP: {}", allowed_ip);
+
+            let is_ipv6 = allowed_ip.contains(':');
+            let proto = if is_ipv6 { "-6" } else { "-4" };
             // Normal routing
             let args = [proto, "route", "add", &allowed_ip, "dev", ifname];
-            debug!("Adding route for allowed IP: {}", allowed_ip);
-            debug!("Running command ip {:?}", args);
+            debug!("Adding route for allowed IP: {allowed_ip}");
+            debug!("Running command ip {args:?}");
             let output = Command::new("ip").args(args).output()?;
             check_command_output_status(output)?;
         }
@@ -147,6 +149,7 @@ pub(crate) fn add_peers_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
+    debug!("Adding peers routing for interface: {}", ifname);
     let mut unique_allowed_ips = HashSet::new();
     let mut endpoints = HashSet::new();
     for peer in peers {
@@ -157,68 +160,79 @@ pub(crate) fn add_peers_routing(
             unique_allowed_ips.insert(addr.to_string());
         }
     }
-    for allowed_ip in unique_allowed_ips {
-        let is_ipv6 = allowed_ip.contains(':');
+    let default_route = unique_allowed_ips
+        .iter()
+        .find(|&allowed_ip| allowed_ip == "0.0.0.0/0" || allowed_ip == "::/0");
+
+    if let Some(default_route) = default_route {
+        let is_ipv6 = default_route.contains(':');
         let (proto, route1, route2) = match is_ipv6 {
             true => ("-inet6", "::/1", "8000::/1"),
             false => ("-inet", "0.0.0.0/1", "128.0.0.0/1"),
         };
-        if ["0.0.0.0/0".to_string(), "::/0".to_string()].contains(&allowed_ip) {
-            // Add table rules
-            Command::new("route")
-                .args(["-q", "-n", "add", proto, route1, "-interface", ifname])
-                .output()?;
-            Command::new("route")
-                .args(["-q", "-n", "add", proto, route2, "-interface", ifname])
-                .output()?;
-            // route endpoints
-            for endpoint in &endpoints {
-                let (ip_version, proto) = match endpoint.is_ipv4() {
-                    true => (IpVersion::IPv4, "-inet"),
-                    false => (IpVersion::IPv6, "-inet6"),
+        // Add table rules
+        let args = ["-q", "-n", "add", proto, route1, "-interface", ifname];
+        debug!("Executing command route with args: {args:?}");
+        let output = Command::new("route").args(args).output()?;
+        check_command_output_status(output)?;
+        let args = ["-q", "-n", "add", proto, route2, "-interface", ifname];
+        debug!("Executing command route with args: {args:?}");
+        let output = Command::new("route").args(args).output()?;
+        check_command_output_status(output)?;
+        // route endpoints
+        for endpoint in &endpoints {
+            let (ip_version, proto) = match endpoint.is_ipv4() {
+                true => (IpVersion::IPv4, "-inet"),
+                false => (IpVersion::IPv6, "-inet6"),
+            };
+            let gateway = collect_gateway(ip_version)?;
+            // Precautionary route delete don't handle result because it may not exist
+            let _ = Command::new("route")
+                .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
+                .output();
+            if !gateway.is_empty() {
+                debug!("Found default gateway: {gateway}");
+                let args = [
+                    "-q",
+                    "-n",
+                    "add",
+                    proto,
+                    &endpoint.ip().to_string(),
+                    "-gateway",
+                    &gateway,
+                ];
+                debug!("Executing command rotue with args: {args:?}");
+                let output = Command::new("route").args(args).output()?;
+                check_command_output_status(output)?;
+            } else {
+                // Prevent routing loop as in wg-quick
+                debug!("Default gateway not found.");
+                let address = match endpoint.is_ipv4() {
+                    true => "127.0.0.1",
+                    false => "::1",
                 };
-                let gateway = collect_gateway(ip_version)?;
-                // Precautionary route delete don't handle result because it may not exist
-                let output = Command::new("route")
-                    .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
-                    .output();
-                if !gateway.is_empty() {
-                    let output = Command::new("route")
-                        .args([
-                            "-q",
-                            "-n",
-                            "add",
-                            proto,
-                            &endpoint.ip().to_string(),
-                            "-gateway",
-                            &gateway,
-                        ])
-                        .output()?;
-                    check_command_output_status(output)?;
-                } else {
-                    // Prevent routing loop as in wg-quick
-                    let address = match endpoint.is_ipv4() {
-                        true => "127.0.0.1",
-                        false => "::1",
-                    };
-                    let output = Command::new("route")
-                        .args([
-                            "-q",
-                            "-n",
-                            "add",
-                            proto,
-                            &endpoint.ip().to_string(),
-                            address,
-                            "-blackhole",
-                        ])
-                        .output()?;
-                    check_command_output_status(output)?;
-                }
+                let args = [
+                    "-q",
+                    "-n",
+                    "add",
+                    proto,
+                    &endpoint.ip().to_string(),
+                    address,
+                    "-blackhole",
+                ];
+                debug!("Executing command route with args: {args:?}");
+                let output = Command::new("route").args(args).output()?;
+                check_command_output_status(output)?;
             }
-        } else {
-            let output = Command::new("route")
-                .args(["-q", "-n", "add", proto, &allowed_ip, "-interface", ifname])
-                .output()?;
+        }
+    } else {
+        for allowed_ip in unique_allowed_ips {
+            debug!("Processing allowed IP: {}", allowed_ip);
+            let is_ipv6 = allowed_ip.contains(':');
+            let proto = if is_ipv6 { "-inet6" } else { "-inet" };
+            let args = ["-q", "-n", "add", proto, &allowed_ip, "-interface", ifname];
+            debug!("Executing command route with args: {args:?}");
+            let output = Command::new("route").args(args).output()?;
             check_command_output_status(output)?;
         }
     }
@@ -231,7 +245,7 @@ pub(crate) enum IpVersion {
     IPv6,
 }
 
-/// Helper function to extracts gateway on FreeBSD and MacOS systems
+/// Helper function to find default ipv4 or ipv6 gateway on FreeBSD and MacOS systems
 /// Same as in wg-quick extract gateway info using `netstat -nr -f inet` or `inet6`
 /// based on allowed ip  version
 /// Needed to add proper routing for 0.0.0.0/0, ::/0

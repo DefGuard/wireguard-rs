@@ -62,8 +62,19 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
             .output()?;
         check_command_output_status(output)
     }
-
-    fn route_peers(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+    /// For every allowed IP, it runs:  
+    /// - `route -q -n add <inet> allowed_ip -interface if_name`   
+    /// `ifname` - interface name while creating api  
+    /// `allowed_ip`- one of [Peer](crate::Peer) allowed ip
+    /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other using:
+    /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.   
+    /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.   
+    /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`  
+    /// `<endpoint>` - Add routing for every unique Peer endpoint.   
+    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.    
+    /// ## Note:
+    /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peers_routing(peers, &self.ifname)?;
         Ok(())
     }

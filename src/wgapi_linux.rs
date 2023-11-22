@@ -53,8 +53,24 @@ impl WireguardInterfaceApi for WireguardApiLinux {
 
         Ok(())
     }
-
-    fn route_peers(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+    /// On a Linux system, the `sysctl` command is required to work if using `0.0.0.0/0` or `::/0`.  
+    /// For every allowed IP, it runs:  
+    /// `ip <ip_version> route add <allowed_ip> dev <ifname>`   
+    /// `<ifname>` - interface name while creating api  
+    /// `<ip_version>` - `-4` or `-6` based on allowed ip type  
+    /// `<allowed_ip>`- one of [Peer](crate::Peer) allowed ip
+    ///
+    /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other routings.:
+    /// - `ip <ip_version> route add 0.0.0.0/0 dev <ifname> table <fwmark>`  
+    /// `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.  
+    /// `<ifname>` - Interface name.  
+    /// - `ip <ip_version> rule add not fwmark <fwmark> table <fwmark>`.  
+    /// - `ip <ip_version> rule add table main suppress_prefixlength 0`.   
+    /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.  
+    /// - `iptables-restore -n`. For `0.0.0.0/0` only.  
+    /// - `iptables6-restore -n`. For `::/0` only.    
+    /// Based on ip type `<ip_version>` will be equal to `-4` or `-6`.
+    fn configure_peers_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peers_routing(peers, &self.ifname)?;
         Ok(())
     }
