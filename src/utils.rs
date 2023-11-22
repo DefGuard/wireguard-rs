@@ -15,7 +15,7 @@ use std::{collections::HashSet, process::Command};
 /// sysctl -q net.ipv4.conf.all.src_valid_mark=1
 /// iptables-restore -n
 #[cfg(target_os = "linux")]
-pub(crate) fn add_peers_routing(
+pub(crate) fn add_peers_routings(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
