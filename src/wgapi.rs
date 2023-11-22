@@ -66,6 +66,10 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer(peer)
     }
 
+    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
+        self.0.set_dns(dns)
+    }
+
     fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {
         self.0.remove_peer(peer_pubkey)
     }

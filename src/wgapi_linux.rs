@@ -2,6 +2,8 @@ use crate::{
     netlink, Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
+use std::io::Write;
+use std::process::{Command, Stdio};
 use std::str::FromStr;
 
 /// Manages interfaces created with Linux kernel WireGuard module.
@@ -77,5 +79,34 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         debug!("Reading host info for interface {}", self.ifname);
         let host = netlink::get_host(&self.ifname)?;
         Ok(host)
+    }
+
+    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
+        // Build the resolvconf command
+        let mut cmd = Command::new("resolvconf");
+        cmd.arg("-a").arg(self.ifname).arg("-m").arg("0").arg("-x");
+
+        // Execute resolvconf command and pipe filtered DNS entries
+        if let Some(mut child) = cmd.stdin(Stdio::piped()).spawn().ok() {
+            if let Some(mut stdin) = child.stdin.take() {
+                for entry in &dns {
+                    match entry.parse::<std::net::IpAddr>() {
+                        Ok(ip) => writeln!(stdin, "nameserver {}", ip),
+                        Err(_) => {
+                            writeln!(stdin, "search {}", entry)
+                        }
+                    }?;
+                }
+            }
+
+            let status = child.wait().expect("Failed to wait for command");
+            if status.success() {
+                Ok(())
+            } else {
+                Err(WireguardInterfaceError::UserspaceNotSupported)
+            }
+        } else {
+            Err(WireguardInterfaceError::UserspaceNotSupported)
+        }
     }
 }
