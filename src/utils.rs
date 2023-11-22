@@ -19,7 +19,7 @@ pub(crate) fn add_peers_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    debug!("Adding peers routing for interface: {}", ifname);
+    debug!("Adding peers routing for interface: {ifname}");
 
     let mut unique_allowed_ips = HashSet::new();
     for peer in peers {
