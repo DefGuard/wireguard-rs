@@ -1,5 +1,3 @@
-//! Netlink utilities for controlling network interfaces on Linux
-
 use std::{
     fmt::Debug,
     io::ErrorKind,
@@ -17,7 +15,11 @@ use netlink_packet_generic::{
 use netlink_packet_route::{
     address,
     link::nlas::{Info, InfoKind, Nla},
-    AddressMessage, LinkHeader, LinkMessage, RtnlMessage, AF_INET, AF_INET6, IFF_UP,
+    route::nlas::Nla as RouteNla,
+    rule::nlas::Nla as RuleNla,
+    AddressMessage, LinkHeader, LinkMessage, RouteHeader, RouteMessage, RtnlMessage, RuleHeader,
+    RuleMessage, AF_INET, AF_INET6, FIB_RULE_INVERT, FR_ACT_TO_TBL, FR_ACT_UNSPEC, IFF_UP,
+    RTN_UNICAST, RTPROT_BOOT, RT_SCOPE_LINK, RT_TABLE_MAIN, RT_TABLE_UNSPEC,
 };
 use netlink_packet_utils::errors::DecodeError;
 use netlink_packet_wireguard::{
@@ -31,6 +33,7 @@ use thiserror::Error;
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
+    utils::IpVersion,
     Key, WireguardInterfaceError,
 };
 
@@ -62,6 +65,14 @@ pub enum NetlinkError {
     DeleteInterfaceError,
     #[error("File already exists")]
     FileAlreadyExists,
+    #[error("Add route error")]
+    AddRouteError,
+    #[error("No such file")]
+    NotFound,
+    #[error("Failed to add rule")]
+    AddRuleError,
+    #[error("Failed to delete rule")]
+    DeleteRuleError,
 }
 
 impl From<NetlinkError> for WireguardInterfaceError {
@@ -70,7 +81,6 @@ impl From<NetlinkError> for WireguardInterfaceError {
     }
 }
 
-/// Wrapper `Result` type for Netlink operations
 pub type NetlinkResult<T> = Result<T, NetlinkError>;
 
 macro_rules! get_nla_value {
@@ -95,7 +105,7 @@ impl Key {
     }
 }
 
-fn netlink_request_genl<F>(
+pub fn netlink_request_genl<F>(
     mut message: GenlMessage<F>,
     flags: u16,
 ) -> NetlinkResult<Vec<NetlinkMessage<GenlMessage<F>>>>
@@ -129,7 +139,7 @@ where
     netlink_request(message, flags, NETLINK_GENERIC)
 }
 
-fn netlink_request<I>(
+pub fn netlink_request<I>(
     message: I,
     flags: u16,
     socket: isize,
@@ -189,6 +199,7 @@ where
                 NetlinkPayload::Error(msg) => {
                     return match msg.to_io().kind() {
                         ErrorKind::AlreadyExists => Err(NetlinkError::FileAlreadyExists),
+                        ErrorKind::NotFound => Err(NetlinkError::NotFound),
                         _ => Err(NetlinkError::PayloadError(msg)),
                     }
                 }
@@ -283,42 +294,14 @@ fn set_address(ifindex: u32, address: &IpAddrMask) -> NetlinkResult<()> {
     Ok(())
 }
 
-/// Set IP address of a WireGuard network interface
 pub fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()> {
-    let mut message = LinkMessage::default();
-    message.nlas.push(Nla::IfName(ifname.into()));
-    message
-        .nlas
-        .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
-
-    let responses = netlink_request(
-        RtnlMessage::GetLink(message),
-        NLM_F_REQUEST | NLM_F_ACK,
-        NETLINK_ROUTE,
-    )?;
-
-    for nlmsg in responses {
-        match nlmsg {
-            NetlinkMessage {
-                payload: NetlinkPayload::InnerMessage(message),
-                ..
-            } => {
-                if let RtnlMessage::NewLink(LinkMessage {
-                    header: LinkHeader { index, .. },
-                    ..
-                }) = message
-                {
-                    return set_address(index, address);
-                }
-            }
-            _ => debug!("unknown nlmsg response"),
-        }
+    if let Some(index) = get_interface_index(ifname)? {
+        return set_address(index, address);
     }
-
     Ok(())
 }
 
-/// Delete WireGuard interface
+/// Delete WireGuard interface.
 pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.nlas.push(Nla::IfName(ifname.into()));
@@ -338,7 +321,6 @@ pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     Ok(())
 }
 
-/// Read host interface data
 pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
     debug!("Reading Netlink data for interface {ifname}");
     let genlmsg = GenlMessage::from_payload(Wireguard {
@@ -363,7 +345,6 @@ pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
     Ok(host)
 }
 
-/// Perform interface configuration
 pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -373,7 +354,6 @@ pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     Ok(())
 }
 
-/// Save or update WireGuard peer configuration
 pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -383,7 +363,6 @@ pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     Ok(())
 }
 
-/// Delete a WireGuard peer from interface
 pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -391,4 +370,223 @@ pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     });
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     Ok(())
+}
+
+fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
+    let mut message = LinkMessage::default();
+    message.nlas.push(Nla::IfName(ifname.into()));
+    message
+        .nlas
+        .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
+
+    let responses = netlink_request(
+        RtnlMessage::GetLink(message),
+        NLM_F_REQUEST | NLM_F_ACK,
+        NETLINK_ROUTE,
+    )?;
+
+    for nlmsg in responses {
+        match nlmsg {
+            NetlinkMessage {
+                payload: NetlinkPayload::InnerMessage(message),
+                ..
+            } => {
+                if let RtnlMessage::NewLink(LinkMessage {
+                    header: LinkHeader { index, .. },
+                    ..
+                }) = message
+                {
+                    return Ok(Some(index));
+                }
+            }
+            _ => debug!("unknown nlmsg response"),
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn add_route(ifname: &str, address: &IpAddrMask, table: Option<u32>) -> NetlinkResult<()> {
+    let mut message = RouteMessage::default();
+    let mut route_msg_header = RouteHeader {
+        table: RT_TABLE_MAIN,
+        scope: RT_SCOPE_LINK,
+        kind: RTN_UNICAST,
+        protocol: RTPROT_BOOT,
+        ..Default::default()
+    };
+    let address_vec = match address.ip {
+        IpAddr::V4(ipv4) => {
+            route_msg_header.address_family = AF_INET as u8;
+            route_msg_header.destination_prefix_length = address.cidr;
+            ipv4.octets().to_vec()
+        }
+        IpAddr::V6(ipv6) => {
+            route_msg_header.address_family = AF_INET6 as u8;
+            route_msg_header.destination_prefix_length = address.cidr;
+            ipv6.octets().to_vec()
+        }
+    };
+    message.header = route_msg_header;
+    if let Some(interface_index) = get_interface_index(ifname)? {
+        message.nlas.push(RouteNla::Oif(interface_index));
+        message
+            .nlas
+            .push(RouteNla::Destination(address_vec.clone()));
+        if let Some(table) = table {
+            message.nlas.push(RouteNla::Table(table));
+        }
+        match netlink_request(
+            RtnlMessage::NewRoute(message),
+            NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
+            NETLINK_ROUTE,
+        ) {
+            Ok(_msg) => Ok(()),
+            Err(NetlinkError::FileAlreadyExists) => Ok(()),
+            Err(err) => {
+                error!("Failed to add  WireGuard interface route: {err}");
+                Err(NetlinkError::AddRouteError)
+            }
+        }
+    } else {
+        error!("Failed to add  WireGuard interface route interface {ifname} index not found");
+        Err(NetlinkError::AddRouteError)
+    }
+}
+
+pub fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
+    let mut message = RuleMessage::default();
+    let mut rule_msg_hdr = RuleHeader {
+        table: RT_TABLE_UNSPEC,
+        action: FR_ACT_TO_TBL,
+        flags: FIB_RULE_INVERT,
+        ..Default::default()
+    };
+    match address.ip {
+        IpAddr::V4(_) => {
+            rule_msg_hdr.family = AF_INET as u8;
+        }
+        IpAddr::V6(_) => {
+            rule_msg_hdr.family = AF_INET6 as u8;
+        }
+    };
+
+    message.header = rule_msg_hdr;
+    message.nlas.push(RuleNla::FwMark(fwmark));
+    message.nlas.push(RuleNla::Table(fwmark));
+    match netlink_request(
+        RtnlMessage::NewRule(message),
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
+        NETLINK_ROUTE,
+    ) {
+        Ok(_msg) => Ok(()),
+        Err(NetlinkError::FileAlreadyExists) => Ok(()),
+        Err(err) => {
+            error!("Failed to add fwmark rule: {err}");
+            Err(NetlinkError::AddRuleError)
+        }
+    }
+}
+pub fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
+    let mut message = RuleMessage::default();
+    let mut rule_msg_hdr = RuleHeader {
+        table: RT_TABLE_UNSPEC,
+        action: FR_ACT_UNSPEC,
+        ..Default::default()
+    };
+    match ip_version {
+        IpVersion::IPv4 => {
+            rule_msg_hdr.family = AF_INET as u8;
+        }
+        IpVersion::IPv6 => {
+            rule_msg_hdr.family = AF_INET6 as u8;
+        }
+    };
+
+    message.header = rule_msg_hdr;
+    message.nlas.push(RuleNla::FwMark(fwmark));
+    message.nlas.push(RuleNla::Table(fwmark));
+    match netlink_request(
+        RtnlMessage::DelRule(message),
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_EXCL,
+        NETLINK_ROUTE,
+    ) {
+        Ok(_msg) => Ok(()),
+        Err(NetlinkError::NotFound) => Ok(()),
+        Err(err) => {
+            error!("Failed to delete {fwmark} rule: {err}");
+            Err(NetlinkError::DeleteRuleError)
+        }
+    }
+}
+pub fn add_main_table_rule(address: &IpAddrMask, suppress_prefix_len: u32) -> NetlinkResult<()> {
+    let mut message = RuleMessage::default();
+    let mut rule_msg_hdr = RuleHeader {
+        table: RT_TABLE_MAIN,
+        action: FR_ACT_TO_TBL,
+        flags: FIB_RULE_INVERT,
+        ..Default::default()
+    };
+    match address.ip {
+        IpAddr::V4(_) => {
+            rule_msg_hdr.family = AF_INET as u8;
+        }
+        IpAddr::V6(_) => {
+            rule_msg_hdr.family = AF_INET6 as u8;
+        }
+    };
+
+    message.header = rule_msg_hdr;
+    message
+        .nlas
+        .push(RuleNla::SuppressPrefixLen(suppress_prefix_len));
+    match netlink_request(
+        RtnlMessage::NewRule(message),
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
+        NETLINK_ROUTE,
+    ) {
+        Ok(_msg) => Ok(()),
+        Err(NetlinkError::FileAlreadyExists) => Ok(()),
+        Err(err) => {
+            error!("Failed to add  main table rule: {err}");
+            Err(NetlinkError::AddRuleError)
+        }
+    }
+}
+pub fn delete_main_table_rule(
+    ip_version: IpVersion,
+    suppress_prefix_len: u32,
+) -> NetlinkResult<()> {
+    let mut message = RuleMessage::default();
+    let mut rule_msg_hdr = RuleHeader {
+        table: RT_TABLE_MAIN,
+        action: FR_ACT_TO_TBL,
+        flags: FIB_RULE_INVERT,
+        ..Default::default()
+    };
+    match ip_version {
+        IpVersion::IPv4 => {
+            rule_msg_hdr.family = AF_INET as u8;
+        }
+        IpVersion::IPv6 => {
+            rule_msg_hdr.family = AF_INET6 as u8;
+        }
+    };
+
+    message.header = rule_msg_hdr;
+    message
+        .nlas
+        .push(RuleNla::SuppressPrefixLen(suppress_prefix_len));
+    match netlink_request(
+        RtnlMessage::DelRule(message),
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_EXCL,
+        NETLINK_ROUTE,
+    ) {
+        Ok(_msg) => Ok(()),
+        Err(NetlinkError::NotFound) => Ok(()),
+        Err(err) => {
+            error!("Failed to add  WireGuard interface rule: {err}");
+            Err(NetlinkError::DeleteRuleError)
+        }
+    }
 }

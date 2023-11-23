@@ -1,7 +1,10 @@
-#[cfg(target_os = "linux")]
-use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
+#[cfg(target_os = "linux")]
+use crate::{netlink, IpAddrMask};
 use std::{collections::HashSet, process::Command};
+
+#[cfg(target_os = "linux")]
+const DEFAULT_FWMARK_TABLE: u32 = 51820;
 
 /// Helper function to add routing.  
 #[cfg(target_os = "linux")]
@@ -9,18 +12,20 @@ pub(crate) fn add_peers_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    debug!("Adding peers routing for interface: {}", ifname);
+    debug!("Adding peers routing for interface: {ifname}");
 
     let mut unique_allowed_ips = HashSet::new();
+    let mut default_route = None;
     for peer in peers {
         for addr in &peer.allowed_ips {
+            if addr.ip.is_unspecified() {
+                // Handle default route
+                default_route = Some(addr.to_string());
+                break;
+            }
             unique_allowed_ips.insert(addr.to_string());
         }
     }
-    // Check if default rout is specified
-    let default_route = unique_allowed_ips
-        .iter()
-        .find(|&allowed_ip| allowed_ip == "0.0.0.0/0" || allowed_ip == "::/0");
 
     // If there is default route skip adding other routings.
     if let Some(default_route) = default_route {
@@ -31,9 +36,9 @@ pub(crate) fn add_peers_routing(
         debug!("Current host: {host:?}");
 
         let fwmark = match host.fwmark {
-            Some(fwmark) => fwmark,
-            None => {
-                let mut table = 51820;
+            Some(fwmark) if fwmark != 0 => fwmark,
+            Some(_) | None => {
+                let mut table = DEFAULT_FWMARK_TABLE;
                 loop {
                     let output = Command::new("ip")
                         .args([proto, "route", "show", "table", &table.to_string()])
@@ -50,53 +55,15 @@ pub(crate) fn add_peers_routing(
                 table
             }
         };
-
         debug!("Using fwmark: {fwmark}");
-
         // Add table rules
         debug!("Adding route for allowed IP: {default_route}");
-        let output = Command::new("ip")
-            .args([
-                proto,
-                "route",
-                "add",
-                &default_route,
-                "dev",
-                ifname,
-                "table",
-                &fwmark.to_string(),
-            ])
-            .output()?;
-        check_command_output_status(output)?;
-
-        debug!("Adding rule for fwmark: {fwmark}");
-        let output = Command::new("ip")
-            .args([
-                proto,
-                "rule",
-                "add",
-                "not",
-                "fwmark",
-                &fwmark.to_string(),
-                "table",
-                &fwmark.to_string(),
-            ])
-            .output()?;
-        check_command_output_status(output)?;
+        let address = default_route.parse::<IpAddrMask>()?;
+        netlink::add_route(ifname, &address, Some(fwmark))?;
+        netlink::add_rule(&address, fwmark)?;
 
         debug!("Adding rule for main table");
-        let output = Command::new("ip")
-            .args([
-                proto,
-                "rule",
-                "add",
-                "table",
-                "main",
-                "suppress_prefixlength",
-                "0",
-            ])
-            .output()?;
-        check_command_output_status(output)?;
+        netlink::add_main_table_rule(&address, 0)?;
 
         if is_ipv6 {
             debug!("Reloading ip6tables");
@@ -117,20 +84,12 @@ pub(crate) fn add_peers_routing(
         }
     } else {
         for allowed_ip in unique_allowed_ips {
-            debug!("Processing allowed IP: {}", allowed_ip);
-
-            let is_ipv6 = allowed_ip.contains(':');
-            let proto = if is_ipv6 { "-6" } else { "-4" };
-            // Normal routing
-            let args = [proto, "route", "add", &allowed_ip, "dev", ifname];
-            debug!("Adding route for allowed IP: {allowed_ip}");
-            debug!("Running command ip {args:?}");
-            let output = Command::new("ip").args(args).output()?;
-            check_command_output_status(output)?;
+            debug!("Processing allowed IP: {allowed_ip}");
+            let address = allowed_ip.parse::<IpAddrMask>()?;
+            netlink::add_route(ifname, &address, None)?;
         }
     }
-
-    debug!("Peers routing added successfully");
+    info!("Peers routing added successfully");
     Ok(())
 }
 
@@ -143,18 +102,20 @@ pub(crate) fn add_peers_routing(
     debug!("Adding peers routing for interface: {}", ifname);
     let mut unique_allowed_ips = HashSet::new();
     let mut endpoints = HashSet::new();
+    let mut default_route = None;
     for peer in peers {
         if let Some(endpoint) = peer.endpoint {
             endpoints.insert(endpoint);
         }
         for addr in &peer.allowed_ips {
+            // Handle default route
+            if addr.ip.is_unspecified() {
+                default_route = Some(addr.to_string());
+                break;
+            }
             unique_allowed_ips.insert(addr.to_string());
         }
     }
-    let default_route = unique_allowed_ips
-        .iter()
-        .find(|&allowed_ip| allowed_ip == "0.0.0.0/0" || allowed_ip == "::/0");
-
     if let Some(default_route) = default_route {
         let is_ipv6 = default_route.contains(':');
         let (proto, route1, route2) = match is_ipv6 {
@@ -230,8 +191,8 @@ pub(crate) fn add_peers_routing(
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
-pub(crate) enum IpVersion {
+//#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+pub enum IpVersion {
     IPv4,
     IPv6,
 }
@@ -262,46 +223,11 @@ pub(crate) fn collect_gateway(ip_version: IpVersion) -> Result<String, Wireguard
 }
 
 /// Clean fwmark rules while removing interface same as in wg-quick
-/// Under the hood it runs:
-/// based on ip -4 rule show output or ip -6 rule show output
-/// ip -4 rule delete table (Interface host fwmark)
-/// ip -4 rule delete table main suppress_prefixlength 0
-/// or:
-/// ip -6 rule delete table (Interface host fwmark)
-/// ip -6 rule delete table main suppress_prefixlength 0
 #[cfg(target_os = "linux")]
-pub(crate) fn clean_fwmark_rules(fwmark: &str) -> Result<(), WireguardInterfaceError> {
-    for ip_type in ["-4", "-6"] {
-        // Check if rule exists `ip <ip_type> rule show`
-        let ip_rules = Command::new("ip")
-            .args([ip_type, "rule", "show"])
-            .output()?
-            .stdout;
-        // Check ip rules contains fwmark rules if yes run `ip <ip_type> rule delete table fwmark`
-        if String::from_utf8_lossy(&ip_rules).contains(&format!("lookup {}", fwmark)) {
-            let output = Command::new("ip")
-                .args([ip_type, "rule", "delete", "table", fwmark])
-                .output()?;
-            check_command_output_status(output)?;
-        };
-        // Check ip rules contains suppress lookup if yes delete using:
-        // `ip <ip_type> rule delete table main suppress_prefixlength 0`
-        if String::from_utf8_lossy(&ip_rules)
-            .contains("from all lookup main suppress_prefixlength 0")
-        {
-            let output = Command::new("ip")
-                .args([
-                    ip_type,
-                    "rule",
-                    "delete",
-                    "table",
-                    "main",
-                    "suppress_prefixlength",
-                    "0",
-                ])
-                .output()?;
-            check_command_output_status(output)?;
-        };
-    }
+pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceError> {
+    netlink::delete_rule(IpVersion::IPv4, fwmark)?;
+    netlink::delete_main_table_rule(IpVersion::IPv4, 0)?;
+    netlink::delete_rule(IpVersion::IPv6, fwmark)?;
+    netlink::delete_main_table_rule(IpVersion::IPv6, 0)?;
     Ok(())
 }
