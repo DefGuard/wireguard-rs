@@ -1,6 +1,8 @@
 use crate::{
-    check_command_output_status, error::WireguardInterfaceError, Host, InterfaceConfiguration,
-    IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    check_command_output_status,
+    error::WireguardInterfaceError,
+    utils::{clean_dns, set_dns},
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
 };
 use std::{
     fs,
@@ -105,6 +107,29 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         check_command_output_status(output)?;
         Ok(())
     }
+    /// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+    ///
+    /// This function is platform-specific and is intended for use on Linux and FreeBSD.
+    /// It executes the `resolvconf` command with appropriate arguments to update DNS
+    /// configurations for the specified Wireguard interface. The DNS entries are filtered
+    /// for nameservers and search domains before being piped to the `resolvconf` command.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WireguardInterfaceError::DnsError` if there is an error in setting the DNS configuration.
+    ///
+    /// # Platform Support
+    ///
+    /// - Linux
+    /// - FreeBSD
+    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
+        // Setting dns is unsupported for macos
+        if cfg!(target_os = "macos") {
+            Err(WireguardInterfaceError::KernelNotSupported)
+        } else {
+            Ok(set_dns(&self.ifname, dns)?)
+        }
+    }
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
@@ -151,6 +176,10 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
             WireguardInterfaceError::UnixSockerError(err.to_string())
         })?;
         fs::remove_file(self.socket_path())?;
+        if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
+            clean_dns(&self.ifname);
+        }
+
         Ok(())
     }
 

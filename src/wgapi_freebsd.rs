@@ -1,6 +1,8 @@
 use crate::{
-    bsd, check_command_output_status, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
-    WireguardInterfaceApi, WireguardInterfaceError,
+    bsd, check_command_output_status,
+    utils::{clean_dns, set_dns},
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    WireguardInterfaceError,
 };
 use std::{process::Command, str::FromStr};
 
@@ -87,6 +89,8 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         let output = Command::new("ifconfig")
             .args(["wg", &self.ifname, "destroy"])
             .output()?;
+
+        clean_dns(&self.ifname);
         check_command_output_status(output)
     }
 
@@ -109,5 +113,15 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         debug!("Reading host info for interface {}", self.ifname);
         let host = bsd::get_host(&self.ifname)?;
         Ok(host)
+    }
+
+    //// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+    ///
+    /// It executes the `resolvconf` command with appropriate arguments to update DNS
+    /// configurations for the specified Wireguard interface. The DNS entries are filtered
+    /// for nameservers and search domains before being piped to the `resolvconf` command.
+    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
+        set_dns(&self.ifname, dns)?;
+        Ok(())
     }
 }

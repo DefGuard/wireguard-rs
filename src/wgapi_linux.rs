@@ -1,9 +1,9 @@
 use crate::{
-    netlink, Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    netlink,
+    utils::{clean_dns, set_dns},
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::io::Write;
-use std::process::{Command, Stdio};
 use std::str::FromStr;
 
 /// Manages interfaces created with Linux kernel WireGuard module.
@@ -57,6 +57,7 @@ impl WireguardInterfaceApi for WireguardApiLinux {
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
         netlink::delete_interface(&self.ifname)?;
+        clean_dns(&self.ifname);
         Ok(())
     }
 
@@ -80,33 +81,13 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         let host = netlink::get_host(&self.ifname)?;
         Ok(host)
     }
-
+    //// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+    ///
+    /// It executes the `resolvconf` command with appropriate arguments to update DNS
+    /// configurations for the specified Wireguard interface. The DNS entries are filtered
+    /// for nameservers and search domains before being piped to the `resolvconf` command.
     fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
-        // Build the resolvconf command
-        let mut cmd = Command::new("resolvconf");
-        cmd.arg("-a").arg(self.ifname).arg("-m").arg("0").arg("-x");
-
-        // Execute resolvconf command and pipe filtered DNS entries
-        if let Some(mut child) = cmd.stdin(Stdio::piped()).spawn().ok() {
-            if let Some(mut stdin) = child.stdin.take() {
-                for entry in &dns {
-                    match entry.parse::<std::net::IpAddr>() {
-                        Ok(ip) => writeln!(stdin, "nameserver {}", ip),
-                        Err(_) => {
-                            writeln!(stdin, "search {}", entry)
-                        }
-                    }?;
-                }
-            }
-
-            let status = child.wait().expect("Failed to wait for command");
-            if status.success() {
-                Ok(())
-            } else {
-                Err(WireguardInterfaceError::UserspaceNotSupported)
-            }
-        } else {
-            Err(WireguardInterfaceError::UserspaceNotSupported)
-        }
+        set_dns(&self.ifname, dns)?;
+        Ok(())
     }
 }
