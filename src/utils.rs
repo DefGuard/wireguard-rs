@@ -3,19 +3,9 @@ use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 use std::{collections::HashSet, process::Command};
 
-/// Add peer routing basically a copy of wg-quick.
-///
-/// On linux system sysctl command is requried to work if using 0.0.0.0/0 or ::/0
-/// For every allowed ip it runs ip `ip_version` route add `allowed_ip` dev `ifname`
-/// For 0.0.0.0/0 allowed ip it runs in order:
-/// ip -4 route add 0.0.0.0/0 dev `ifname` table `fwmark` fwmark is host.fwmark
-/// or default 51820 if value is None
-/// ip -4 rule add not fwmark `host.fwmark` table `host.fwmark`
-/// ip -4 rule add table main supress_prefixlength 0
-/// sysctl -q net.ipv4.conf.all.src_valid_mark=1
-/// iptables-restore -n
+/// Helper function to add routing.  
 #[cfg(target_os = "linux")]
-pub(crate) fn add_peers_routings(
+pub(crate) fn add_peers_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
@@ -144,6 +134,7 @@ pub(crate) fn add_peers_routings(
     Ok(())
 }
 
+/// Helper function to add routing.  
 #[cfg(any(target_os = "macos", target_os = "freebsd"))]
 pub(crate) fn add_peers_routing(
     peers: &[Peer],
@@ -245,10 +236,10 @@ pub(crate) enum IpVersion {
     IPv6,
 }
 
-/// Helper function to find default ipv4 or ipv6 gateway on FreeBSD and MacOS systems
-/// Same as in wg-quick extract gateway info using `netstat -nr -f inet` or `inet6`
-/// based on allowed ip  version
-/// Needed to add proper routing for 0.0.0.0/0, ::/0
+/// Helper function to find default ipv4 or ipv6 gateway on FreeBSD and MacOS systems.
+/// Same as in wg-quick find default gateway info using `netstat -nr -f inet` or `inet6`
+/// based on allowed ip version.
+/// Needed to add proper routing for 0.0.0.0/0, ::/0.
 #[cfg(any(target_os = "macos", target_os = "freebsd"))]
 pub(crate) fn collect_gateway(ip_version: IpVersion) -> Result<String, WireguardInterfaceError> {
     let command_args = match ip_version {

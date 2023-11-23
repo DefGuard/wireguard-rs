@@ -74,7 +74,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
     /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.    
     /// ## Note:
     /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
-    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+    fn configure_peers_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peers_routing(peers, &self.ifname)?;
         Ok(())
     }
