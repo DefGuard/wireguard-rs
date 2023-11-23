@@ -1,9 +1,4 @@
-use std::{
-    fmt::Debug,
-    io::ErrorKind,
-    net::{IpAddr, Ipv4Addr},
-};
-
+//! Netlink utilities for controlling network interfaces on Linux
 use netlink_packet_core::{
     NetlinkDeserializable, NetlinkMessage, NetlinkPayload, NetlinkSerializable, NLM_F_ACK,
     NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
@@ -28,6 +23,11 @@ use netlink_packet_wireguard::{
     Wireguard, WireguardCmd,
 };
 use netlink_sys::{constants::NETLINK_GENERIC, protocols::NETLINK_ROUTE, Socket, SocketAddr};
+use std::{
+    fmt::Debug,
+    io::ErrorKind,
+    net::{IpAddr, Ipv4Addr},
+};
 use thiserror::Error;
 
 use crate::{
@@ -294,6 +294,7 @@ fn set_address(ifindex: u32, address: &IpAddrMask) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Set IP address of a WireGuard network interface
 pub fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()> {
     if let Some(index) = get_interface_index(ifname)? {
         return set_address(index, address);
@@ -321,6 +322,7 @@ pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Read host interface data
 pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
     debug!("Reading Netlink data for interface {ifname}");
     let genlmsg = GenlMessage::from_payload(Wireguard {
@@ -345,6 +347,7 @@ pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
     Ok(host)
 }
 
+/// Perform interface configuration
 pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -354,6 +357,7 @@ pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Save or update WireGuard peer configuration
 pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -363,6 +367,7 @@ pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     Ok(())
 }
 
+/// Delete a WireGuard peer from interface
 pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
@@ -371,7 +376,7 @@ pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     Ok(())
 }
-
+/// Get interface index by name.
 fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
     let mut message = LinkMessage::default();
     message.nlas.push(Nla::IfName(ifname.into()));
@@ -405,7 +410,7 @@ fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
 
     Ok(None)
 }
-
+/// Add route for interface.
 pub fn add_route(ifname: &str, address: &IpAddrMask, table: Option<u32>) -> NetlinkResult<()> {
     let mut message = RouteMessage::default();
     let mut route_msg_header = RouteHeader {
@@ -444,16 +449,17 @@ pub fn add_route(ifname: &str, address: &IpAddrMask, table: Option<u32>) -> Netl
             Ok(_msg) => Ok(()),
             Err(NetlinkError::FileAlreadyExists) => Ok(()),
             Err(err) => {
-                error!("Failed to add  WireGuard interface route: {err}");
+                error!("Failed to add WireGuard interface route: {err}");
                 Err(NetlinkError::AddRouteError)
             }
         }
     } else {
-        error!("Failed to add  WireGuard interface route interface {ifname} index not found");
+        error!("Failed to add WireGuard interface route interface {ifname} index not found");
         Err(NetlinkError::AddRouteError)
     }
 }
 
+/// Add rule for fwmark.
 pub fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
     let mut rule_msg_hdr = RuleHeader {
@@ -487,6 +493,8 @@ pub fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
         }
     }
 }
+
+/// Delete rule for fwmark.
 pub fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
     let mut rule_msg_hdr = RuleHeader {
@@ -519,6 +527,7 @@ pub fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
         }
     }
 }
+/// Add rule for main table.
 pub fn add_main_table_rule(address: &IpAddrMask, suppress_prefix_len: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
     let mut rule_msg_hdr = RuleHeader {
@@ -548,11 +557,13 @@ pub fn add_main_table_rule(address: &IpAddrMask, suppress_prefix_len: u32) -> Ne
         Ok(_msg) => Ok(()),
         Err(NetlinkError::FileAlreadyExists) => Ok(()),
         Err(err) => {
-            error!("Failed to add  main table rule: {err}");
+            error!("Failed to add main table rule: {err}");
             Err(NetlinkError::AddRuleError)
         }
     }
 }
+
+/// Delete rule for main table.
 pub fn delete_main_table_rule(
     ip_version: IpVersion,
     suppress_prefix_len: u32,
@@ -585,7 +596,7 @@ pub fn delete_main_table_rule(
         Ok(_msg) => Ok(()),
         Err(NetlinkError::NotFound) => Ok(()),
         Err(err) => {
-            error!("Failed to add  WireGuard interface rule: {err}");
+            error!("Failed to add WireGuard interface rule: {err}");
             Err(NetlinkError::DeleteRuleError)
         }
     }
