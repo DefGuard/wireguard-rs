@@ -1,4 +1,6 @@
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use crate::WireguardInterfaceError;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::{
     io::Write,
     process::{Command, Stdio},
