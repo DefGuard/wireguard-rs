@@ -1,6 +1,6 @@
-use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 #[cfg(target_os = "linux")]
-use crate::{netlink, IpAddrMask};
+use crate::netlink;
+use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 use std::{collections::HashSet, process::Command};
 
 #[cfg(target_os = "linux")]
@@ -20,16 +20,17 @@ pub(crate) fn add_peers_routing(
         for addr in &peer.allowed_ips {
             if addr.ip.is_unspecified() {
                 // Handle default route
-                default_route = Some(addr.to_string());
+                default_route = Some(addr);
                 break;
             }
-            unique_allowed_ips.insert(addr.to_string());
+            unique_allowed_ips.insert(addr);
         }
     }
 
     // If there is default route skip adding other routings.
     if let Some(default_route) = default_route {
-        let is_ipv6 = default_route.contains(':');
+        debug!("Found default route: {default_route:?}");
+        let is_ipv6 = default_route.ip.is_ipv6();
         let proto = if is_ipv6 { "-6" } else { "-4" };
 
         let mut host = netlink::get_host(ifname)?;
@@ -58,12 +59,11 @@ pub(crate) fn add_peers_routing(
         debug!("Using fwmark: {fwmark}");
         // Add table rules
         debug!("Adding route for allowed IP: {default_route}");
-        let address = default_route.parse::<IpAddrMask>()?;
-        netlink::add_route(ifname, &address, Some(fwmark))?;
-        netlink::add_rule(&address, fwmark)?;
+        netlink::add_route(ifname, default_route, Some(fwmark))?;
+        netlink::add_rule(default_route, fwmark)?;
 
         debug!("Adding rule for main table");
-        netlink::add_main_table_rule(&address, 0)?;
+        netlink::add_main_table_rule(default_route, 0)?;
 
         if is_ipv6 {
             debug!("Reloading ip6tables");
@@ -85,8 +85,7 @@ pub(crate) fn add_peers_routing(
     } else {
         for allowed_ip in unique_allowed_ips {
             debug!("Processing allowed IP: {allowed_ip}");
-            let address = allowed_ip.parse::<IpAddrMask>()?;
-            netlink::add_route(ifname, &address, None)?;
+            netlink::add_route(ifname, allowed_ip, None)?;
         }
     }
     info!("Peers routing added successfully");
@@ -110,14 +109,15 @@ pub(crate) fn add_peers_routing(
         for addr in &peer.allowed_ips {
             // Handle default route
             if addr.ip.is_unspecified() {
-                default_route = Some(addr.to_string());
+                default_route = Some(addr);
                 break;
             }
-            unique_allowed_ips.insert(addr.to_string());
+            unique_allowed_ips.insert(addr);
         }
     }
     if let Some(default_route) = default_route {
-        let is_ipv6 = default_route.contains(':');
+        debug!("Found default route: {default_route:?}");
+        let is_ipv6 = default_route.ip.is_ipv6();
         let (proto, route1, route2) = match is_ipv6 {
             true => ("-inet6", "::/1", "8000::/1"),
             false => ("-inet", "0.0.0.0/1", "128.0.0.0/1"),
@@ -180,14 +180,23 @@ pub(crate) fn add_peers_routing(
     } else {
         for allowed_ip in unique_allowed_ips {
             debug!("Processing allowed IP: {}", allowed_ip);
-            let is_ipv6 = allowed_ip.contains(':');
+            let is_ipv6 = allowed_ip.ip.is_ipv6();
             let proto = if is_ipv6 { "-inet6" } else { "-inet" };
-            let args = ["-q", "-n", "add", proto, &allowed_ip, "-interface", ifname];
+            let args = [
+                "-q",
+                "-n",
+                "add",
+                proto,
+                &allowed_ip.to_string(),
+                "-interface",
+                ifname,
+            ];
             debug!("Executing command route with args: {args:?}");
             let output = Command::new("route").args(args).output()?;
             check_command_output_status(output)?;
         }
     }
+    info!("Peers routing added successfully");
     Ok(())
 }
 

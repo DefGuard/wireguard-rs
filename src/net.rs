@@ -10,7 +10,7 @@ use netlink_packet_wireguard::{
 use serde::{Deserialize, Serialize};
 
 /// IP address with CIDR.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Eq, Hash)]
 pub struct IpAddrMask {
     // IP v4 or v6
     pub ip: IpAddr,
