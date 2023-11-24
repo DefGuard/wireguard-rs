@@ -1,6 +1,10 @@
 //! Network address utilities
 
-use std::{error, fmt, net::IpAddr, str::FromStr};
+use std::{
+    error, fmt,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    str::FromStr,
+};
 
 #[cfg(target_os = "linux")]
 use netlink_packet_wireguard::{
@@ -22,6 +26,54 @@ impl IpAddrMask {
     #[must_use]
     pub fn new(ip: IpAddr, cidr: u8) -> Self {
         Self { ip, cidr }
+    }
+
+    /// Returns broadcast address as `IpAddr`.
+    #[must_use]
+    pub fn broadcast(&self) -> IpAddr {
+        match self.ip {
+            IpAddr::V4(ip) => {
+                let addr = u32::from(ip);
+                let bits = if self.cidr >= 32 {
+                    0
+                } else {
+                    u32::MAX >> self.cidr
+                };
+                IpAddr::V4(Ipv4Addr::from(addr | bits))
+            }
+            IpAddr::V6(ip) => {
+                let addr = u128::from(ip);
+                let bits = if self.cidr >= 32 {
+                    0
+                } else {
+                    u128::MAX >> self.cidr
+                };
+                IpAddr::V6(Ipv6Addr::from(addr | bits))
+            }
+        }
+    }
+
+    /// Returns network mask as `IpAddr`.
+    #[must_use]
+    pub fn mask(&self) -> IpAddr {
+        match self.ip {
+            IpAddr::V4(_) => {
+                let mask = if self.cidr == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - self.cidr)
+                };
+                IpAddr::V4(Ipv4Addr::from(mask))
+            }
+            IpAddr::V6(_) => {
+                let mask = if self.cidr == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - self.cidr)
+                };
+                IpAddr::V6(Ipv6Addr::from(mask))
+            }
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -77,8 +129,6 @@ impl FromStr for IpAddrMask {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, Ipv6Addr};
-
     use super::*;
 
     #[test]
@@ -124,5 +174,37 @@ mod tests {
             "172.168.0.0/256".parse::<IpAddrMask>(),
             Err(IpAddrParseError)
         );
+    }
+
+    #[test]
+    fn addr_mask() {
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1)), 24);
+        assert_eq!(ip.broadcast(), IpAddr::V4(Ipv4Addr::new(192, 168, 0, 255)));
+        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 255, 0)));
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8);
+        assert_eq!(
+            ip.broadcast(),
+            IpAddr::V4(Ipv4Addr::new(127, 255, 255, 255))
+        );
+        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 0, 0, 0)));
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(169, 254, 219, 59)), 16);
+        assert_eq!(
+            ip.broadcast(),
+            IpAddr::V4(Ipv4Addr::new(169, 254, 255, 255))
+        );
+        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 0, 0)));
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
+        assert_eq!(
+            ip.broadcast(),
+            IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))
+        );
+        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)), 32);
+        assert_eq!(ip.broadcast(), IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)));
+        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)));
     }
 }

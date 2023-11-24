@@ -13,7 +13,7 @@ use nix::{errno::Errno, sys::socket};
 use thiserror::Error;
 
 use self::{
-    ifconfig::IfReq,
+    ifconfig::{IfAliasReq, IfReq},
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
@@ -62,7 +62,7 @@ unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
 /// Create socket for ioctl communication.
 fn create_socket() -> Result<OwnedFd, Errno> {
     socket::socket(
-        socket::AddressFamily::Unix,
+        socket::AddressFamily::Inet,
         socket::SockType::Datagram,
         socket::SockFlag::empty(),
         None,
@@ -314,4 +314,19 @@ pub fn create_interface(if_name: &str) -> Result<(), IoError> {
 pub fn delete_interface(if_name: &str) -> Result<(), IoError> {
     let ifreq = IfReq::new(if_name);
     ifreq.destroy()
+}
+
+pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
+    let broadcast = address.broadcast();
+    let mask = address.mask();
+
+    if let (IpAddr::V4(address), IpAddr::V4(broadcast), IpAddr::V4(mask)) =
+        (address.ip, broadcast, mask)
+    {
+        let ifaliasreq = IfAliasReq::new(if_name, &address, &broadcast, &mask);
+        ifaliasreq.add_address()
+    } else {
+        // TODO: Ipv6
+        Ok(())
+    }
 }

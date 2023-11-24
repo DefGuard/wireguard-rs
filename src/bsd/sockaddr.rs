@@ -13,7 +13,7 @@ const SA_IN6_SIZE: usize = size_of::<SockAddrIn6>();
 
 // netinet/in.h
 #[repr(C)]
-struct SockAddrIn {
+pub(super) struct SockAddrIn {
     len: u8,
     family: u8,
     port: u16,
@@ -37,6 +37,18 @@ impl From<&SocketAddrV4> for SockAddrIn {
             family: AF_INET,
             port: sa.port().to_be(),
             addr: sa.ip().octets(),
+            zero: [0u8; 8],
+        }
+    }
+}
+
+impl From<&Ipv4Addr> for SockAddrIn {
+    fn from(ip: &Ipv4Addr) -> Self {
+        Self {
+            len: SA_IN_SIZE as u8,
+            family: AF_INET,
+            port: 0,
+            addr: ip.octets(),
             zero: [0u8; 8],
         }
     }

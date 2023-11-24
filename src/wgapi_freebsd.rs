@@ -19,15 +19,7 @@ impl WireguardApiFreebsd {
 }
 
 impl WireguardInterfaceApi for WireguardApiFreebsd {
-    /// Creates a WireGuard interface using `ifconfig`
-    ///
-    /// There's no dedicated exit code to indicate that an interface already exists,
-    /// so we have to check command output.
-    ///
-    /// Example error: `CommandExecutionError { stdout: "wg7\n", stderr: "ifconfig: ioctl SIOCSIFNAME (set name): File exists\n" }`
-    ///
-    /// Additionally since `ifconfig` creates an interface first and then tries to rename it
-    /// it leaves a temporary interface that we have to manually destroy.
+    /// Creates a WireGuard network interface.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating interface {}", &self.ifname);
         bsd::create_interface(&self.ifname)?;
@@ -42,6 +34,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
             .output()?;
         check_command_output_status(output)
     }
+
     /// For every allowed IP, it runs:  
     /// - `route -q -n add <inet> allowed_ip -interface if_name`   
     /// `ifname` - interface name while creating api  
@@ -78,6 +71,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         Ok(())
     }
 
+    /// Removes WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;

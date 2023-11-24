@@ -57,6 +57,7 @@ pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
 pub mod netlink;
+mod utils;
 mod wgapi;
 
 #[cfg(target_os = "freebsd")]
@@ -66,8 +67,6 @@ mod wgapi_linux;
 #[cfg(target_family = "unix")]
 mod wgapi_userspace;
 mod wireguard_interface;
-
-mod utils;
 
 #[macro_use]
 extern crate log;
