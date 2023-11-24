@@ -81,6 +81,7 @@ impl From<NetlinkError> for WireguardInterfaceError {
     }
 }
 
+/// Wrapper `Result` type for Netlink operations
 pub type NetlinkResult<T> = Result<T, NetlinkError>;
 
 macro_rules! get_nla_value {
@@ -105,7 +106,7 @@ impl Key {
     }
 }
 
-pub fn netlink_request_genl<F>(
+fn netlink_request_genl<F>(
     mut message: GenlMessage<F>,
     flags: u16,
 ) -> NetlinkResult<Vec<NetlinkMessage<GenlMessage<F>>>>
@@ -139,7 +140,7 @@ where
     netlink_request(message, flags, NETLINK_GENERIC)
 }
 
-pub fn netlink_request<I>(
+fn netlink_request<I>(
     message: I,
     flags: u16,
     socket: isize,
@@ -302,7 +303,7 @@ pub fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()
     Ok(())
 }
 
-/// Delete WireGuard interface.
+/// Delete WireGuard interface
 pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.nlas.push(Nla::IfName(ifname.into()));
