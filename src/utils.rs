@@ -98,7 +98,7 @@ pub(crate) fn add_peers_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    debug!("Adding peers routing for interface: {}", ifname);
+    debug!("Adding peers routing for interface: {ifname}");
     let mut unique_allowed_ips = HashSet::new();
     let mut endpoints = HashSet::new();
     let mut default_route = None;
@@ -138,7 +138,7 @@ pub(crate) fn add_peers_routing(
                 false => (IpVersion::IPv6, "-inet6"),
             };
             let gateway = collect_gateway(&ip_version)?;
-            // Precautionary route delete don't handle result because it may not exist
+            // Precautionary `route delete` don't handle result because it may not exist.
             let _ = Command::new("route")
                 .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
                 .output();
