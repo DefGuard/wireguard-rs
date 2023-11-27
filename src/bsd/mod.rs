@@ -9,11 +9,14 @@ use std::{
     slice::from_raw_parts,
 };
 
-use nix::{errno::Errno, sys::socket};
+use nix::{
+    errno::Errno,
+    sys::socket::{socket, AddressFamily, SockFlag, SockType},
+};
 use thiserror::Error;
 
 use self::{
-    ifconfig::{IfAliasReq, IfReq},
+    ifconfig::{IfReq, IfReq6, In6AliasReq, InAliasReq},
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
@@ -60,13 +63,8 @@ unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
 }
 
 /// Create socket for ioctl communication.
-fn create_socket() -> Result<OwnedFd, Errno> {
-    socket::socket(
-        socket::AddressFamily::Inet,
-        socket::SockType::Datagram,
-        socket::SockFlag::empty(),
-        None,
-    )
+fn create_socket(address_family: AddressFamily) -> Result<OwnedFd, Errno> {
+    socket(address_family, SockType::Datagram, SockFlag::empty(), None)
 }
 
 #[derive(Debug, Error)]
@@ -320,13 +318,30 @@ pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError
     let broadcast = address.broadcast();
     let mask = address.mask();
 
-    if let (IpAddr::V4(address), IpAddr::V4(broadcast), IpAddr::V4(mask)) =
-        (address.ip, broadcast, mask)
-    {
-        let ifaliasreq = IfAliasReq::new(if_name, &address, &broadcast, &mask);
-        ifaliasreq.add_address()
-    } else {
-        // TODO: Ipv6
-        Ok(())
+    match (address.ip, broadcast, mask) {
+        (IpAddr::V4(address), IpAddr::V4(broadcast), IpAddr::V4(mask)) => {
+            let inaliasreq = InAliasReq::new(if_name, &address, &broadcast, &mask);
+            inaliasreq.add_address()
+        }
+        // FIXME: currently doesn't work.
+        (IpAddr::V6(address), IpAddr::V6(broadcast), IpAddr::V6(mask)) => {
+            let inaliasreq = In6AliasReq::new(if_name, &address, &broadcast, &mask);
+            inaliasreq.add_address()
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
+    match address.ip {
+        IpAddr::V4(address) => {
+            let mut ifreq = IfReq::new(if_name);
+            ifreq.delete_address(&address)
+        }
+        // FIXME: currently doesn't work.
+        IpAddr::V6(address) => {
+            let mut ifreq6 = IfReq6::new(if_name);
+            ifreq6.delete_address(&address)
+        }
     }
 }

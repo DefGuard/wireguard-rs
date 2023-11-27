@@ -1,8 +1,8 @@
 use crate::{
-    bsd, check_command_output_status, utils::add_peers_routing, Host, InterfaceConfiguration,
-    IpAddrMask, Key, Peer, WireguardInterfaceApi, WireguardInterfaceError,
+    bsd, utils::add_peers_routing, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
+    WireguardInterfaceApi, WireguardInterfaceError,
 };
-use std::{process::Command, str::FromStr};
+use std::str::FromStr;
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
@@ -28,11 +28,8 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
-        let output = Command::new("ifconfig")
-            .arg(&self.ifname)
-            .arg(&address.to_string())
-            .output()?;
-        check_command_output_status(output)
+        bsd::assign_address(&self.ifname, address)?;
+        Ok(())
     }
 
     /// For every allowed IP, it runs:  

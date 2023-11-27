@@ -5,7 +5,7 @@ use std::{
     slice::from_raw_parts,
 };
 
-use nix::ioctl_readwrite;
+use nix::{ioctl_readwrite, sys::socket::AddressFamily};
 
 use super::{create_socket, IoError};
 
@@ -58,7 +58,7 @@ impl WgDataIo {
     }
 
     pub(super) fn read_data(&mut self) -> Result<(), IoError> {
-        let socket = create_socket().map_err(IoError::ReadIo)?;
+        let socket = create_socket(AddressFamily::Unix).map_err(IoError::ReadIo)?;
         unsafe {
             // First do ioctl with empty `wg_data` to obtain buffer size.
             read_wireguard_data(socket.as_raw_fd(), self).map_err(IoError::ReadIo)?;
@@ -72,7 +72,7 @@ impl WgDataIo {
     }
 
     pub(super) fn write_data(&mut self) -> Result<(), IoError> {
-        let socket = create_socket().map_err(IoError::WriteIo)?;
+        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
         unsafe {
             write_wireguard_data(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
         }
