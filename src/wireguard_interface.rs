@@ -13,7 +13,7 @@ pub trait WireguardInterfaceApi {
     /// Add peer routing, basically a copy of `wg-quick up <if_name>` routing.
     /// Extracts all uniques allowed ips from [Peer](crate::Peer) slice and add routing for every
     /// address.
-    fn configure_peers_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError>;
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError>;
 
     /// Updates configuration of an existing WireGuard interface.
     fn configure_interface(

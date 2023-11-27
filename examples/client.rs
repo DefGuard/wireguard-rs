@@ -1,12 +1,12 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, str::FromStr};
 
 use defguard_wireguard_rs::{
-    host::Peer, key::Key, InterfaceConfiguration, WGApi, WireguardInterfaceApi,
+    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, WGApi, WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create new api object for interface
+    // Create new API object for interface
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
         "wg0".into()
     } else {
@@ -30,30 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Peer endpoint and interval
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);
-
-    #[cfg(target_os = "linux")]
-    {
-        use std::{process::Command, str::FromStr};
-
-        use defguard_wireguard_rs::net::IpAddrMask;
-
-        // Peer allowed ips
-        let allowed_ips = vec!["10.6.0.0/24", "192.168.2.0/24"];
-        for allowed_ip in allowed_ips {
-            let addr = IpAddrMask::from_str(allowed_ip)?;
-            peer.allowed_ips.push(addr);
-            // Add a route for the allowed IP using the `ip -4 route add` command
-            let output = Command::new("ip")
-                .args(["-4", "route", "add", allowed_ip, "dev", &ifname])
-                .output()?;
-
-            if output.status.success() {
-                log::info!("Added route for {allowed_ip}");
-            } else {
-                log::error!("Failed to add route for {allowed_ip}: {output:?}");
-            }
-        }
-    }
+    peer.allowed_ips.push(IpAddrMask::from_str("10.6.0.0/24")?);
+    peer.allowed_ips
+        .push(IpAddrMask::from_str("192.168.22.0/24")?);
 
     // interface configuration
     let interface_config = InterfaceConfiguration {
@@ -65,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     wgapi.configure_interface(&interface_config)?;
+    wgapi.configure_peer_routing(&interface_config.peers)?;
 
     Ok(())
 }

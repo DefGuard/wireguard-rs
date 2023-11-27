@@ -1,5 +1,5 @@
 use crate::{
-    bsd, utils::add_peers_routing, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
+    bsd, utils::add_peer_routing, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     WireguardInterfaceApi, WireguardInterfaceError,
 };
 use std::str::FromStr;
@@ -32,6 +32,8 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         Ok(())
     }
 
+    /// Add peer addresses to network routing table.
+    ///
     /// For every allowed IP, it runs:  
     /// - `route -q -n add <inet> allowed_ip -interface if_name`   
     /// `ifname` - interface name while creating api  
@@ -44,8 +46,8 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
     /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.    
     /// ## Note:
     /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
-    fn configure_peers_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        add_peers_routing(peers, &self.ifname)?;
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        add_peer_routing(peers, &self.ifname)?;
         Ok(())
     }
 
@@ -68,7 +70,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         Ok(())
     }
 
-    /// Removes WireGuard network interface.
+    /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;

@@ -377,6 +377,7 @@ pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     Ok(())
 }
+
 /// Get interface index by name.
 fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
     let mut message = LinkMessage::default();
@@ -411,6 +412,7 @@ fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
 
     Ok(None)
 }
+
 /// Add route for interface.
 pub fn add_route(ifname: &str, address: &IpAddrMask, table: Option<u32>) -> NetlinkResult<()> {
     let mut message = RouteMessage::default();

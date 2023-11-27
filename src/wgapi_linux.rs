@@ -1,6 +1,6 @@
 use crate::{
     netlink,
-    utils::{add_peers_routing, clean_fwmark_rules},
+    utils::{add_peer_routing, clean_fwmark_rules},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
@@ -53,6 +53,7 @@ impl WireguardInterfaceApi for WireguardApiLinux {
 
         Ok(())
     }
+
     /// On a Linux system, the `sysctl` command is required to work if using `0.0.0.0/0` or `::/0`.  
     /// For every allowed IP, it runs:  
     /// `ip <ip_version> route add <allowed_ip> dev <ifname>`   
@@ -70,8 +71,8 @@ impl WireguardInterfaceApi for WireguardApiLinux {
     /// - `iptables-restore -n`. For `0.0.0.0/0` only.  
     /// - `iptables6-restore -n`. For `::/0` only.    
     /// Based on ip type `<ip_version>` will be equal to `-4` or `-6`.
-    fn configure_peers_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        add_peers_routing(peers, &self.ifname)?;
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        add_peer_routing(peers, &self.ifname)?;
         Ok(())
     }
 

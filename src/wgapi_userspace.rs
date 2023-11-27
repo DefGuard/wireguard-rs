@@ -1,5 +1,5 @@
 use crate::{
-    check_command_output_status, error::WireguardInterfaceError, utils::add_peers_routing, Host,
+    check_command_output_status, error::WireguardInterfaceError, utils::add_peer_routing, Host,
     InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
 };
 use std::{
@@ -106,6 +106,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         Ok(())
     }
 
+    /// Assign IP address to network interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
         let output = if cfg!(target_os = "macos") {
@@ -123,6 +124,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         Ok(())
     }
 
+    /// Configure network interface.
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
@@ -142,6 +144,8 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         Ok(())
     }
 
+    /// Add peer addresses to network routing table.
+    ///
     /// # Linux:
     /// On a Linux system, the `sysctl` command is required to work if using `0.0.0.0/0` or `::/0`.  
     /// For every allowed IP, it runs:  
@@ -150,7 +154,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// `<ip_version>` - `-4` or `-6` based on allowed ip type  
     /// `<allowed_ip>`- one of [Peer](crate::Peer) allowed ip
     ///
-    /// For `0.0.0.0/0` or `::/0`  allowed IP, it runs belowed additional commands in order:
+    /// For `0.0.0.0/0` or `::/0` allowed IP, it runs belowed additional commands in order:
     /// - `ip <ip_version> route add 0.0.0.0/0 dev <ifname> table <fwmark>`  
     /// `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.  
     /// `<ifname>` - Interface name.  
@@ -159,7 +163,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.  
     /// - `iptables-restore -n`. For `0.0.0.0/0` only.  
     /// - `iptables6-restore -n`. For `::/0` only.    
-    /// Based on ip type `<ip_version>` will be equal to `-4` or `-6`.
+    /// Based on IP type `<ip_version>` will be equal to `-4` or `-6`.
     ///
     ///
     /// # MacOS, FreeBSD:  
@@ -172,14 +176,12 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.   
     /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`  
     /// `<endpoint>` - Add routing for every unique Peer endpoint.   
-    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.    
-    /// ## Note:
-    /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
-    fn configure_peers_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        add_peers_routing(peers, &self.ifname)?;
-        Ok(())
+    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        add_peer_routing(peers, &self.ifname)
     }
 
+    /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
         // 'wireguard-go` should by design shut down if the socket is removed
