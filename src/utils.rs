@@ -118,9 +118,10 @@ pub(crate) fn add_peers_routing(
     if let Some(default_route) = default_route {
         debug!("Found default route: {default_route:?}");
         let is_ipv6 = default_route.ip.is_ipv6();
-        let (proto, route1, route2) = match is_ipv6 {
-            true => ("-inet6", "::/1", "8000::/1"),
-            false => ("-inet", "0.0.0.0/1", "128.0.0.0/1"),
+        let (proto, route1, route2) = if is_ipv6 {
+            ("-inet6", "::/1", "8000::/1")
+        } else {
+            ("-inet", "0.0.0.0/1", "128.0.0.0/1")
         };
         // Add table rules
         let args = ["-q", "-n", "add", proto, route1, "-interface", ifname];
@@ -133,9 +134,10 @@ pub(crate) fn add_peers_routing(
         check_command_output_status(output)?;
         // route endpoints
         for endpoint in &endpoints {
-            let (ip_version, proto) = match endpoint.is_ipv4() {
-                true => (IpVersion::IPv4, "-inet"),
-                false => (IpVersion::IPv6, "-inet6"),
+            let (ip_version, proto) = if endpoint.is_ipv4() {
+                (IpVersion::IPv4, "-inet")
+            } else {
+                (IpVersion::IPv6, "-inet6")
             };
             let gateway = collect_gateway(&ip_version)?;
             // Precautionary `route delete` don't handle result because it may not exist.
@@ -159,9 +161,10 @@ pub(crate) fn add_peers_routing(
             } else {
                 // Prevent routing loop as in wg-quick
                 debug!("Default gateway not found.");
-                let address = match endpoint.is_ipv4() {
-                    true => "127.0.0.1",
-                    false => "::1",
+                let address = if endpoint.is_ipv4() {
+                    "127.0.0.1"
+                } else {
+                    "::1"
                 };
                 let args = [
                     "-q",

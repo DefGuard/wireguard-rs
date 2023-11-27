@@ -1,6 +1,6 @@
 [package]
 name = "defguard_wireguard_rs"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
 license = "Apache-2.0"

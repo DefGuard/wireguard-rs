@@ -1,7 +1,7 @@
-use std::{net::SocketAddr, str::FromStr};
+use std::net::SocketAddr;
 
 use defguard_wireguard_rs::{
-    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, WGApi, WireguardInterfaceApi,
+    host::Peer, key::Key, InterfaceConfiguration, WGApi, WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
@@ -25,26 +25,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer = Peer::new(peer_key.clone());
 
     log::info!("endpoint");
-    // Your wireguard server endpoint which client connects too
+    // Your WireGuard server endpoint which client connects to
     let endpoint: SocketAddr = "10.10.10.10:55001".parse().unwrap();
     // Peer endpoint and interval
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);
 
-    // Peer allowed ips
-    let allowed_ips = vec!["10.6.0.0/24", "192.168.2.0/24"];
-    for allowed_ip in allowed_ips {
-        let addr = IpAddrMask::from_str(allowed_ip)?;
-        peer.allowed_ips.push(addr);
-        // Add a route for the allowed IP using the `ip -4 route add` command
-        let output = std::process::Command::new("ip")
-            .args(["-4", "route", "add", allowed_ip, "dev", "wg0"])
-            .output()?;
+    #[cfg(target_os = "linux")]
+    {
+        use std::{process::Command, str::FromStr};
 
-        if output.status.success() {
-            log::info!("Added route for {}", allowed_ip);
-        } else {
-            log::error!("Failed to add route for {}: {:?}", allowed_ip, output);
+        use defguard_wireguard_rs::net::IpAddrMask;
+
+        // Peer allowed ips
+        let allowed_ips = vec!["10.6.0.0/24", "192.168.2.0/24"];
+        for allowed_ip in allowed_ips {
+            let addr = IpAddrMask::from_str(allowed_ip)?;
+            peer.allowed_ips.push(addr);
+            // Add a route for the allowed IP using the `ip -4 route add` command
+            let output = Command::new("ip")
+                .args(["-4", "route", "add", allowed_ip, "dev", &ifname])
+                .output()?;
+
+            if output.status.success() {
+                log::info!("Added route for {allowed_ip}");
+            } else {
+                log::error!("Failed to add route for {allowed_ip}: {output:?}");
+            }
         }
     }
 
