@@ -52,6 +52,10 @@ impl WireguardInterfaceApi for WGApi {
         self.0.assign_address(address)
     }
 
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        self.0.configure_peer_routing(peers)
+    }
+
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
@@ -67,8 +71,8 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer(peer)
     }
 
-    fn set_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
-        self.0.set_dns(dns)
+    fn configure_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
+        self.0.configure_dns(dns)
     }
 
     fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {

@@ -1,11 +1,22 @@
+mod ifconfig;
 mod nvlist;
 mod sockaddr;
 mod timespec;
 mod wgio;
 
-use std::{collections::HashMap, mem::size_of, net::IpAddr, ptr::addr_of, slice::from_raw_parts};
+use std::{
+    collections::HashMap, mem::size_of, net::IpAddr, os::fd::OwnedFd, ptr::addr_of,
+    slice::from_raw_parts,
+};
+
+use nix::{
+    errno::Errno,
+    sys::socket::{socket, AddressFamily, SockFlag, SockType},
+};
+use thiserror::Error;
 
 use self::{
+    ifconfig::{IfReq, IfReq6, In6AliasReq, InAliasReq},
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
@@ -14,10 +25,8 @@ use self::{
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
-    Key,
+    Key, WireguardInterfaceError,
 };
-
-pub use wgio::WgIoError;
 
 // nvlist key names
 static NV_LISTEN_PORT: &str = "listen-port";
@@ -51,6 +60,27 @@ unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
 unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
     let ptr = addr_of!(p).cast::<u8>();
     from_raw_parts(ptr, size_of::<T>())
+}
+
+/// Create socket for ioctl communication.
+fn create_socket(address_family: AddressFamily) -> Result<OwnedFd, Errno> {
+    socket(address_family, SockType::Datagram, SockFlag::empty(), None)
+}
+
+#[derive(Debug, Error)]
+pub enum IoError {
+    #[error("Memory allocation error")]
+    MemAlloc,
+    #[error("Read error {0}")]
+    ReadIo(Errno),
+    #[error("Write error {0}")]
+    WriteIo(Errno),
+}
+
+impl From<IoError> for WireguardInterfaceError {
+    fn from(error: IoError) -> Self {
+        WireguardInterfaceError::BsdError(error.to_string())
+    }
 }
 
 impl IpAddrMask {
@@ -223,7 +253,7 @@ impl<'a> Key {
     }
 }
 
-pub fn get_host(if_name: &str) -> Result<Host, WgIoError> {
+pub fn get_host(if_name: &str) -> Result<Host, IoError> {
     let mut wg_data = WgDataIo::new(if_name);
     wg_data.read_data()?;
 
@@ -231,45 +261,87 @@ pub fn get_host(if_name: &str) -> Result<Host, WgIoError> {
     // FIXME: use proper error, here and above
     nvlist
         .unpack(wg_data.as_slice())
-        .map_err(|_| WgIoError::MemAlloc)?;
+        .map_err(|_| IoError::MemAlloc)?;
 
     Ok(Host::from_nvlist(&nvlist))
 }
 
-pub fn set_host(if_name: &str, host: &Host) -> Result<(), WgIoError> {
+pub fn set_host(if_name: &str, host: &Host) -> Result<(), IoError> {
     let mut wg_data = WgDataIo::new(if_name);
 
     let nvlist = host.as_nvlist();
     // FIXME: use proper error, here and above
-    let mut buf = nvlist.pack().map_err(|_| WgIoError::MemAlloc)?;
+    let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
 
     wg_data.wgd_data = buf.as_mut_ptr();
     wg_data.wgd_size = buf.len();
     wg_data.write_data()
 }
 
-pub fn set_peer(if_name: &str, peer: &Peer) -> Result<(), WgIoError> {
+pub fn set_peer(if_name: &str, peer: &Peer) -> Result<(), IoError> {
     let mut wg_data = WgDataIo::new(if_name);
 
     let mut nvlist = NvList::new();
     nvlist.append_nvlist_array(NV_PEERS, vec![peer.as_nvlist()]);
     // FIXME: use proper error, here and above
-    let mut buf = nvlist.pack().map_err(|_| WgIoError::MemAlloc)?;
+    let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
 
     wg_data.wgd_data = buf.as_mut_ptr();
     wg_data.wgd_size = buf.len();
     wg_data.write_data()
 }
 
-pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), WgIoError> {
+pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
     let mut wg_data = WgDataIo::new(if_name);
 
     let mut nvlist = NvList::new();
     nvlist.append_nvlist_array(NV_PEERS, vec![public_key.as_nvlist_for_removal()]);
     // FIXME: use proper error, here and above
-    let mut buf = nvlist.pack().map_err(|_| WgIoError::MemAlloc)?;
+    let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
 
     wg_data.wgd_data = buf.as_mut_ptr();
     wg_data.wgd_size = buf.len();
     wg_data.write_data()
+}
+
+pub fn create_interface(if_name: &str) -> Result<(), IoError> {
+    let mut ifreq = IfReq::new(if_name);
+    ifreq.create()
+}
+
+pub fn delete_interface(if_name: &str) -> Result<(), IoError> {
+    let ifreq = IfReq::new(if_name);
+    ifreq.destroy()
+}
+
+pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
+    let broadcast = address.broadcast();
+    let mask = address.mask();
+
+    match (address.ip, broadcast, mask) {
+        (IpAddr::V4(address), IpAddr::V4(broadcast), IpAddr::V4(mask)) => {
+            let inaliasreq = InAliasReq::new(if_name, &address, &broadcast, &mask);
+            inaliasreq.add_address()
+        }
+        // FIXME: currently doesn't work.
+        (IpAddr::V6(address), IpAddr::V6(broadcast), IpAddr::V6(mask)) => {
+            let inaliasreq = In6AliasReq::new(if_name, &address, &broadcast, &mask);
+            inaliasreq.add_address()
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
+    match address.ip {
+        IpAddr::V4(address) => {
+            let mut ifreq = IfReq::new(if_name);
+            ifreq.delete_address(&address)
+        }
+        // FIXME: currently doesn't work.
+        IpAddr::V6(address) => {
+            let mut ifreq6 = IfReq6::new(if_name);
+            ifreq6.delete_address(&address)
+        }
+    }
 }

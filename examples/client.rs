@@ -6,7 +6,7 @@ use defguard_wireguard_rs::{
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create new api object for interface
+    // Create new API object for interface
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
         "wg0".into()
     } else {
@@ -25,28 +25,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer = Peer::new(peer_key.clone());
 
     log::info!("endpoint");
-    // Your wireguard server endpoint which client connects too
+    // Your WireGuard server endpoint which client connects to
     let endpoint: SocketAddr = "10.10.10.10:55001".parse().unwrap();
     // Peer endpoint and interval
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);
-
-    // Peer allowed ips
-    let allowed_ips = vec!["10.6.0.0/24", "192.168.2.0/24"];
-    for allowed_ip in allowed_ips {
-        let addr = IpAddrMask::from_str(allowed_ip)?;
-        peer.allowed_ips.push(addr);
-        // Add a route for the allowed IP using the `ip -4 route add` command
-        let output = std::process::Command::new("ip")
-            .args(["-4", "route", "add", allowed_ip, "dev", "wg0"])
-            .output()?;
-
-        if output.status.success() {
-            log::info!("Added route for {}", allowed_ip);
-        } else {
-            log::error!("Failed to add route for {}: {:?}", allowed_ip, output);
-        }
-    }
+    peer.allowed_ips.push(IpAddrMask::from_str("10.6.0.0/24")?);
+    peer.allowed_ips
+        .push(IpAddrMask::from_str("192.168.22.0/24")?);
 
     // interface configuration
     let interface_config = InterfaceConfiguration {
@@ -58,6 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     wgapi.configure_interface(&interface_config)?;
+    wgapi.configure_peer_routing(&interface_config.peers)?;
 
     Ok(())
 }

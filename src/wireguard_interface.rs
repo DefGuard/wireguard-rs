@@ -11,6 +11,11 @@ pub trait WireguardInterfaceApi {
     /// Assigns IP address to an existing interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError>;
 
+    /// Add peer routing, basically a copy of `wg-quick up <if_name>` routing.
+    /// Extracts all uniques allowed ips from [Peer](crate::Peer) slice and add routing for every
+    /// address.
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError>;
+
     /// Updates configuration of an existing WireGuard interface.
     fn configure_interface(
         &self,
@@ -30,7 +35,7 @@ pub trait WireguardInterfaceApi {
 
     /// Reads current WireGuard interface configuration and stats.
     ///
-    /// Similar to 'wg show <if_name>` command.
+    /// Similar to `wg show <if_name>` command.
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError>;
 
     /// Sets the DNS configuration for the WireGuard interface.
@@ -42,12 +47,12 @@ pub trait WireguardInterfaceApi {
     ///
     /// # Arguments
     ///
-    /// * `dns` - A vector of strings representing the DNS server addresses to be set for
+    /// * `dns` - A vector of IpAddr representing the DNS server addresses to be set for
     ///   the WireGuard interface.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` if the DNS configuration is successfully set, or an
     /// `Err(WireguardInterfaceError)` if there is an error during the configuration process.
-    fn set_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError>;
+    fn configure_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError>;
 }
