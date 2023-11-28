@@ -1,10 +1,10 @@
 use crate::{
-    bsd, check_command_output_status,
-    utils::{add_peer_routing, clean_dns, set_dns},
+    bsd,
+    utils::{add_peer_routing, clean_dns, configure_dns},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::{net::IpAddr, process::Command, str::FromStr};
+use std::{net::IpAddr, str::FromStr};
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
@@ -78,7 +78,6 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         bsd::delete_interface(&self.ifname)?;
 
         clean_dns(&self.ifname);
-        check_command_output_status(output);
         Ok(())
     }
 
