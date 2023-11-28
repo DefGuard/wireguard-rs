@@ -47,7 +47,7 @@ pub trait WireguardInterfaceApi {
     ///
     /// # Arguments
     ///
-    /// * `dns` - A vector of IpAddr representing the DNS server addresses to be set for
+    /// * `dns` - A vector of [IpAddr](std::net::IpAddr) representing the DNS server addresses to be set for
     ///   the WireGuard interface.
     ///
     /// # Returns
