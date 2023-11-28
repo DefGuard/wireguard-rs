@@ -4,21 +4,34 @@ use std::{
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
 };
 
+// Note: these values differ across different platforms.
+use libc::{AF_INET, AF_INET6};
+
 use super::{cast_bytes, cast_ref};
 
-const AF_INET: u8 = 2; // IPv4
-const AF_INET6: u8 = 30; // IPv6
 const SA_IN_SIZE: usize = size_of::<SockAddrIn>();
 const SA_IN6_SIZE: usize = size_of::<SockAddrIn6>();
 
 // netinet/in.h
 #[repr(C)]
-struct SockAddrIn {
+pub(super) struct SockAddrIn {
     len: u8,
     family: u8,
     port: u16,
     addr: [u8; 4],
     zero: [u8; 8],
+}
+
+impl Default for SockAddrIn {
+    fn default() -> Self {
+        Self {
+            len: SA_IN_SIZE as u8,
+            family: AF_INET as u8,
+            port: 0,
+            addr: [0u8; 4],
+            zero: [0u8; 8],
+        }
+    }
 }
 
 impl From<&SockAddrIn> for SocketAddr {
@@ -34,7 +47,7 @@ impl From<&SocketAddrV4> for SockAddrIn {
     fn from(sa: &SocketAddrV4) -> Self {
         Self {
             len: SA_IN_SIZE as u8,
-            family: AF_INET,
+            family: AF_INET as u8,
             port: sa.port().to_be(),
             addr: sa.ip().octets(),
             zero: [0u8; 8],
@@ -42,15 +55,40 @@ impl From<&SocketAddrV4> for SockAddrIn {
     }
 }
 
-// netinet6/in6.h
+impl From<&Ipv4Addr> for SockAddrIn {
+    fn from(ip: &Ipv4Addr) -> Self {
+        Self {
+            len: SA_IN_SIZE as u8,
+            family: AF_INET as u8,
+            port: 0,
+            addr: ip.octets(),
+            zero: [0u8; 8],
+        }
+    }
+}
+
+// `struct sockaddr_in6` from `netinet6/in6.h`
 #[repr(C)]
-struct SockAddrIn6 {
+pub(super) struct SockAddrIn6 {
     len: u8,
     family: u8,
     port: u16,
     flowinfo: u32,
     addr: [u8; 16],
     scope_id: u32,
+}
+
+impl Default for SockAddrIn6 {
+    fn default() -> Self {
+        Self {
+            len: SA_IN6_SIZE as u8,
+            family: AF_INET6 as u8,
+            port: 0,
+            flowinfo: 0,
+            addr: [0u8; 16],
+            scope_id: 0,
+        }
+    }
 }
 
 impl From<&SockAddrIn6> for SocketAddr {
@@ -68,11 +106,24 @@ impl From<&SocketAddrV6> for SockAddrIn6 {
     fn from(sa: &SocketAddrV6) -> Self {
         Self {
             len: SA_IN6_SIZE as u8,
-            family: AF_INET6,
+            family: AF_INET6 as u8,
             port: sa.port().to_be(),
             flowinfo: sa.flowinfo().to_be(),
             addr: sa.ip().octets(),
             scope_id: sa.scope_id().to_be(),
+        }
+    }
+}
+
+impl From<&Ipv6Addr> for SockAddrIn6 {
+    fn from(ip: &Ipv6Addr) -> Self {
+        Self {
+            len: SA_IN6_SIZE as u8,
+            family: AF_INET6 as u8,
+            port: 0,
+            flowinfo: 0,
+            addr: ip.octets(),
+            scope_id: 0,
         }
     }
 }
@@ -97,7 +148,7 @@ pub(super) fn unpack_sockaddr(buf: &[u8]) -> Option<SocketAddr> {
         SA_IN_SIZE => {
             let sockaddr_in = unsafe { cast_ref::<SockAddrIn>(buf) };
             // sanity checks
-            if sockaddr_in.len == SA_IN_SIZE as u8 && sockaddr_in.family == AF_INET {
+            if sockaddr_in.len == SA_IN_SIZE as u8 && sockaddr_in.family == AF_INET as u8 {
                 Some(sockaddr_in.into())
             } else {
                 None
@@ -107,7 +158,7 @@ pub(super) fn unpack_sockaddr(buf: &[u8]) -> Option<SocketAddr> {
         SA_IN6_SIZE => {
             let sockaddr_in6 = unsafe { cast_ref::<SockAddrIn6>(buf) };
             // sanity checks
-            if sockaddr_in6.len == SA_IN6_SIZE as u8 && sockaddr_in6.family == AF_INET6 {
+            if sockaddr_in6.len == SA_IN6_SIZE as u8 && sockaddr_in6.family == AF_INET6 as u8 {
                 Some(sockaddr_in6.into())
             } else {
                 None

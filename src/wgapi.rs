@@ -51,6 +51,10 @@ impl WireguardInterfaceApi for WGApi {
         self.0.assign_address(address)
     }
 
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        self.0.configure_peer_routing(peers)
+    }
+
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,

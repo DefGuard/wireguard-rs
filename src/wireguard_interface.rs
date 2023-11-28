@@ -10,6 +10,11 @@ pub trait WireguardInterfaceApi {
     /// Assigns IP address to an existing interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError>;
 
+    /// Add peer routing, basically a copy of `wg-quick up <if_name>` routing.
+    /// Extracts all uniques allowed ips from [Peer](crate::Peer) slice and add routing for every
+    /// address.
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError>;
+
     /// Updates configuration of an existing WireGuard interface.
     fn configure_interface(
         &self,
@@ -29,6 +34,6 @@ pub trait WireguardInterfaceApi {
 
     /// Reads current WireGuard interface configuration and stats.
     ///
-    /// Similar to 'wg show <if_name>` command.
+    /// Similar to `wg show <if_name>` command.
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError>;
 }

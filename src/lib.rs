@@ -57,6 +57,7 @@ pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
 pub mod netlink;
+mod utils;
 mod wgapi;
 
 #[cfg(target_os = "freebsd")]
