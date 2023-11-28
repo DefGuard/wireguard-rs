@@ -4,7 +4,7 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::{process::Command, str::FromStr};
+use std::{net::IpAddr, process::Command, str::FromStr};
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
@@ -120,7 +120,8 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
     /// It executes the `resolvconf` command with appropriate arguments to update DNS
     /// configurations for the specified Wireguard interface. The DNS entries are filtered
     /// for nameservers and search domains before being piped to the `resolvconf` command.
-    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
+    fn set_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
+        info!("Configuring dns for interface: {}", self.ifname);
         set_dns(&self.ifname, dns)?;
         Ok(())
     }

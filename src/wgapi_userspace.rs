@@ -7,7 +7,7 @@ use crate::{
 use std::{
     fs,
     io::{self, BufRead, BufReader, Read, Write},
-    net::Shutdown,
+    net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
     process::Command,
     str::FromStr,
@@ -122,11 +122,13 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     ///
     /// - Linux
     /// - FreeBSD
-    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
+    fn set_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
+        info!("Configuring dns for interface: {}", self.ifname);
         // Setting dns is unsupported for macos
         #[cfg(target_os = "macos")]
         {
-            Err(WireguardInterfaceError::KernelNotSupported)
+            error!("MacOS is not supported");
+            Err(WireguardInterfaceError::DnsError)
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {

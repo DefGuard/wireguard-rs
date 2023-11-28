@@ -1,4 +1,5 @@
 use crate::{error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
+use std::net::IpAddr;
 
 /// API for managing a WireGuard interface.
 ///
@@ -48,5 +49,5 @@ pub trait WireguardInterfaceApi {
     ///
     /// Returns `Ok(())` if the DNS configuration is successfully set, or an
     /// `Err(WireguardInterfaceError)` if there is an error during the configuration process.
-    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError>;
+    fn set_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError>;
 }

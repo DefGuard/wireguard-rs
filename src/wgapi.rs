@@ -10,6 +10,7 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
+use std::net::IpAddr;
 
 /// Shared multi-platform WireGuard management API
 ///
@@ -66,7 +67,7 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer(peer)
     }
 
-    fn set_dns(&self, dns: Vec<String>) -> Result<(), WireguardInterfaceError> {
+    fn set_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
         self.0.set_dns(dns)
     }
 
