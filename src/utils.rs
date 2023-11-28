@@ -101,6 +101,7 @@ pub(crate) fn add_peer_routing(
     let mut endpoints = HashSet::new();
     let mut default_route = None;
 
+    // TODO: find a better way to handle default routes.
     for peer in peers {
         if let Some(endpoint) = peer.endpoint {
             endpoints.insert(endpoint);
