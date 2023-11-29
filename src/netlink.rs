@@ -599,7 +599,7 @@ pub fn delete_main_table_rule(
         Ok(_msg) => Ok(()),
         Err(NetlinkError::NotFound) => Ok(()),
         Err(err) => {
-            error!("Failed to add WireGuard interface rule: {err}");
+            error!("Failed to delete WireGuard interface rule: {err}");
             Err(NetlinkError::DeleteRuleError)
         }
     }
