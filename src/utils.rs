@@ -240,14 +240,10 @@ pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInt
 /// Clean fwmark rules while removing interface same as in wg-quick
 #[cfg(target_os = "linux")]
 pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceError> {
+    debug!("Removing firewall rules.");
     netlink::delete_rule(IpVersion::IPv4, fwmark)?;
     netlink::delete_main_table_rule(IpVersion::IPv4, 0)?;
     netlink::delete_rule(IpVersion::IPv6, fwmark)?;
     netlink::delete_main_table_rule(IpVersion::IPv6, 0)?;
-    /*    let output = Command::new("iptables-restore").arg("-n").output()?;*/
-    /*check_command_output_status(output)?;*/
-
-    /*let output = Command::new("iptables6-restore").arg("-n").output()?;*/
-    /*check_command_output_status(output)?;*/
     Ok(())
 }
