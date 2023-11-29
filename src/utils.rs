@@ -183,7 +183,7 @@ pub(crate) fn add_peer_routing(
                 .output();
 
             let endpoint_ip = endpoint.ip().to_string();
-            let args =if gateway.is_empty() {
+            let args = if gateway.is_empty() {
                 // Prevent routing loop as in wg-quick
                 debug!("Default gateway not found.");
                 let address = if endpoint.is_ipv4() {
