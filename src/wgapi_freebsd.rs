@@ -1,8 +1,11 @@
+use std::{net::IpAddr, str::FromStr};
+
 use crate::{
-    bsd, utils::add_peer_routing, Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
-    WireguardInterfaceApi, WireguardInterfaceError,
+    bsd,
+    utils::{add_peer_routing, clear_dns, configure_dns},
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    WireguardInterfaceError,
 };
-use std::str::FromStr;
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
@@ -74,6 +77,8 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;
+
+        clear_dns(&self.ifname);
         Ok(())
     }
 
@@ -96,5 +101,16 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         debug!("Reading host info for interface {}", self.ifname);
         let host = bsd::get_host(&self.ifname)?;
         Ok(host)
+    }
+
+    //// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+    ///
+    /// It executes the `resolvconf` command with appropriate arguments to update DNS
+    /// configurations for the specified Wireguard interface. The DNS entries are filtered
+    /// for nameservers and search domains before being piped to the `resolvconf` command.
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+        info!("Configuring dns for interface: {}", self.ifname);
+        configure_dns(&self.ifname, dns)?;
+        Ok(())
     }
 }

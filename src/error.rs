@@ -30,4 +30,6 @@ pub enum WireguardInterfaceError {
     UserspaceNotSupported,
     #[error("Kernel support is not available on this platform")]
     KernelNotSupported,
+    #[error("DNS error")]
+    DnsError,
 }

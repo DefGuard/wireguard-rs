@@ -1,10 +1,11 @@
+use std::{net::IpAddr, str::FromStr};
+
 use crate::{
     netlink,
-    utils::{add_peer_routing, clean_fwmark_rules},
+    utils::{add_peer_routing, clean_fwmark_rules, clear_dns, configure_dns},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::str::FromStr;
 
 /// Manages interfaces created with Linux kernel WireGuard module.
 ///
@@ -85,6 +86,7 @@ impl WireguardInterfaceApi for WireguardApiLinux {
             }
         }
         netlink::delete_interface(&self.ifname)?;
+        clear_dns(&self.ifname);
         Ok(())
     }
 
@@ -107,5 +109,15 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         debug!("Reading host info for interface {}", self.ifname);
         let host = netlink::get_host(&self.ifname)?;
         Ok(host)
+    }
+    //// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+    ///
+    /// It executes the `resolvconf` command with appropriate arguments to update DNS
+    /// configurations for the specified Wireguard interface. The DNS entries are filtered
+    /// for nameservers and search domains before being piped to the `resolvconf` command.
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+        info!("Configuring dns for interface: {}", self.ifname);
+        configure_dns(&self.ifname, dns)?;
+        Ok(())
     }
 }

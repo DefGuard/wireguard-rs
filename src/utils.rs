@@ -2,6 +2,90 @@
 use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 use std::{collections::HashSet, process::Command};
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use std::{io::Write, net::IpAddr, process::Stdio};
+#[cfg(target_os = "macos")]
+use std::{
+    io::{BufRead, BufReader, Cursor, Error as IoError},
+    net::IpAddr,
+};
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+    // Build the resolvconf command
+    debug!("Setting up DNS");
+    let mut cmd = Command::new("resolvconf");
+    let args = ["-a", ifname, "-m", "0", "-x"];
+    debug!("Executing command resolvconf with args: {args:?}");
+    cmd.args(args);
+
+    // Execute resolvconf command and pipe filtered DNS entries
+    if let Ok(mut child) = cmd.stdin(Stdio::piped()).spawn() {
+        if let Some(mut stdin) = child.stdin.take() {
+            for entry in dns {
+                debug!("Adding nameserver entry: {entry}");
+                writeln!(stdin, "nameserver {entry}")?;
+            }
+        }
+
+        let status = child.wait().expect("Failed to wait for command");
+        if status.success() {
+            return Ok(());
+        }
+    }
+
+    Err(WireguardInterfaceError::DnsError)
+}
+
+#[cfg(target_os = "macos")]
+/// Obtain list of network services
+fn network_services() -> Result<Vec<String>, IoError> {
+    let output = Command::new("networksetup")
+        .arg("-listallnetworkservices")
+        .output()?;
+
+    if output.status.success() {
+        let buf = BufReader::new(Cursor::new(output.stdout));
+        // Get all lines from stdout without asterisk (*).
+        // An asterisk (*) denotes that a network service is disabled.
+        let lines = buf
+            .lines()
+            .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
+            .collect();
+
+        Ok(lines)
+    } else {
+        Err(IoError::other("command failed"))
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+    for service in network_services()? {
+        debug!("Setting DNS entries for {service}");
+        let mut cmd = Command::new("networksetup");
+        cmd.arg("-setdnsservers").arg(&service);
+        if dns.is_empty() {
+            // This clears all DNS entries.
+            cmd.arg("Empty");
+        } else {
+            cmd.args(dns.iter().map(ToString::to_string));
+        }
+
+        if !cmd.status()?.success() {
+            warn!("Command `networksetup` failed for {service}");
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+pub(crate) fn clear_dns(ifname: &str) {
+    let args = ["-d", ifname, "-f"];
+    debug!("Executing resolvconf with args: {args:?}");
+    Command::new("resolvconf").args(args);
+}
 
 #[cfg(target_os = "linux")]
 const DEFAULT_FWMARK_TABLE: u32 = 51820;
@@ -145,21 +229,9 @@ pub(crate) fn add_peer_routing(
             let _ = Command::new("route")
                 .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
                 .output();
-            if !gateway.is_empty() {
-                debug!("Found default gateway: {gateway}");
-                let args = [
-                    "-q",
-                    "-n",
-                    "add",
-                    proto,
-                    &endpoint.ip().to_string(),
-                    "-gateway",
-                    &gateway,
-                ];
-                debug!("Executing command rotue with args: {args:?}");
-                let output = Command::new("route").args(args).output()?;
-                check_command_output_status(output)?;
-            } else {
+
+            let endpoint_ip = endpoint.ip().to_string();
+            let args = if gateway.is_empty() {
                 // Prevent routing loop as in wg-quick
                 debug!("Default gateway not found.");
                 let address = if endpoint.is_ipv4() {
@@ -167,19 +239,22 @@ pub(crate) fn add_peer_routing(
                 } else {
                     "::1"
                 };
-                let args = [
+                [
                     "-q",
                     "-n",
                     "add",
                     proto,
-                    &endpoint.ip().to_string(),
+                    &endpoint_ip,
                     address,
                     "-blackhole",
-                ];
-                debug!("Executing command route with args: {args:?}");
-                let output = Command::new("route").args(args).output()?;
-                check_command_output_status(output)?;
-            }
+                ]
+            } else {
+                debug!("Found default gateway: {gateway}");
+                ["-q", "-n", "add", proto, &endpoint_ip, "-gateway", &gateway]
+            };
+            debug!("Executing command route with args: {args:?}");
+            let output = Command::new("route").args(args).output()?;
+            check_command_output_status(output)?;
         }
     } else {
         for allowed_ip in unique_allowed_ips {

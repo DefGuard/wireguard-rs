@@ -1,15 +1,20 @@
-use crate::{
-    check_command_output_status, error::WireguardInterfaceError, utils::add_peer_routing, Host,
-    InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
-};
 use std::{
     fs,
     io::{self, BufRead, BufReader, Read, Write},
-    net::Shutdown,
+    net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
     process::Command,
     str::FromStr,
     time::Duration,
+};
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use crate::utils::clear_dns;
+use crate::{
+    check_command_output_status,
+    error::WireguardInterfaceError,
+    utils::{add_peer_routing, configure_dns},
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
 };
 
 const USERSPACE_EXECUTABLE: &str = "wireguard-go";
@@ -105,6 +110,33 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         check_command_output_status(output)?;
         Ok(())
     }
+    /// Sets DNS configuration for a WireGuard interface using the `resolvconf` command.
+    ///
+    /// This function is platform-specific and is intended for use on Linux and FreeBSD.
+    /// It executes the `resolvconf -a <if_name> -m -0 -x` command with appropriate arguments to update DNS
+    /// configurations for the specified Wireguard interface. The DNS entries are filtered
+    /// for nameservers and search domains before being piped to the `resolvconf` command.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `WireguardInterfaceError::DnsError` if there is an error in setting the DNS configuration.
+    ///
+    /// # Platform Support
+    ///
+    /// - Linux
+    /// - FreeBSD
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+        info!("Configuring dns for interface: {}", self.ifname);
+        // Setting DNS is not supported for macOS.
+        #[cfg(target_os = "macos")]
+        {
+            configure_dns(dns)
+        }
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            configure_dns(&self.ifname, dns)
+        }
+    }
 
     /// Assign IP address to network interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
@@ -166,7 +198,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Based on IP type `<ip_version>` will be equal to `-4` or `-6`.
     ///
     ///
-    /// # MacOS, FreeBSD:  
+    /// # macOS, FreeBSD:
     /// For every allowed IP, it runs:  
     /// - `route -q -n add <inet> allowed_ip -interface if_name`   
     /// `ifname` - interface name while creating api  
@@ -184,13 +216,22 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
-        // 'wireguard-go` should by design shut down if the socket is removed
+        // `wireguard-go` should by design shut down if the socket is removed
         let socket = self.socket()?;
         socket.shutdown(Shutdown::Both).map_err(|err| {
             error!("Failed to shutdown socket: {err}");
             WireguardInterfaceError::UnixSockerError(err.to_string())
         })?;
         fs::remove_file(self.socket_path())?;
+        #[cfg(target_os = "macos")]
+        {
+            configure_dns(&[])?;
+        }
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            clear_dns(&self.ifname);
+        }
+
         Ok(())
     }
 

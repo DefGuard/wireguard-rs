@@ -1,4 +1,5 @@
 //! Shared multi-platform management API abstraction
+use std::net::IpAddr;
 
 #[cfg(target_os = "freebsd")]
 use crate::WireguardApiFreebsd;
@@ -68,6 +69,10 @@ impl WireguardInterfaceApi for WGApi {
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
         self.0.configure_peer(peer)
+    }
+
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+        self.0.configure_dns(dns)
     }
 
     fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {

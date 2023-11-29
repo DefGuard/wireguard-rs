@@ -1,4 +1,5 @@
 use crate::{error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
+use std::net::IpAddr;
 
 /// API for managing a WireGuard interface.
 ///
@@ -36,4 +37,22 @@ pub trait WireguardInterfaceApi {
     ///
     /// Similar to `wg show <if_name>` command.
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError>;
+
+    /// Sets the DNS configuration for the WireGuard interface.
+    ///
+    /// This function takes a vector of DNS server addresses (`dns`) and configures the
+    /// WireGuard interface to use these DNS servers. It is equivalent to specifying the
+    /// DNS section in a WireGuard configuration file and using `wg-quick` to apply the
+    /// configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `dns` - A vector of [`IpAddr``](std::net::IpAddr) representing the DNS server addresses to be set for
+    ///   the WireGuard interface.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the DNS configuration is successfully set, or an
+    /// `Err(WireguardInterfaceError)` if there is an error during the configuration process.
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError>;
 }
