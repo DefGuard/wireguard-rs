@@ -9,10 +9,12 @@ use std::{
 };
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use crate::utils::{clean_dns, configure_dns};
+use crate::utils::clear_dns;
 use crate::{
-    check_command_output_status, error::WireguardInterfaceError, utils::add_peer_routing, Host,
-    InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    check_command_output_status,
+    error::WireguardInterfaceError,
+    utils::{add_peer_routing, configure_dns},
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
 };
 
 const USERSPACE_EXECUTABLE: &str = "wireguard-go";
@@ -123,13 +125,12 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     ///
     /// - Linux
     /// - FreeBSD
-    fn configure_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
         info!("Configuring dns for interface: {}", self.ifname);
         // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
         {
-            error!("macOS is not supported");
-            Err(WireguardInterfaceError::DnsError)
+            configure_dns(dns)
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
@@ -215,16 +216,20 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
-        // 'wireguard-go` should by design shut down if the socket is removed
+        // `wireguard-go` should by design shut down if the socket is removed
         let socket = self.socket()?;
         socket.shutdown(Shutdown::Both).map_err(|err| {
             error!("Failed to shutdown socket: {err}");
             WireguardInterfaceError::UnixSockerError(err.to_string())
         })?;
         fs::remove_file(self.socket_path())?;
+        #[cfg(target_os = "macos")]
+        {
+            configure_dns(&[])?;
+        }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
-            clean_dns(&self.ifname);
+            clear_dns(&self.ifname);
         }
 
         Ok(())

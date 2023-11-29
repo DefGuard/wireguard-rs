@@ -47,12 +47,12 @@ pub trait WireguardInterfaceApi {
     ///
     /// # Arguments
     ///
-    /// * `dns` - A vector of [IpAddr](std::net::IpAddr) representing the DNS server addresses to be set for
+    /// * `dns` - A vector of [`IpAddr``](std::net::IpAddr) representing the DNS server addresses to be set for
     ///   the WireGuard interface.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` if the DNS configuration is successfully set, or an
     /// `Err(WireguardInterfaceError)` if there is an error during the configuration process.
-    fn configure_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError>;
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError>;
 }

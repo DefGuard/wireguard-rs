@@ -71,7 +71,7 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer(peer)
     }
 
-    fn configure_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
         self.0.configure_dns(dns)
     }
 

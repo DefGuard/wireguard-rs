@@ -2,7 +2,7 @@ use std::{net::IpAddr, str::FromStr};
 
 use crate::{
     bsd,
-    utils::{add_peer_routing, clean_dns, configure_dns},
+    utils::{add_peer_routing, clear_dns, configure_dns},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
@@ -78,7 +78,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         info!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;
 
-        clean_dns(&self.ifname);
+        clear_dns(&self.ifname);
         Ok(())
     }
 
@@ -108,7 +108,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
     /// It executes the `resolvconf` command with appropriate arguments to update DNS
     /// configurations for the specified Wireguard interface. The DNS entries are filtered
     /// for nameservers and search domains before being piped to the `resolvconf` command.
-    fn configure_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
+    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
         info!("Configuring dns for interface: {}", self.ifname);
         configure_dns(&self.ifname, dns)?;
         Ok(())
