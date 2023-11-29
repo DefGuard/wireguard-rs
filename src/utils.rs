@@ -244,5 +244,10 @@ pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceEr
     netlink::delete_main_table_rule(IpVersion::IPv4, 0)?;
     netlink::delete_rule(IpVersion::IPv6, fwmark)?;
     netlink::delete_main_table_rule(IpVersion::IPv6, 0)?;
+    let output = Command::new("iptables-restore").arg("-n").output()?;
+    check_command_output_status(output)?;
+
+    let output = Command::new("iptables6-restore").arg("-n").output()?;
+    check_command_output_status(output)?;
     Ok(())
 }

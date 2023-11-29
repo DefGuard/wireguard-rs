@@ -80,7 +80,9 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         info!("Removing interface {}", self.ifname);
         let host = netlink::get_host(&self.ifname)?;
         if let Some(fwmark) = host.fwmark {
-            clean_fwmark_rules(fwmark)?;
+            if fwmark != 0 {
+                clean_fwmark_rules(fwmark)?;
+            }
         }
         netlink::delete_interface(&self.ifname)?;
         Ok(())
