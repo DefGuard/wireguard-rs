@@ -1,9 +1,3 @@
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use crate::utils::{clean_dns, configure_dns};
-use crate::{
-    check_command_output_status, error::WireguardInterfaceError, utils::add_peer_routing, Host,
-    InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
-};
 use std::{
     fs,
     io::{self, BufRead, BufReader, Read, Write},
@@ -12,6 +6,13 @@ use std::{
     process::Command,
     str::FromStr,
     time::Duration,
+};
+
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use crate::utils::{clean_dns, configure_dns};
+use crate::{
+    check_command_output_status, error::WireguardInterfaceError, utils::add_peer_routing, Host,
+    InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
 };
 
 const USERSPACE_EXECUTABLE: &str = "wireguard-go";
@@ -107,7 +108,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         check_command_output_status(output)?;
         Ok(())
     }
-    /// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+    /// Sets DNS configuration for a WireGuard interface using the `resolvconf` command.
     ///
     /// This function is platform-specific and is intended for use on Linux and FreeBSD.
     /// It executes the `resolvconf -a <if_name> -m -0 -x` command with appropriate arguments to update DNS
@@ -124,10 +125,10 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// - FreeBSD
     fn configure_dns(&self, dns: Vec<IpAddr>) -> Result<(), WireguardInterfaceError> {
         info!("Configuring dns for interface: {}", self.ifname);
-        // Setting dns is unsupported for macos
+        // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
         {
-            error!("MacOS is not supported");
+            error!("macOS is not supported");
             Err(WireguardInterfaceError::DnsError)
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -196,7 +197,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Based on IP type `<ip_version>` will be equal to `-4` or `-6`.
     ///
     ///
-    /// # MacOS, FreeBSD:  
+    /// # macOS, FreeBSD:
     /// For every allowed IP, it runs:  
     /// - `route -q -n add <inet> allowed_ip -interface if_name`   
     /// `ifname` - interface name while creating api  

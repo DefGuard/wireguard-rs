@@ -19,19 +19,17 @@ pub(crate) fn configure_dns(ifname: &str, dns: Vec<IpAddr>) -> Result<(), Wiregu
         if let Some(mut stdin) = child.stdin.take() {
             for entry in &dns {
                 debug!("Adding nameserver entry: {entry}");
-                writeln!(stdin, "nameserver {}", entry)?;
+                writeln!(stdin, "nameserver {entry}")?;
             }
         }
 
         let status = child.wait().expect("Failed to wait for command");
         if status.success() {
-            Ok(())
-        } else {
-            Err(WireguardInterfaceError::DnsError)
+            return Ok(());
         }
-    } else {
-        Err(WireguardInterfaceError::DnsError)
     }
+
+    Err(WireguardInterfaceError::DnsError)
 }
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -183,21 +181,9 @@ pub(crate) fn add_peer_routing(
             let _ = Command::new("route")
                 .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
                 .output();
-            if !gateway.is_empty() {
-                debug!("Found default gateway: {gateway}");
-                let args = [
-                    "-q",
-                    "-n",
-                    "add",
-                    proto,
-                    &endpoint.ip().to_string(),
-                    "-gateway",
-                    &gateway,
-                ];
-                debug!("Executing command rotue with args: {args:?}");
-                let output = Command::new("route").args(args).output()?;
-                check_command_output_status(output)?;
-            } else {
+
+            let endpoint_ip = endpoint.ip().to_string();
+            let args =if gateway.is_empty() {
                 // Prevent routing loop as in wg-quick
                 debug!("Default gateway not found.");
                 let address = if endpoint.is_ipv4() {
@@ -205,19 +191,22 @@ pub(crate) fn add_peer_routing(
                 } else {
                     "::1"
                 };
-                let args = [
+                [
                     "-q",
                     "-n",
                     "add",
                     proto,
-                    &endpoint.ip().to_string(),
+                    &endpoint_ip,
                     address,
                     "-blackhole",
-                ];
-                debug!("Executing command route with args: {args:?}");
-                let output = Command::new("route").args(args).output()?;
-                check_command_output_status(output)?;
-            }
+                ]
+            } else {
+                debug!("Found default gateway: {gateway}");
+                ["-q", "-n", "add", proto, &endpoint_ip, "-gateway", &gateway]
+            };
+            debug!("Executing command route with args: {args:?}");
+            let output = Command::new("route").args(args).output()?;
+            check_command_output_status(output)?;
         }
     } else {
         for allowed_ip in unique_allowed_ips {

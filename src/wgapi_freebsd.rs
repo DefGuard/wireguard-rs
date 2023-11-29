@@ -1,10 +1,11 @@
+use std::{net::IpAddr, str::FromStr};
+
 use crate::{
     bsd,
     utils::{add_peer_routing, clean_dns, configure_dns},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::{net::IpAddr, str::FromStr};
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///

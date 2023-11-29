@@ -1,4 +1,5 @@
 //! Shared multi-platform management API abstraction
+use std::net::IpAddr;
 
 #[cfg(target_os = "freebsd")]
 use crate::WireguardApiFreebsd;
@@ -10,7 +11,6 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::net::IpAddr;
 
 /// Shared multi-platform WireGuard management API
 ///

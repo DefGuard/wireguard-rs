@@ -1,10 +1,11 @@
+use std::{net::IpAddr, str::FromStr};
+
 use crate::{
     netlink,
     utils::{add_peer_routing, clean_dns, clean_fwmark_rules, configure_dns},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
-use std::{net::IpAddr, str::FromStr};
 
 /// Manages interfaces created with Linux kernel WireGuard module.
 ///
