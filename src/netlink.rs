@@ -519,7 +519,7 @@ pub fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
     message.nlas.push(RuleNla::Table(fwmark));
     match netlink_request(
         RtnlMessage::DelRule(message),
-        NLM_F_REQUEST | NLM_F_ACK | NLM_F_EXCL,
+        NLM_F_REQUEST | NLM_F_ACK,
         NETLINK_ROUTE,
     ) {
         Ok(_msg) => Ok(()),
