@@ -49,7 +49,7 @@ impl IfReq {
         let mod_name = format!("if_{if_name}");
         unsafe {
             // Ignore the return value for the time being.
-            // Do the cast because `c_char` differs across platorms.
+            // Do the cast because `c_char` differs across platforms.
             kld_load(mod_name.as_ptr() as *const c_char);
         }
 
