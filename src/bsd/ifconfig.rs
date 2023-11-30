@@ -3,7 +3,7 @@ use std::{
     os::fd::AsRawFd,
 };
 
-use libc::kld_load;
+use libc::{c_char, kld_load};
 use nix::{ioctl_readwrite, ioctl_write_ptr, sys::socket::AddressFamily};
 
 use super::{
@@ -49,7 +49,8 @@ impl IfReq {
         let mod_name = format!("if_{if_name}");
         unsafe {
             // Ignore the return value for the time being.
-            kld_load(mod_name.as_ptr());
+            // Do the cast because `c_char` differs across platforms.
+            kld_load(mod_name.as_ptr() as *const c_char);
         }
 
         Self {
