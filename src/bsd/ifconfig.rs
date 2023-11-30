@@ -1,4 +1,5 @@
 use std::{
+    ffi::CString,
     net::{Ipv4Addr, Ipv6Addr},
     os::fd::AsRawFd,
 };
@@ -46,7 +47,8 @@ impl IfReq {
             .for_each(|(i, b)| ifr_name[i] = b);
 
         // First, try to load a kernel module for this type of network interface.
-        let mod_name = format!("if_{if_name}");
+        let mod_name = CString::new(format!("if_{if_name}")).unwrap();
+
         unsafe {
             // Ignore the return value for the time being.
             kld_load(mod_name.as_ptr());
