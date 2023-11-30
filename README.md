@@ -9,14 +9,16 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 
 ## Supported platforms
 
-* Native OS Kernel
-  - Linux
-  - FreeBSD (and pfSense/OPNSense)
-  - Windows (in development)
-* Userspace using [wireguard-go](https://github.com/WireGuard/wireguard-go)
-  - Linux
-  - macOS
-  - FreeBSD
+* **Native OS Kernel**: Linux, FreeBSD (and pfSense/OPNSense) - Windows (in development)*
+* Userspace using [wireguard-go](https://github.com/WireGuard/wireguard-go) - Linux, **macOS**, FreeBSD
+ 
+### Unique features
+
+* **Peer routing** - see [WGApi](https://docs.rs/defguard_wireguard_rs/latest/defguard_wireguard_rs/struct.WGApi.html) docs.
+* Configuring **DNS resolver** - see [WGApi](https://docs.rs/defguard_wireguard_rs/latest/defguard_wireguard_rs/struct.WGApi.html) docs.
+  * On FreeBSD network interfaces are managed using **ioctl**.
+  * On Linux, handle network routing using **netlink**.
+  * **fwmark** handling
 
 ### Note on `wireguard-go`
 If you intend to use the userspace WireGuard implementation you should note that currently the library assumes 
