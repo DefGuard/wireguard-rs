@@ -86,7 +86,7 @@ impl WireguardInterfaceApi for WireguardApiLinux {
             }
         }
         netlink::delete_interface(&self.ifname)?;
-        clear_dns(&self.ifname);
+        clear_dns(&self.ifname)?;
         Ok(())
     }
 
@@ -110,13 +110,17 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         let host = netlink::get_host(&self.ifname)?;
         Ok(host)
     }
-    //// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+
+    /// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
     ///
     /// It executes the `resolvconf` command with appropriate arguments to update DNS
     /// configurations for the specified Wireguard interface. The DNS entries are filtered
     /// for nameservers and search domains before being piped to the `resolvconf` command.
     fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
-        info!("Configuring dns for interface: {}", self.ifname);
+        info!(
+            "Configuring DNS for interface {}, using address: {dns:?}",
+            self.ifname
+        );
         configure_dns(&self.ifname, dns)?;
         Ok(())
     }

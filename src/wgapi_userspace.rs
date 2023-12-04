@@ -110,6 +110,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         check_command_output_status(output)?;
         Ok(())
     }
+
     /// Sets DNS configuration for a WireGuard interface using the `resolvconf` command.
     ///
     /// This function is platform-specific and is intended for use on Linux and FreeBSD.
@@ -126,7 +127,10 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// - Linux
     /// - FreeBSD
     fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
-        info!("Configuring dns for interface: {}", self.ifname);
+        info!(
+            "Configuring DNS for interface {}, using address: {dns:?}",
+            self.ifname
+        );
         // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
         {
@@ -229,7 +233,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
-            clear_dns(&self.ifname);
+            clear_dns(&self.ifname)?;
         }
 
         Ok(())

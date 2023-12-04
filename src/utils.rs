@@ -81,10 +81,14 @@ pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceErro
 }
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub(crate) fn clear_dns(ifname: &str) {
+pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
+    info!("Removing DNS configuration for interface {ifname}");
     let args = ["-d", ifname, "-f"];
     debug!("Executing resolvconf with args: {args:?}");
-    Command::new("resolvconf").args(args);
+    let mut cmd = Command::new("resolvconf");
+    let output = cmd.args(args).output()?;
+    check_command_output_status(output)?;
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
