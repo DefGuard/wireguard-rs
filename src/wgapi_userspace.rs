@@ -110,6 +110,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         check_command_output_status(output)?;
         Ok(())
     }
+
     /// Sets DNS configuration for a WireGuard interface using the `resolvconf` command.
     ///
     /// This function is platform-specific and is intended for use on Linux and FreeBSD.

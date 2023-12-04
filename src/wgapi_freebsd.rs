@@ -103,7 +103,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         Ok(host)
     }
 
-    //// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
+    /// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
     ///
     /// It executes the `resolvconf` command with appropriate arguments to update DNS
     /// configurations for the specified Wireguard interface. The DNS entries are filtered
