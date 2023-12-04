@@ -1,12 +1,12 @@
 #[cfg(target_os = "linux")]
 use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
-use std::{collections::HashSet, process::Command};
+use std::{collections::HashSet, io::Error as IoError, process::Command};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::{io::Write, net::IpAddr, process::Stdio};
 #[cfg(target_os = "macos")]
 use std::{
-    io::{BufRead, BufReader, Cursor, Error as IoError},
+    io::{BufRead, BufReader, Cursor},
     net::IpAddr,
 };
 
@@ -81,10 +81,16 @@ pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceErro
 }
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub(crate) fn clear_dns(ifname: &str) {
+pub(crate) fn clear_dns(ifname: &str) -> Result<(), IoError> {
+    info!("Removing DNS configuration for interface {ifname}");
     let args = ["-d", ifname, "-f"];
     debug!("Executing resolvconf with args: {args:?}");
-    Command::new("resolvconf").args(args);
+    let mut cmd = Command::new("resolvconf");
+    cmd.args(args);
+    if !cmd.status()?.success() {
+        error!("Failed to clear DNS config for interface {ifname}")
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
