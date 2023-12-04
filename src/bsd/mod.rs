@@ -5,8 +5,7 @@ mod timespec;
 mod wgio;
 
 use std::{
-    collections::HashMap, mem::size_of, net::IpAddr, os::fd::OwnedFd, ptr::addr_of,
-    slice::from_raw_parts,
+    collections::HashMap, mem::size_of, net::IpAddr, os::fd::OwnedFd, slice::from_raw_parts,
 };
 
 use nix::{
@@ -58,8 +57,7 @@ unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
 
 /// Cast `T' to bytes.
 unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
-    let ptr = addr_of!(p).cast::<u8>();
-    from_raw_parts(ptr, size_of::<T>())
+    from_raw_parts((p as *const T) as *const u8, size_of::<T>())
 }
 
 /// Create socket for ioctl communication.
