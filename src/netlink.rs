@@ -593,7 +593,7 @@ pub fn delete_main_table_rule(
         .push(RuleNla::SuppressPrefixLen(suppress_prefix_len));
     match netlink_request(
         RtnlMessage::DelRule(message),
-        NLM_F_REQUEST | NLM_F_ACK | NLM_F_EXCL,
+        NLM_F_REQUEST | NLM_F_ACK,
         NETLINK_ROUTE,
     ) {
         Ok(_msg) => Ok(()),
