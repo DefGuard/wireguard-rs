@@ -109,7 +109,10 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
     /// configurations for the specified Wireguard interface. The DNS entries are filtered
     /// for nameservers and search domains before being piped to the `resolvconf` command.
     fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
-        info!("Configuring dns for interface: {}", self.ifname);
+        info!(
+            "Configuring DNS for interface {}, using address: {dns:?}",
+            self.ifname
+        );
         configure_dns(&self.ifname, dns)?;
         Ok(())
     }

@@ -126,7 +126,10 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// - Linux
     /// - FreeBSD
     fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
-        info!("Configuring dns for interface: {}", self.ifname);
+        info!(
+            "Configuring DNS for interface {}, using address: {dns:?}",
+            self.ifname
+        );
         // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
         {
