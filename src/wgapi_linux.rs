@@ -86,7 +86,7 @@ impl WireguardInterfaceApi for WireguardApiLinux {
             }
         }
         netlink::delete_interface(&self.ifname)?;
-        clear_dns(&self.ifname);
+        clear_dns(&self.ifname)?;
         Ok(())
     }
 

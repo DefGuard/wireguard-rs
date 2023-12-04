@@ -229,7 +229,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
-            clear_dns(&self.ifname);
+            clear_dns(&self.ifname)?;
         }
 
         Ok(())
