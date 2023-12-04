@@ -176,7 +176,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ip4() {
+    fn pack_ip4() {
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 12, 34)), 7301);
+        let buf = pack_sockaddr(&addr);
+        assert_eq!(
+            buf,
+            [16, 2, 28, 133, 192, 168, 12, 34, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn unpack_ip4() {
         let buf = [16, 2, 28, 133, 192, 168, 12, 34, 0, 0, 0, 0, 0, 0, 0, 0];
         let addr = unpack_sockaddr(&buf).unwrap();
         assert_eq!(addr.port(), 7301);
@@ -184,10 +194,78 @@ mod tests {
     }
 
     #[test]
-    fn ip6() {
+    fn pack_ip6() {
+        let addr = SocketAddr::new(
+            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0c22)),
+            7301,
+        );
+        let buf = pack_sockaddr(&addr);
+        assert_eq!(
+            buf,
+            [
+                28,
+                AF_INET6 as u8,
+                28,
+                133,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                255,
+                255,
+                192,
+                168,
+                12,
+                34,
+                0,
+                0,
+                0,
+                0,
+            ]
+        );
+    }
+
+    #[test]
+    fn unpack_ip6() {
         let buf = [
-            28, 30, 28, 133, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 192, 168, 12, 34,
-            0, 0, 0, 0,
+            28,
+            AF_INET6 as u8,
+            28,
+            133,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            255,
+            255,
+            192,
+            168,
+            12,
+            34,
+            0,
+            0,
+            0,
+            0,
         ];
         let addr = unpack_sockaddr(&buf).unwrap();
         assert_eq!(addr.port(), 7301);

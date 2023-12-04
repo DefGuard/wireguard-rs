@@ -5,6 +5,7 @@ use std::{
     slice::from_raw_parts,
 };
 
+use libc::IF_NAMESIZE;
 use nix::{ioctl_readwrite, sys::socket::AddressFamily};
 
 use super::{create_socket, IoError};
@@ -17,7 +18,7 @@ ioctl_readwrite!(read_wireguard_data, b'i', 211, WgDataIo);
 /// https://github.com/freebsd/freebsd-src/blob/main/sys/dev/wg/if_wg.h
 #[repr(C)]
 pub struct WgDataIo {
-    pub(super) wgd_name: [u8; 16],
+    pub(super) wgd_name: [u8; IF_NAMESIZE],
     pub(super) wgd_data: *mut u8, // *void
     pub(super) wgd_size: usize,
 }
@@ -26,10 +27,10 @@ impl WgDataIo {
     /// Create `WgDataIo` without data buffer.
     #[must_use]
     pub fn new(if_name: &str) -> Self {
-        let mut wgd_name = [0u8; 16];
+        let mut wgd_name = [0u8; IF_NAMESIZE];
         if_name
             .bytes()
-            .take(15)
+            .take(IF_NAMESIZE - 1)
             .enumerate()
             .for_each(|(i, b)| wgd_name[i] = b);
         Self {

@@ -3,7 +3,7 @@ use std::{
     os::fd::AsRawFd,
 };
 
-use libc::{c_char, kld_load};
+use libc::{c_char, kld_load, IF_NAMESIZE};
 use nix::{ioctl_readwrite, ioctl_write_ptr, sys::socket::AddressFamily};
 
 use super::{
@@ -31,17 +31,17 @@ ioctl_write_ptr!(del_addr_if_in6, b'i', 25, IfReq6);
 /// Represent `struct ifreq` as defined in `net/if.h`.
 #[repr(C)]
 pub struct IfReq {
-    ifr_name: [u8; 16],
+    ifr_name: [u8; IF_NAMESIZE],
     ifr_ifru: SockAddrIn,
 }
 
 impl IfReq {
     #[must_use]
     pub(super) fn new(if_name: &str) -> Self {
-        let mut ifr_name = [0u8; 16];
+        let mut ifr_name = [0u8; IF_NAMESIZE];
         if_name
             .bytes()
-            .take(15)
+            .take(IF_NAMESIZE - 1)
             .enumerate()
             .for_each(|(i, b)| ifr_name[i] = b);
 
@@ -94,17 +94,17 @@ impl IfReq {
 /// Represent `struct in6_ifreq` as defined in `netinet6/in6_var.h`.
 #[repr(C)]
 pub struct IfReq6 {
-    ifr_name: [u8; 16],
+    ifr_name: [u8; IF_NAMESIZE],
     ifr_ifru: SockAddrIn6,
 }
 
 impl IfReq6 {
     #[must_use]
     pub(super) fn new(if_name: &str) -> Self {
-        let mut ifr_name = [0u8; 16];
+        let mut ifr_name = [0u8; IF_NAMESIZE];
         if_name
             .bytes()
-            .take(15)
+            .take(IF_NAMESIZE - 1)
             .enumerate()
             .for_each(|(i, b)| ifr_name[i] = b);
 
@@ -129,7 +129,7 @@ impl IfReq6 {
 /// Respresent `in_aliasreq` as defined in <netinet/in_var.h>.
 #[repr(C)]
 pub struct InAliasReq {
-    ifr_name: [u8; 16],
+    ifr_name: [u8; IF_NAMESIZE],
     ifra_addr: SockAddrIn,
     ifra_broadaddr: SockAddrIn,
     ifra_mask: SockAddrIn,
@@ -144,10 +144,10 @@ impl InAliasReq {
         broadcast: &Ipv4Addr,
         mask: &Ipv4Addr,
     ) -> Self {
-        let mut ifr_name = [0u8; 16];
+        let mut ifr_name = [0u8; IF_NAMESIZE];
         if_name
             .bytes()
-            .take(15)
+            .take(IF_NAMESIZE - 1)
             .enumerate()
             .for_each(|(i, b)| ifr_name[i] = b);
 
@@ -174,7 +174,7 @@ impl InAliasReq {
 /// Respresent `in6_aliasreq` as defined in <netinet/in6_var.h>.
 #[repr(C)]
 pub struct In6AliasReq {
-    ifr_name: [u8; 16],
+    ifr_name: [u8; IF_NAMESIZE],
     ifra_addr: SockAddrIn6,
     ifra_dstaddr: SockAddrIn6,
     ifra_prefixmask: SockAddrIn6,
@@ -195,10 +195,10 @@ impl In6AliasReq {
         dstaddr: &Ipv6Addr,
         prefixmask: &Ipv6Addr,
     ) -> Self {
-        let mut ifr_name = [0u8; 16];
+        let mut ifr_name = [0u8; IF_NAMESIZE];
         if_name
             .bytes()
-            .take(15)
+            .take(IF_NAMESIZE - 1)
             .enumerate()
             .for_each(|(i, b)| ifr_name[i] = b);
 

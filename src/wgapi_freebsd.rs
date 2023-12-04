@@ -78,7 +78,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         info!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;
 
-        clear_dns(&self.ifname);
+        clear_dns(&self.ifname)?;
         Ok(())
     }
 
