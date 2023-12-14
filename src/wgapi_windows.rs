@@ -53,7 +53,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         let wireguard = Self::load_dll();
 
-        match wireguard_nt::Adapter::open(wireguard.clone(), &self.ifname) {
+        let adapter = match wireguard_nt::Adapter::open(wireguard.clone(), &self.ifname) {
             Ok(a) => a,
             Err((_, __)) =>
             // If loading failed (most likely it didn't exist), create a new one
@@ -64,6 +64,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     .expect(format!("Failed to create adapter {}", self.ifname).as_str())
             }
         };
+        assert!(adapter.up());
         info!("Opened/created interface {}", self.ifname);
         Ok(())
     }
