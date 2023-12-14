@@ -1,4 +1,6 @@
-use std::{net::IpAddr, str::FromStr, env};
+use std::{env, net::IpAddr, str::FromStr, sync::Arc};
+
+use wireguard_nt::dll;
 
 use crate::{
     error::WireguardInterfaceError,
@@ -7,6 +9,8 @@ use crate::{
     net::IpAddrMask,
     InterfaceConfiguration, WireguardInterfaceApi,
 };
+
+use ipnet::{Ipv4Net, Ipv6Net};
 
 const ADAPTER_POOL: &str = "WireGuard";
 
@@ -27,22 +31,31 @@ pub struct WireguardApiWindows {
 
 impl WireguardApiWindows {
     pub fn new(ifname: String) -> Self {
-        WireguardApiWindows { ifname }
+        debug!("Loading DDL from {}", DLL_PATH);
+        Self { ifname }
+    }
+
+    fn convert_key(key: &String) -> [u8; 32] {
+        let mut interface_private = [0; 32];
+        interface_private.copy_from_slice(key.as_bytes());
+        interface_private
+    }
+
+    fn load_dll() -> Arc<dll> {
+        unsafe { wireguard_nt::load_from_path(DLL_PATH) }.expect("Failed to load wireguard dll")
     }
 }
 
 impl WireguardInterfaceApi for WireguardApiWindows {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Opening/creating interface {}", self.ifname);
-        debug!("Loading DDL from {}", DLL_PATH);
-        let wireguard = unsafe { wireguard_nt::load_from_path(DLL_PATH) }
-            .expect("Failed to load wireguard dll");
-
         debug!("Opening adapter with name {}", self.ifname);
-        
-        match wireguard_nt::Adapter::open(wireguard, &self.ifname) {
+
+        let wireguard = Self::load_dll();
+
+        match wireguard_nt::Adapter::open(wireguard.clone(), &self.ifname) {
             Ok(a) => a,
-            Err((_, wireguard)) =>
+            Err((_, __)) =>
             // If loading failed (most likely it didn't exist), create a new one
             {
                 debug!("Creating adapter with name {}", self.ifname);
@@ -68,6 +81,47 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
+
+        let wireguard = Self::load_dll();
+
+        let adapter = match wireguard_nt::Adapter::open(wireguard, &self.ifname) {
+            Ok(a) => a,
+            Err((_, __)) => panic!("Cannot open adapter {}", self.ifname),
+        };
+
+        let interface = wireguard_nt::SetInterface {
+            listen_port: Some(u16::try_from(config.port).unwrap()),
+            public_key: None, // will be generated from the private key
+            private_key: Some(Self::convert_key(&config.prvkey)),
+            peers: config
+                .peers
+                .iter()
+                .map(|peer| wireguard_nt::SetPeer {
+                    public_key: Some(peer.public_key.as_array()),
+                    preshared_key: match peer.preshared_key.clone() {
+                        Some(k) => Some(k.as_array()),
+                        None => None,
+                    },
+                    keep_alive: peer.persistent_keepalive_interval,
+                    endpoint: match peer.endpoint {
+                        Some(a) => a,
+                        None => panic!("Cannot set peer without an endpoint!"),
+                    },
+                    allowed_ips: peer
+                        .allowed_ips
+                        .iter()
+                        .map(|allowed_ip| match allowed_ip.ip {
+                            IpAddr::V4(v4) => Ipv4Net::new(v4, 32).unwrap().into(),
+                            IpAddr::V6(v6) => Ipv6Net::new(v6, 128).unwrap().into(),
+                        })
+                        .collect::<Vec<_>>(),
+                })
+                .collect::<Vec<_>>(),
+        };
+
+        assert!(adapter.set_logging(wireguard_nt::AdapterLoggingLevel::OnWithPrefix));
+
+        adapter.set_config(&interface).unwrap();
         Ok(())
     }
 
