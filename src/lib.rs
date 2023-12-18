@@ -71,6 +71,7 @@ mod wireguard_interface;
 #[macro_use]
 extern crate log;
 
+use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 use std::process::Output;
 
@@ -95,17 +96,25 @@ pub use wireguard_interface::WireguardInterfaceApi;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceConfiguration {
     pub name: String,
-    pub prvkey: String,
+    #[serde(serialize_with = "serialize_secret_key")]
+    pub prvkey: Secret<String>,
     pub address: String,
     pub port: u32,
     pub peers: Vec<Peer>,
+}
+
+fn serialize_secret_key<S>(prvkey: &Secret<String>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(prvkey.expose_secret())
 }
 
 impl TryFrom<&InterfaceConfiguration> for Host {
     type Error = WireguardInterfaceError;
 
     fn try_from(config: &InterfaceConfiguration) -> Result<Self, Self::Error> {
-        let key = config.prvkey.as_str().try_into()?;
+        let key = config.prvkey.expose_secret().try_into()?;
         let mut host = Host::new(config.port as u16, key);
         for peercfg in &config.peers {
             let peer = peercfg.clone();
