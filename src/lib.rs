@@ -72,7 +72,10 @@ mod wireguard_interface;
 extern crate log;
 
 use serde::{Deserialize, Serialize};
-use std::process::Output;
+use std::{
+    fmt::{Debug, Formatter},
+    process::Output,
+};
 
 use self::{
     error::WireguardInterfaceError,
@@ -92,13 +95,25 @@ pub use wgapi_userspace::WireguardApiUserspace;
 pub use wireguard_interface::WireguardInterfaceApi;
 
 /// Host WireGuard interface configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct InterfaceConfiguration {
     pub name: String,
     pub prvkey: String,
     pub address: String,
     pub port: u32,
     pub peers: Vec<Peer>,
+}
+
+// implement manually to avoid exposing private keys
+impl Debug for InterfaceConfiguration {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InterfaceConfiguration")
+            .field("name", &self.name)
+            .field("address", &self.address)
+            .field("port", &self.port)
+            .field("peers", &self.peers)
+            .finish()
+    }
 }
 
 impl TryFrom<&InterfaceConfiguration> for Host {
