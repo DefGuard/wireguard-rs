@@ -3,7 +3,7 @@ use std::{
     os::fd::AsRawFd,
 };
 
-use libc::{c_char, kld_load, IF_NAMESIZE};
+use libc::{c_char, kld_load, IFF_UP, IF_NAMESIZE};
 use nix::{ioctl_readwrite, ioctl_write_ptr, sys::socket::AddressFamily};
 
 use super::{
@@ -27,6 +27,10 @@ ioctl_write_ptr!(del_addr_if, b'i', 25, IfReq);
 ioctl_write_ptr!(add_addr_if_in6, b'i', 27, In6AliasReq);
 // SIOCDIFADDR_IN6
 ioctl_write_ptr!(del_addr_if_in6, b'i', 25, IfReq6);
+// SIOCSIFFLAGS
+ioctl_write_ptr!(set_if_flags, b'i', 16, IfReqFlags);
+// SIOCGIFFLAGS
+ioctl_readwrite!(get_if_flags, b'i', 17, IfReqFlags);
 
 /// Represent `struct ifreq` as defined in `net/if.h`.
 #[repr(C)]
@@ -225,4 +229,63 @@ impl In6AliasReq {
 
         Ok(())
     }
+}
+
+/// Represent `struct ifreq` as defined in `net/if.h`.
+#[repr(C)]
+pub struct IfReqFlags {
+    ifr_name: [u8; IF_NAMESIZE],
+    ifr_flags: u64,
+    ifr_zero: u64, // fill in for size of SockAddrIn
+}
+
+impl IfReqFlags {
+    #[must_use]
+    pub(super) fn new(if_name: &str) -> Self {
+        let mut ifr_name = [0u8; IF_NAMESIZE];
+        if_name
+            .bytes()
+            .take(IF_NAMESIZE - 1)
+            .enumerate()
+            .for_each(|(i, b)| ifr_name[i] = b);
+        Self {
+            ifr_name,
+            ifr_flags: 0,
+            ifr_zero: 0,
+        }
+    }
+
+    pub(super) fn up(&mut self) -> Result<(), IoError> {
+        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
+
+        // Get current interface flags.
+        unsafe {
+            get_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+        }
+
+        // Set interface up flag.
+        self.ifr_flags |= IFF_UP as u64;
+        unsafe {
+            set_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+        }
+
+        Ok(())
+    }
+
+    // pub(super) fn down(&mut self) -> Result<(), IoError> {
+    //     let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
+
+    //     // Get current interface flags.
+    //     unsafe {
+    //         get_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+    //     }
+
+    //     // Clear interface up flag.
+    //     self.ifr_flags &= !(IFF_UP as u64);
+    //     unsafe {
+    //         set_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+    //     }
+
+    //     Ok(())
+    // }
 }
