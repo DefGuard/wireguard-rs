@@ -271,21 +271,4 @@ impl IfReqFlags {
 
         Ok(())
     }
-
-    // pub(super) fn down(&mut self) -> Result<(), IoError> {
-    //     let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
-
-    //     // Get current interface flags.
-    //     unsafe {
-    //         get_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-    //     }
-
-    //     // Clear interface up flag.
-    //     self.ifr_flags &= !(IFF_UP as u64);
-    //     unsafe {
-    //         set_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-    //     }
-
-    //     Ok(())
-    // }
 }
