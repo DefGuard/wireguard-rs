@@ -1,3 +1,4 @@
+#[cfg(target_os = "freebsd")]
 mod ifconfig;
 mod nvlist;
 mod sockaddr;
@@ -14,8 +15,9 @@ use nix::{
 };
 use thiserror::Error;
 
+#[cfg(target_os = "freebsd")]
+use self::ifconfig::{IfReq, IfReq6, IfReqFlags, In6AliasReq, InAliasReq};
 use self::{
-    ifconfig::{IfReq, IfReq6, In6AliasReq, InAliasReq},
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
@@ -51,13 +53,12 @@ static NV_IPV6: &str = "ipv6";
 
 /// Cast bytes to `T`.
 unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
-    let ptr: *const u8 = bytes.as_ptr();
-    ptr.cast::<T>().as_ref().unwrap()
+    bytes.as_ptr().cast::<T>().as_ref().unwrap()
 }
 
 /// Cast `T' to bytes.
 unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
-    from_raw_parts((p as *const T) as *const u8, size_of::<T>())
+    from_raw_parts((p as *const T).cast::<u8>(), size_of::<T>())
 }
 
 /// Create socket for ioctl communication.
@@ -302,16 +303,22 @@ pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
     wg_data.write_data()
 }
 
+#[cfg(target_os = "freebsd")]
 pub fn create_interface(if_name: &str) -> Result<(), IoError> {
     let mut ifreq = IfReq::new(if_name);
-    ifreq.create()
+    ifreq.create()?;
+    // Put the interface up here as it is done on Linux.
+    let mut ifreq = IfReqFlags::new(if_name);
+    ifreq.up()
 }
 
+#[cfg(target_os = "freebsd")]
 pub fn delete_interface(if_name: &str) -> Result<(), IoError> {
     let ifreq = IfReq::new(if_name);
     ifreq.destroy()
 }
 
+#[cfg(target_os = "freebsd")]
 pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
     let broadcast = address.broadcast();
     let mask = address.mask();
@@ -330,6 +337,7 @@ pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError
     }
 }
 
+#[cfg(target_os = "freebsd")]
 pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
     match address.ip {
         IpAddr::V4(address) => {
