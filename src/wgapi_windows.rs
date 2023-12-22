@@ -156,7 +156,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // TODO: try to update the running instance.
 
         // TODO: Service is not immediately available, we need to wait a few seconds.
-        // sleep(Duration::from_secs(5));
+        sleep(Duration::from_secs(5));
 
         Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
             error!("Failed to update interface. Error: {err}");
@@ -208,19 +208,21 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
             println!("Peer: {:?}", arg_list);
 
+            info!("&self.ifname {:?}", &self.ifname);
+
             let y = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
                 error!("Failed to update interface. Error: {err}");
                 WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
             })?;
 
-            println!("Output show {:?}", y);
+            println!("Output wg show {:?}", y);
 
             let x = Command::new("wg").arg("set").arg(&self.ifname).arg("peer").args(arg_list).output().map_err(|err| {
                 error!("Failed to update interface. Error: {err}");
                 WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
             })?;
     
-            println!("Output {:?}", x);
+            println!("Output wg set {:?}", x);
     
             println!("Configured interface");
         }
@@ -285,6 +287,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
+        // TODO: this needs to be updated
         Ok(Host::new(12345, Key::from_str("s").unwrap()))
     }
 
