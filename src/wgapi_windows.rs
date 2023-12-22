@@ -1,4 +1,4 @@
-use std::{env, net::IpAddr, str::FromStr, sync::Arc};
+use std::{env, net::IpAddr, str::FromStr, sync::Arc, process::Command, fs::File, io::Write, thread::sleep, time::Duration};
 
 use wireguard_nt::dll;
 
@@ -23,6 +23,9 @@ const DLL_PATH: &str = "wireguard-nt/bin/arm/wireguard.dll";
 #[cfg(target_arch = "aarch64")]
 const DLL_PATH: &str = "wireguard-nt/bin/arm64/wireguard.dll";
 
+
+const USERSPACE_EXECUTABLE: &str = "wg";
+
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
 #[derive(Clone)]
 pub struct WireguardApiWindows {
@@ -31,7 +34,11 @@ pub struct WireguardApiWindows {
 
 impl WireguardApiWindows {
     pub fn new(ifname: String) -> Self {
+    // pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
         debug!("Loading DDL from {}", DLL_PATH);
+        // TODO: check that wireguard is available
+
+        // Ok(Self { ifname })
         Self { ifname }
     }
 
@@ -51,20 +58,63 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         info!("Opening/creating interface {}", self.ifname);
         debug!("Opening adapter with name {}", self.ifname);
 
-        let wireguard = Self::load_dll();
 
-        let adapter = match wireguard_nt::Adapter::open(wireguard.clone(), &self.ifname) {
-            Ok(a) => a,
-            Err((_, __)) =>
-            // If loading failed (most likely it didn't exist), create a new one
-            {
-                debug!("Creating adapter with name {}", self.ifname);
-                wireguard_nt::Adapter::create(wireguard, ADAPTER_POOL, &self.ifname, None)
-                    .map_err(|e| e.0)
-                    .expect(format!("Failed to create adapter {}", self.ifname).as_str())
-            }
-        };
-        assert!(adapter.up());
+
+        // // let interface_name = &self.ifname;
+        // let file_name = format!("{}.conf", &self.ifname);
+        // let path = env::current_dir()?;
+        // let file_path = path.join(&file_name).display().to_string();
+        // println!("File path {:?}", file_path);
+
+        // // TODO: file naming; pass private key
+        // // let mut file = File::create(&file_path)?;
+        // println!("Creating file {:?}", file_name);
+        // let mut file = File::create(&file_name)?;
+
+        // // TODO: pass private key
+        // file.write_all(b"[Interface]\nPrivateKey = wM6n6yt+i3X94cR1wAQZ5M18Iajw13Rwljcz7LGwNnI=")?;
+
+        // let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
+        //     error!("Failed to create interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
+
+        // println!("service_installation_output {:?}", service_installation_output);
+        // // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
+        // // TODO: try to update the running instance.
+
+        // // TODO: Service is not immediately available, we need to wait a few seconds.
+        // // sleep(Duration::from_secs(5));
+
+        // Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
+        //     error!("Failed to update interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
+
+        // Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        //     error!("Failed to update interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
+
+
+
+
+
+
+        // let wireguard = Self::load_dll();
+
+        // let adapter = match wireguard_nt::Adapter::open(wireguard.clone(), &self.ifname) {
+        //     Ok(a) => a,
+        //     Err((_, __)) =>
+        //     // If loading failed (most likely it didn't exist), create a new one
+        //     {
+        //         debug!("Creating adapter with name {}", self.ifname);
+        //         wireguard_nt::Adapter::create(wireguard, ADAPTER_POOL, &self.ifname, None)
+        //             .map_err(|e| e.0)
+        //             .expect(format!("Failed to create adapter {}", self.ifname).as_str())
+        //     }
+        // };
+        // assert!(adapter.up());
         info!("Opened/created interface {}", self.ifname);
         Ok(())
     }
@@ -83,46 +133,131 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             self.ifname
         );
 
-        let wireguard = Self::load_dll();
+        // Interface is created here so that there is no need to pass private key
 
-        let adapter = match wireguard_nt::Adapter::open(wireguard, &self.ifname) {
-            Ok(a) => a,
-            Err((_, __)) => panic!("Cannot open adapter {}", self.ifname),
-        };
+        let file_name = format!("{}.conf", &self.ifname);
+        let path = env::current_dir()?;
+        let file_path = path.join(&file_name).display().to_string();
+        println!("File path {:?}", file_path);
 
-        let interface = wireguard_nt::SetInterface {
-            listen_port: Some(u16::try_from(config.port).unwrap()),
-            public_key: None, // will be generated from the private key
-            private_key: Some(Self::convert_key(&config.prvkey)),
-            peers: config
-                .peers
-                .iter()
-                .map(|peer| wireguard_nt::SetPeer {
-                    public_key: Some(peer.public_key.as_array()),
-                    preshared_key: match peer.preshared_key.clone() {
-                        Some(k) => Some(k.as_array()),
-                        None => None,
-                    },
-                    keep_alive: peer.persistent_keepalive_interval,
-                    endpoint: match peer.endpoint {
-                        Some(a) => a,
-                        None => panic!("Cannot set peer without an endpoint!"),
-                    },
-                    allowed_ips: peer
-                        .allowed_ips
-                        .iter()
-                        .map(|allowed_ip| match allowed_ip.ip {
-                            IpAddr::V4(v4) => Ipv4Net::new(v4, 32).unwrap().into(),
-                            IpAddr::V6(v6) => Ipv6Net::new(v6, 128).unwrap().into(),
-                        })
-                        .collect::<Vec<_>>(),
-                })
-                .collect::<Vec<_>>(),
-        };
+        println!("Creating file {:?}", file_name);
+        let mut file = File::create(&file_name)?;
 
-        assert!(adapter.set_logging(wireguard_nt::AdapterLoggingLevel::OnWithPrefix));
+        //  file.write_all(b"[Interface]\nPrivateKey = wM6n6yt+i3X94cR1wAQZ5M18Iajw13Rwljcz7LGwNnI=")?;
+        file.write_all(format!("[Interface]\nPrivateKey = {}", config.prvkey).as_bytes())?;
+ 
+        let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
+            error!("Failed to create interface. Error: {err}");
+            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        })?;
+ 
+        println!("service_installation_output {:?}", service_installation_output);
+        // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
+        // TODO: try to update the running instance.
 
-        adapter.set_config(&interface).unwrap();
+        // TODO: Service is not immediately available, we need to wait a few seconds.
+        // sleep(Duration::from_secs(5));
+
+        Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
+            error!("Failed to update interface. Error: {err}");
+            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        })?;
+
+        Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+            error!("Failed to update interface. Error: {err}");
+            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        })?;
+
+        // let wireguard = Self::load_dll();
+
+        // let adapter = match wireguard_nt::Adapter::open(wireguard, &self.ifname) {
+        //     Ok(a) => a,
+        //     Err((_, __)) => panic!("Cannot open adapter {}", self.ifname),
+        // };
+
+        println!("Configuring interface");
+        
+        for peer in &config.peers {
+            println!("Adding a new peer {:?}", peer.preshared_key);
+
+            let mut arg_list = Vec::new();
+            // TODO: Handle errors; refactor
+
+            arg_list.push(format!("{}", peer.public_key.to_string()));
+
+            if let Some(preshared_key) = &peer.preshared_key {
+                arg_list.push(format!("preshared-key {}", preshared_key));
+            }
+
+            if let Some(keep_alive) = peer.persistent_keepalive_interval {
+                arg_list.push("persistent-keepalive".to_string());
+                arg_list.push(keep_alive.to_string());
+            }
+
+            if let Some(endpoint) = peer.endpoint {
+                arg_list.push("endpoint".to_string());
+                arg_list.push(endpoint.to_string());
+            }
+
+            arg_list.push("allowed-ips".to_string());
+
+            let allowed_ips = format!("{}", peer.allowed_ips.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(","));
+            println!("allowed_ips {}", allowed_ips);
+
+            arg_list.push(allowed_ips);
+
+            println!("Peer: {:?}", arg_list);
+
+            let y = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+                error!("Failed to update interface. Error: {err}");
+                WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+            })?;
+
+            println!("Output show {:?}", y);
+
+            let x = Command::new("wg").arg("set").arg(&self.ifname).arg("peer").args(arg_list).output().map_err(|err| {
+                error!("Failed to update interface. Error: {err}");
+                WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+            })?;
+    
+            println!("Output {:?}", x);
+    
+            println!("Configured interface");
+        }
+
+        // let interface = wireguard_nt::SetInterface {
+        //     listen_port: Some(u16::try_from(config.port).unwrap()),
+        //     public_key: None, // will be generated from the private key
+        //     private_key: Some(Self::convert_key(&config.prvkey)),
+        //     peers: config
+        //         .peers
+        //         .iter()
+        //         .map(|peer| wireguard_nt::SetPeer {
+        //             public_key: Some(peer.public_key.as_array()),
+        //             preshared_key: match peer.preshared_key.clone() {
+        //                 Some(k) => Some(k.as_array()),
+        //                 None => None,
+        //             },
+        //             keep_alive: peer.persistent_keepalive_interval,
+        //             endpoint: match peer.endpoint {
+        //                 Some(a) => a,
+        //                 None => panic!("Cannot set peer without an endpoint!"),
+        //             },
+        //             allowed_ips: peer
+        //                 .allowed_ips
+        //                 .iter()
+        //                 .map(|allowed_ip| match allowed_ip.ip {
+        //                     IpAddr::V4(v4) => Ipv4Net::new(v4, 32).unwrap().into(),
+        //                     IpAddr::V6(v6) => Ipv6Net::new(v6, 128).unwrap().into(),
+        //                 })
+        //                 .collect::<Vec<_>>(),
+        //         })
+        //         .collect::<Vec<_>>(),
+        // };
+
+        // assert!(adapter.set_logging(wireguard_nt::AdapterLoggingLevel::OnWithPrefix));
+
+        // adapter.set_config(&interface).unwrap();
         Ok(())
     }
 
