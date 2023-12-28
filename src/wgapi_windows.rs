@@ -295,6 +295,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
         })?;
 
+        println!("Read interface output: {:?}", output);
+
         let reader = BufReader::new(Cursor::new(output.stdout));
         let mut host = Host::default();
         // let mut peer_ref: Option<&mut Peer> = None;
