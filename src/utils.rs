@@ -310,6 +310,10 @@ pub(crate) fn add_peer_routing(
         }
     }
 
+    println!("default_route {:?}", default_route);
+    println!("endpoints {:?}", endpoints);
+    println!("unique_allowed_ips {:?}", unique_allowed_ips);
+
     if let Some(default_route) = default_route {
         info!("Found default route: {default_route:?}");
         let is_ipv6 = default_route.ip.is_ipv6();
@@ -374,6 +378,7 @@ pub(crate) fn add_peer_routing(
             check_command_output_status(output)?;
         }
     } else {
+        info!("No default route found");
         for allowed_ip in unique_allowed_ips {
             debug!("Processing allowed IP: {}", allowed_ip);
             let is_ipv6 = allowed_ip.ip.is_ipv6();
