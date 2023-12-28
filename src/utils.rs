@@ -179,7 +179,7 @@ pub(crate) fn add_peer_routing(
 }
 
 /// Helper function to add routing.  
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "windows"))]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
@@ -295,7 +295,7 @@ pub enum IpVersion {
 /// Same as in wg-quick find default gateway info using `netstat -nr -f inet` or `inet6`
 /// based on allowed IP version.
 /// Needed to add proper routing for 0.0.0.0/0, ::/0.
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "windows"))]
 pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInterfaceError> {
     let command_args = match ip_version {
         IpVersion::IPv4 => &["-nr", "-f", "inet"],
