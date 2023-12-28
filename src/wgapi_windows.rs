@@ -1,4 +1,4 @@
-use std::{env, net::IpAddr, str::FromStr, sync::Arc, process::Command, fs::File, io::Write, thread::sleep, time::Duration};
+use std::{env, net::{IpAddr, SocketAddr}, str::FromStr, sync::Arc, process::Command, fs::File, io::{Write, BufReader, Cursor, BufRead}, thread::sleep, time::Duration};
 
 use wireguard_nt::dll;
 
@@ -289,6 +289,135 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
+
+        let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+            error!("Failed to update interface. Error: {err}");
+            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        })?;
+
+        let reader = BufReader::new(Cursor::new(output.stdout));
+        let mut host = Host::default();
+        // let mut peer_ref: Option<&mut Peer> = None;
+        let mut peer_ref: Option<Peer> = None;
+
+        // reader.buffer().lines();
+
+        for line_result in reader.buffer().lines() {
+            let line = match &line_result {
+                Ok(line) => line.trim(),
+                Err(err) => {
+                    continue;
+                }
+            };
+
+            println!("Line trimmed: {:?}", line);
+
+            if let Some((keyword, value)) = line.split_once('=') {
+                println!("Split line: {:?}; value: {:?}", keyword, value);
+                let keyword = keyword.trim();
+                let value = value.trim();
+
+                match keyword {
+                    "ListenPort" => host.listen_port = value.parse().unwrap_or_default(),
+                    // "ListenPort" => println!("port: {:?}", value.parse().unwrap_or_default()),
+                    // "fwmark" => host.fwmark = value.parse().ok(),
+                    "PrivateKey" => host.private_key = Key::decode(value).ok(),
+                    // "PrivateKey" => println!("prv key {:?}", Key::decode(value).ok()),
+                    // "public_key" starts new peer definition
+                    "PublicKey" => {
+                        if let Ok(key) = Key::decode(value) {
+                            println!("KEY: {:?}", key);
+                            // let peer = Peer::new(key.clone());
+                            // host.peers.insert(key.clone(), peer);
+                            // peer_ref = host.peers.get_mut(&key);
+                        } else {
+                            peer_ref = None;
+                        }
+                    }
+                    "preshared_key" => {
+                        if let Some(ref mut peer) = peer_ref {
+                            // peer.preshared_key = Key::decode(value).ok();
+                            println!("PRE: {:?}", Key::decode(value).ok());
+                        }
+                    }
+                    "protocol_version" => {
+                        if let Some(ref mut peer) = peer_ref {
+                            // peer.protocol_version = value.parse().ok();
+                        }
+                    }
+                    "Endpoint" => {
+                        if let Some(ref mut peer) = peer_ref {
+                            peer.endpoint = SocketAddr::from_str(value).ok();
+                            println!("PRE: {:?}", SocketAddr::from_str(value).ok());
+    
+                        }
+                    }
+                    "PersistentKeepalive" => {
+                        if let Some(ref mut peer) = peer_ref {
+                            peer.persistent_keepalive_interval = value.parse().ok();
+                        }
+                    }
+                    "AllowedIPs" => {
+                        if let Some(ref mut peer) = peer_ref {
+                            println!("AllowedIps: {:?}", value);
+                            // let mut split_ips = value.split(",").map(|v| IpAddrMask::from_str(v).unwrap());
+
+                            for allowed_ip in value.split(",") {
+                                let addr = IpAddrMask::from_str(allowed_ip)?;
+                                peer.allowed_ips.push(addr);
+                            }
+
+                            // peer.allowed_ips.append(&split_ips);
+                            // IpAddrMask()
+
+                            // if let Ok(addr) = value.parse() {
+                            //     let split_ips = addr.split(",");
+                            //     println!("ips: {:?}", split_ips);
+                            //     // peer.allowed_ips.push(addr);
+                            //     peer.allowed_ips.append(&split_ips);
+                            // }
+                        }
+                    }
+                    "last_handshake_time_sec" => {
+                        if let Some(ref mut peer) = peer_ref {
+                            // let handshake =
+                            //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
+                            // *handshake += Duration::from_secs(value.parse().unwrap_or_default());
+                        }
+                    }
+                    "last_handshake_time_nsec" => {
+                        if let Some(ref mut peer) = peer_ref {
+                            // let handshake =
+                            //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
+                            // *handshake += Duration::from_nanos(value.parse().unwrap_or_default());
+                        }
+                    }
+                    // "rx_bytes" => {
+                    //     if let Some(ref mut peer) = peer_ref {
+                    //         peer.rx_bytes = value.parse().unwrap_or_default();
+                    //     }
+                    // }
+                    // "tx_bytes" => {
+                    //     if let Some(ref mut peer) = peer_ref {
+                    //         peer.tx_bytes = value.parse().unwrap_or_default();
+                    //     }
+                    // }
+                    // // "errno" ends config
+                    // "errno" => {
+                    //     if let Ok(errno) = value.parse::<u32>() {
+                    //         if errno == 0 {
+                    //             // Break here, or BufReader will wait for EOF.
+                    //             break;
+                    //         }
+                    //     }
+                    //     return;
+                    // }
+                    _ => println!("Unknown UAPI keyword {}", keyword),
+                }
+            }
+
+
+        }
         // TODO: this needs to be updated
         // thread 'tokio-runtime-worker' panicked at C:\Users\User\.cargo\git\checkouts\wireguard-rs-fba7499ea125cbe3\d135a53\src\wgapi_windows.rs:288:48:
 // called `Result::unwrap()` on an `Err` value: InvalidLength
@@ -296,8 +425,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // wg showconf Szczecin
         // port, private key
         // peer somewhere else?
-
-        Ok(Host::new(12345, Key::from_str("s").unwrap()))
+        println!("HOST: {:?}", host);
+        Ok(host)
+        // Ok(Host::new(12345, Key::from_str("s").unwrap()))
     }
 
     fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
