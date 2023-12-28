@@ -351,6 +351,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     // "PrivateKey" => println!("prv key {:?}", Key::decode(value).ok()),
                     // "public_key" starts new peer definition
                     "PublicKey" => {
+                        println!("Public key entered {:?}", value);
+                        print!("decode pub key {:?}", Key::decode(value));
                         if let Ok(key) = Key::decode(value) {
                             println!("public KEY: {:?}", key);
                             let peer = Peer::new(key.clone());
@@ -384,6 +386,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                         }
                     }
                     "AllowedIPs" => {
+                        println!("Allowed ips entered");
                         if let Some(ref mut peer) = peer_ref {
                             println!("AllowedIps: {:?}", value);
                             // let mut split_ips = value.split(",").map(|v| IpAddrMask::from_str(v).unwrap());
