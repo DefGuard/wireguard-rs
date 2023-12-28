@@ -315,7 +315,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let reader = BufReader::new(Cursor::new(output.stdout));
         let mut host = Host::default();
         // let mut peer_ref: Option<&mut Peer> = None;
-        let mut peer_ref: Option<Peer> = None;
+        let mut peer_ref: Option<&mut Peer> = None;
 
         // reader.buffer().lines();
 
@@ -336,10 +336,12 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
             println!("Line trimmed: {:?}", line);
 
-            if let Some((keyword, value)) = line.split_once('=') {
-                println!("Split line: {:?}; value: {:?}", keyword, value);
-                let keyword = keyword.trim();
-                let value = value.trim();
+            if let Some((key, val)) = line.split_once('=') {
+                println!("Split line: {:?}; value: {:?}", key, val);
+                let keyword: &str = key.trim();
+                let value = val.trim();
+
+                println!("Trimmed: {:?} {:?}", keyword, value);
 
                 match keyword {
                     "ListenPort" => host.listen_port = value.parse().unwrap_or_default(),
@@ -350,10 +352,10 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     // "public_key" starts new peer definition
                     "PublicKey" => {
                         if let Ok(key) = Key::decode(value) {
-                            println!("KEY: {:?}", key);
-                            // let peer = Peer::new(key.clone());
-                            // host.peers.insert(key.clone(), peer);
-                            // peer_ref = host.peers.get_mut(&key);
+                            println!("public KEY: {:?}", key);
+                            let peer = Peer::new(key.clone());
+                            host.peers.insert(key.clone(), peer);
+                            peer_ref = host.peers.get_mut(&key);
                         } else {
                             peer_ref = None;
                         }
