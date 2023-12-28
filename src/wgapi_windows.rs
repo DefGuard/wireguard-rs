@@ -189,6 +189,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
             // arg_list.push(format!("{}", peer.public_key.to_string()));
             arg_list.push(format!("{}", peer.public_key));
+            println!("Pubkey pushed {:?}", arg_list);
 
             if let Some(preshared_key) = &peer.preshared_key {
                 arg_list.push(format!("preshared-key {}", preshared_key));
