@@ -188,8 +188,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             let mut arg_list = Vec::new();
             // TODO: Handle errors; refactor
 
-            // arg_list.push(format!("{}", peer.public_key.to_string()));
-            arg_list.push(format!("{}", peer.public_key.to_lower_hex()));
+            arg_list.push(format!("{}", peer.public_key.to_string()));
+            // arg_list.push(format!("{}", peer.public_key.to_lower_hex()));
             println!("Pubkey pushed {:?}", arg_list);
 
             if let Some(preshared_key) = &peer.preshared_key {
@@ -352,13 +352,17 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     "ListenPort" => host.listen_port = value.parse().unwrap_or_default(),
                     // "ListenPort" => println!("port: {:?}", value.parse().unwrap_or_default()),
                     // "fwmark" => host.fwmark = value.parse().ok(),
-                    "PrivateKey" => host.private_key = Key::decode(value).ok(),
+                    "PrivateKey" => {
+                        // host.private_key = Key::decode(value).ok();
+                        let key = Key::from_str(value);
+                        host.private_key = key.ok();
+                    },
                     // "PrivateKey" => println!("prv key {:?}", Key::decode(value).ok()),
                     // "public_key" starts new peer definition
                     "PublicKey" => {
                         println!("Public key entered {:?}", value);
-                        print!("decode pub key {:?}", Key::decode(value));
-                        if let Ok(key) = Key::decode(value) {
+                        print!("decode pub key {:?}", Key::from_str(value));
+                        if let Ok(key) = Key::from_str(value) {
                             println!("public KEY: {:?}", key);
                             let peer = Peer::new(key.clone());
                             host.peers.insert(key.clone(), peer);
@@ -366,6 +370,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                         } else {
                             peer_ref = None;
                         }
+                        // if let Ok(key) = Key::decode(value) {
+                        //     println!("public KEY: {:?}", key);
+                        //     let peer = Peer::new(key.clone());
+                        //     host.peers.insert(key.clone(), peer);
+                        //     peer_ref = host.peers.get_mut(&key);
+                        // } else {
+                        //     peer_ref = None;
+                        // }
                     }
                     "preshared_key" => {
                         if let Some(ref mut peer) = peer_ref {
