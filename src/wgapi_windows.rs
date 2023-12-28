@@ -187,7 +187,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             let mut arg_list = Vec::new();
             // TODO: Handle errors; refactor
 
-            arg_list.push(format!("{}", peer.public_key.to_string()));
+            // arg_list.push(format!("{}", peer.public_key.to_string()));
+            arg_list.push(format!("{}", peer.public_key));
 
             if let Some(preshared_key) = &peer.preshared_key {
                 arg_list.push(format!("preshared-key {}", preshared_key));
