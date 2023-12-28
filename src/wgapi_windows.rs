@@ -297,6 +297,21 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         println!("Read interface output: {:?}", output);
 
+        // let buf = BufReader::new(Cursor::new(output.stdout));
+        // Get all lines from stdout without asterisk (*).
+        // An asterisk (*) denotes that a network service is disabled.
+        // if output.status.success() {
+        //     let lines = buf
+        //         .lines()
+        //         .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
+        //         // .collect();
+        //         ;
+        // }
+        // let lines = buf
+        //     .lines()
+        //     .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
+        //     .collect();
+
         let reader = BufReader::new(Cursor::new(output.stdout));
         let mut host = Host::default();
         // let mut peer_ref: Option<&mut Peer> = None;
@@ -304,7 +319,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         // reader.buffer().lines();
 
-        for line_result in reader.buffer().lines() {
+        // let l = reader.lines()
+        // let x = buf.lines()
+
+        let lines = reader.lines();
+
+        println!("reader.buffer().lines() {:?}", lines);
+
+        for line_result in lines {
             let line = match &line_result {
                 Ok(line) => line.trim(),
                 Err(err) => {
