@@ -180,7 +180,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         println!("Configuring interface");
         
         for peer in &config.peers {
-            println!("Adding a new peer {:?}", peer.preshared_key);
+            println!("Adding a new peer {:?}", peer);
+            println!("Peer pubkey {:?}", peer.public_key);
+            println!("Peer pubkey {:?}", peer.public_key.to_string());
 
             let mut arg_list = Vec::new();
             // TODO: Handle errors; refactor
