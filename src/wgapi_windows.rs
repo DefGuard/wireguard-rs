@@ -7,7 +7,7 @@ use crate::{
     host::{Host, Peer},
     key::Key,
     net::IpAddrMask,
-    InterfaceConfiguration, WireguardInterfaceApi,
+    InterfaceConfiguration, WireguardInterfaceApi, utils::add_peer_routing,
 };
 
 use ipnet::{Ipv4Net, Ipv6Net};
@@ -271,7 +271,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     }
 
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        Ok(())
+        // 
+        add_peer_routing(peers, &self.ifname)
+        // Ok(())
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
