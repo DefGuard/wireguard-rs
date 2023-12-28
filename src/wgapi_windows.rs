@@ -409,8 +409,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                             // let mut split_ips = value.split(",").map(|v| IpAddrMask::from_str(v).unwrap());
 
                             for allowed_ip in value.split(",") {
-                                let addr = IpAddrMask::from_str(allowed_ip)?;
-                                peer.allowed_ips.push(addr);
+                                println!("allowed ip: {:?}", allowed_ip);
+                                // let addr = IpAddrMask::from_str(allowed_ip)?;
+                                // peer.allowed_ips.push(addr);
                             }
 
                             // peer.allowed_ips.append(&split_ips);
