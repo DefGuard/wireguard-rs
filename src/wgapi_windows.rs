@@ -290,7 +290,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
 
-        let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        let output = Command::new("wg").arg("showconf").arg(&self.ifname).output().map_err(|err| {
             error!("Failed to update interface. Error: {err}");
             WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
         })?;
