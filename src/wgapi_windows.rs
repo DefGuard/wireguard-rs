@@ -182,13 +182,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         for peer in &config.peers {
             println!("Adding a new peer {:?}", peer);
             println!("Peer pubkey {:?}", peer.public_key);
-            println!("Peer pubkey {:?}", peer.public_key.to_string());
+            println!("Peer pubkey to string {:?}", peer.public_key.to_string());
+            println!("Peer pubkey lower hex {:?}", peer.public_key.to_lower_hex());
 
             let mut arg_list = Vec::new();
             // TODO: Handle errors; refactor
 
             // arg_list.push(format!("{}", peer.public_key.to_string()));
-            arg_list.push(format!("{}", peer.public_key));
+            arg_list.push(format!("{}", peer.public_key.to_lower_hex()));
             println!("Pubkey pushed {:?}", arg_list);
 
             if let Some(preshared_key) = &peer.preshared_key {
