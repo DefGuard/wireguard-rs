@@ -143,6 +143,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         println!("Creating file {:?}", file_name);
         let mut file = File::create(&file_name)?;
 
+        // println!("SETTING DNS");
+        // DNS = 10.4.0.1
         //  file.write_all(b"[Interface]\nPrivateKey = wM6n6yt+i3X94cR1wAQZ5M18Iajw13Rwljcz7LGwNnI=")?;
         file.write_all(format!("[Interface]\nPrivateKey = {}", config.prvkey).as_bytes())?;
  
@@ -156,7 +158,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // TODO: try to update the running instance.
 
         // TODO: Service is not immediately available, we need to wait a few seconds.
-        sleep(Duration::from_secs(5));
+        sleep(Duration::from_secs(10));
 
         Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
             error!("Failed to update interface. Error: {err}");
@@ -288,6 +290,13 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
         // TODO: this needs to be updated
+        // thread 'tokio-runtime-worker' panicked at C:\Users\User\.cargo\git\checkouts\wireguard-rs-fba7499ea125cbe3\d135a53\src\wgapi_windows.rs:288:48:
+// called `Result::unwrap()` on an `Err` value: InvalidLength
+
+        // wg showconf Szczecin
+        // port, private key
+        // peer somewhere else?
+
         Ok(Host::new(12345, Key::from_str("s").unwrap()))
     }
 
