@@ -311,7 +311,7 @@ pub(crate) fn add_peer_routing(
     }
 
     if let Some(default_route) = default_route {
-        debug!("Found default route: {default_route:?}");
+        info!("Found default route: {default_route:?}");
         let is_ipv6 = default_route.ip.is_ipv6();
         // let (proto, route1, route2) = if is_ipv6 {
         //     ("-inet6", "::/1", "8000::/1")
@@ -350,7 +350,7 @@ pub(crate) fn add_peer_routing(
             let endpoint_ip = endpoint.ip().to_string();
             let args = if gateway.is_empty() {
                 // Prevent routing loop as in wg-quick
-                debug!("Default gateway not found.");
+                info!("Default gateway not found.");
                 let address = if endpoint.is_ipv4() {
                     "127.0.0.1"
                 } else {
@@ -366,10 +366,10 @@ pub(crate) fn add_peer_routing(
                     "-blackhole",
                 ]
             } else {
-                debug!("Found default gateway: {gateway}");
+                info!("Found default gateway: {gateway}");
                 ["-q", "-n", "add", proto, &endpoint_ip, "-gateway", &gateway]
             };
-            debug!("Executing command route with args: {args:?}");
+            info!("Executing command route with args: {args:?}");
             let output = Command::new("route").args(args).output()?;
             check_command_output_status(output)?;
         }
@@ -436,6 +436,9 @@ pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInt
         IpVersion::IPv6 => &["-nr", "-f", "inet6"],
     };
 
+    let output: Result<std::process::Output, std::io::Error> = Command::new("ipconfig").arg("| findstr \"Default Gateway\"").output();
+    println!("windows: ipconfig: {:?}", output);
+
     let output = Command::new("ipconfig").arg("| findstr \"Default Gateway\"").output()?;
     // ipconfig | findstr "Default Gateway"
 
@@ -444,7 +447,7 @@ pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInt
     for line in output_str.lines() {
         // let fields: Vec<&str> = line.split_whitespace().collect();
         let fields: Vec<&str> = line.split(":").collect();
-        println!("fields {:?}", fields);
+        println!("getting gateway: fields {:?}", fields);
         if fields.len() > 1 && fields[0] == "default" && !fields[1].starts_with("link#") {
             // return Ok(fields[1].to_string());
         }
