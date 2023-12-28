@@ -377,18 +377,18 @@ pub(crate) fn add_peer_routing(
         for allowed_ip in unique_allowed_ips {
             debug!("Processing allowed IP: {}", allowed_ip);
             let is_ipv6 = allowed_ip.ip.is_ipv6();
-            let proto = if is_ipv6 { "-inet6" } else { "-inet" };
+            // let proto = if is_ipv6 { "-inet6" } else { "-inet" };
+            let proto = if is_ipv6 { "ipv6" } else { "ipv4" };
             let args = [
-                "-q",
-                "-n",
-                "add",
+                "interface",
                 proto,
+                "add",
+                "route",
                 &allowed_ip.to_string(),
-                "-interface",
                 ifname,
             ];
             info!("Executing command route with args: {args:?}");
-            let output = Command::new("route").args(args).output()?;
+            let output = Command::new("netsh").args(args).output()?;
             check_command_output_status(output)?;
         }
     }
