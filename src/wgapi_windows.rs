@@ -278,6 +278,15 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
+
+        let output = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output().map_err(|err| {
+            error!("Failed to remove interface. Error: {err}");
+            // TODO: throw correct error
+            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        })?;
+
+        println!("Interface removed output: {:?}", output);
+
         Ok(())
     }
 
@@ -362,10 +371,10 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     // "PrivateKey" => println!("prv key {:?}", Key::decode(value).ok()),
                     // "public_key" starts new peer definition
                     "PublicKey" => {
-                        println!("Public key entered {:?}", value);
-                        print!("decode pub key {:?}", Key::from_str(value));
+                        // println!("Public key entered {:?}", value);
+                        // print!("decode pub key {:?}", Key::from_str(value));
                         if let Ok(key) = Key::from_str(value) {
-                            println!("public KEY: {:?}", key);
+                            // println!("public KEY: {:?}", key);
                             let peer = Peer::new(key.clone());
                             host.peers.insert(key.clone(), peer);
                             peer_ref = host.peers.get_mut(&key);
@@ -384,7 +393,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     "preshared_key" => {
                         if let Some(ref mut peer) = peer_ref {
                             // peer.preshared_key = Key::decode(value).ok();
-                            println!("PRE: {:?}", Key::decode(value).ok());
+                            // println!("PRE: {:?}", Key::decode(value).ok());
                         }
                     }
                     "protocol_version" => {
@@ -395,7 +404,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     "Endpoint" => {
                         if let Some(ref mut peer) = peer_ref {
                             peer.endpoint = SocketAddr::from_str(value).ok();
-                            println!("PRE: {:?}", SocketAddr::from_str(value).ok());
+                            // println!("PRE: {:?}", SocketAddr::from_str(value).ok());
     
                         }
                     }
@@ -405,13 +414,13 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                         }
                     }
                     "AllowedIPs" => {
-                        println!("Allowed ips entered");
+                        // println!("Allowed ips entered");
                         if let Some(ref mut peer) = peer_ref {
-                            println!("AllowedIps: {:?}", value);
+                            // println!("AllowedIps: {:?}", value);
                             // let mut split_ips = value.split(",").map(|v| IpAddrMask::from_str(v).unwrap());
 
                             for allowed_ip in value.split(",") {
-                                println!("allowed ip: {:?}", allowed_ip);
+                                // println!("allowed ip: {:?}", allowed_ip);
                                 let addr = IpAddrMask::from_str(allowed_ip.trim())?;
                                 peer.allowed_ips.push(addr);
                             }
