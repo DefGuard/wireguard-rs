@@ -272,8 +272,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         // 
-        add_peer_routing(peers, &self.ifname)
-        // Ok(())
+        // add_peer_routing(peers, &self.ifname)
+        Ok(())
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
