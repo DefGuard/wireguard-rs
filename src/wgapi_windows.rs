@@ -145,8 +145,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         println!("SETTING DNS");
         // DNS = 10.4.0.1
+        // \nDNS = 10.4.0.1
         //  file.write_all(b"[Interface]\nPrivateKey = wM6n6yt+i3X94cR1wAQZ5M18Iajw13Rwljcz7LGwNnI=")?;
-        file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = 10.4.0.1\nAddress = {}", config.prvkey, config.address).as_bytes())?;
+        file.write_all(format!("[Interface]\nPrivateKey = {}\nAddress = {}", config.prvkey, config.address).as_bytes())?;
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
@@ -279,7 +280,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Removing interface {}", self.ifname);
 
-        let output = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output().map_err(|err| {
+        Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output().map_err(|err| {
             error!("Failed to remove interface. Error: {err}");
             // WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
             WireguardInterfaceError::CommandExecutionFailed(err)
