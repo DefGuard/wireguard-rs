@@ -43,7 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         peers: vec![peer],
     };
 
+    #[cfg(not(windows))]
     wgapi.configure_interface(&interface_config)?;
+    #[cfg(windows)]
+    wgapi.configure_interface(&interface_config, &Vec::new())?;
     wgapi.configure_peer_routing(&interface_config.peers)?;
 
     Ok(())

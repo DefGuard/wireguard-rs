@@ -54,11 +54,21 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer_routing(peers)
     }
 
+    #[cfg(not(windows))]
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
     ) -> Result<(), WireguardInterfaceError> {
         self.0.configure_interface(config)
+    }
+
+    #[cfg(windows)]
+    fn configure_interface(
+        &self,
+        config: &InterfaceConfiguration,
+        dns: &[IpAddr],
+    ) -> Result<(), WireguardInterfaceError> {
+        self.0.configure_interface(config, dns)
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {

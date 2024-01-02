@@ -127,6 +127,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
+        dns: &[IpAddr],
     ) -> Result<(), WireguardInterfaceError> {
         info!(
             "Configuring interface {} with config: {config:?}",
@@ -144,10 +145,13 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let mut file = File::create(&file_name)?;
 
         println!("SETTING DNS");
+        let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
+
+        println!("dns_addresses {:?}", dns_addresses);
         // DNS = 10.4.0.1
         // \nDNS = 10.4.0.1
         //  file.write_all(b"[Interface]\nPrivateKey = wM6n6yt+i3X94cR1wAQZ5M18Iajw13Rwljcz7LGwNnI=")?;
-        file.write_all(format!("[Interface]\nPrivateKey = {}\nAddress = {}", config.prvkey, config.address).as_bytes())?;
+        file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}", config.prvkey, dns_addresses, config.address).as_bytes())?;
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
@@ -209,7 +213,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
             arg_list.push("allowed-ips".to_string());
 
-            let allowed_ips = format!("{}", peer.allowed_ips.iter().map(|x| x.to_string()).collect::<Vec<String>>().join(","));
+            let allowed_ips = format!("{}", peer.allowed_ips.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
             println!("allowed_ips {}", allowed_ips);
 
             arg_list.push(allowed_ips);

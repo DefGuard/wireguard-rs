@@ -58,7 +58,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         peers: vec![peer],
     };
 
+    #[cfg(not(windows))]
     api.configure_interface(&interface_config)?;
+    #[cfg(windows)]
+    api.configure_interface(&interface_config, &Vec::new())?;
 
     println!("Interface {ifname} configured.");
     pause();
