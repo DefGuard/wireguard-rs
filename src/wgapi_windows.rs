@@ -146,7 +146,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         println!("SETTING DNS");
         // DNS = 10.4.0.1
         //  file.write_all(b"[Interface]\nPrivateKey = wM6n6yt+i3X94cR1wAQZ5M18Iajw13Rwljcz7LGwNnI=")?;
-        file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = 10.4.0.1", config.prvkey).as_bytes())?;
+        file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = 10.4.0.1\nAddress = 10.6.0.47/32", config.prvkey).as_bytes())?;
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
@@ -676,6 +676,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     }
 
     fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+        // netsh interface ipv4 set dns name="Szczecin" static 10.4.0.1
         info!(
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname
