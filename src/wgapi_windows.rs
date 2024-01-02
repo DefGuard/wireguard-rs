@@ -1,4 +1,4 @@
-use std::{env, net::{IpAddr, SocketAddr}, str::FromStr, sync::Arc, process::Command, fs::File, io::{Write, BufReader, Cursor, BufRead}, thread::sleep, time::Duration};
+use std::{env, net::{IpAddr, SocketAddr}, str::FromStr, sync::Arc, process::Command, fs::File, io::{Write, BufReader, Cursor, BufRead}, thread::sleep, time::{Duration, SystemTime}};
 
 use wireguard_nt::dll;
 
@@ -281,11 +281,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         let output = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output().map_err(|err| {
             error!("Failed to remove interface. Error: {err}");
-            // TODO: throw correct error
-            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+            // WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+            WireguardInterfaceError::CommandExecutionFailed(err)
         })?;
-
-        println!("Interface removed output: {:?}", output);
 
         Ok(())
     }
@@ -306,7 +304,12 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
 
-        let output = Command::new("wg").arg("showconf").arg(&self.ifname).output().map_err(|err| {
+        // let output = Command::new("wg").arg("showconf").arg(&self.ifname).output().map_err(|err| {
+        //     error!("Failed to update interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
+
+        let output = Command::new("wg").arg("show").arg(&self.ifname).arg("dump").output().map_err(|err| {
             error!("Failed to update interface. Error: {err}");
             WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
         })?;
@@ -340,142 +343,326 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         let lines = reader.lines();
 
-        println!("reader.buffer().lines() {:?}", lines);
+        // println!("reader.buffer().lines() {:?}", lines);
 
-        for line_result in lines {
+
+        for (index, line_result) in lines.enumerate() {
             let line = match &line_result {
-                Ok(line) => line.trim(),
+                // .trim()
+                Ok(line) => line,
                 Err(err) => {
                     continue;
                 }
             };
 
-            println!("Line trimmed: {:?}", line);
+            // println!("Line trimmed: {:?}", line);
 
-            if let Some((key, val)) = line.split_once('=') {
-                println!("Split line: {:?}; value: {:?}", key, val);
-                let keyword: &str = key.trim();
-                let value = val.trim();
+            let data: Vec<&str> = line.split("\t").collect();
+            println!("Data: {:?}", data);
 
-                println!("Trimmed: {:?} {:?}", keyword, value);
+            if index == 0 {
+                // Interface data: private key, public key, listen port, fwmark
+                println!("Interface data - index 0");
 
-                match keyword {
-                    "ListenPort" => host.listen_port = value.parse().unwrap_or_default(),
-                    // "ListenPort" => println!("port: {:?}", value.parse().unwrap_or_default()),
-                    // "fwmark" => host.fwmark = value.parse().ok(),
-                    "PrivateKey" => {
-                        // host.private_key = Key::decode(value).ok();
-                        let key = Key::from_str(value);
-                        host.private_key = key.ok();
-                    },
-                    // "PrivateKey" => println!("prv key {:?}", Key::decode(value).ok()),
-                    // "public_key" starts new peer definition
-                    "PublicKey" => {
-                        // println!("Public key entered {:?}", value);
-                        // print!("decode pub key {:?}", Key::from_str(value));
-                        if let Ok(key) = Key::from_str(value) {
-                            // println!("public KEY: {:?}", key);
-                            let peer = Peer::new(key.clone());
-                            host.peers.insert(key.clone(), peer);
-                            peer_ref = host.peers.get_mut(&key);
-                        } else {
-                            peer_ref = None;
-                        }
-                        // if let Ok(key) = Key::decode(value) {
-                        //     println!("public KEY: {:?}", key);
-                        //     let peer = Peer::new(key.clone());
-                        //     host.peers.insert(key.clone(), peer);
-                        //     peer_ref = host.peers.get_mut(&key);
-                        // } else {
-                        //     peer_ref = None;
-                        // }
-                    }
-                    "preshared_key" => {
-                        if let Some(ref mut peer) = peer_ref {
-                            // peer.preshared_key = Key::decode(value).ok();
-                            // println!("PRE: {:?}", Key::decode(value).ok());
-                        }
-                    }
-                    "protocol_version" => {
-                        if let Some(ref mut peer) = peer_ref {
-                            // peer.protocol_version = value.parse().ok();
-                        }
-                    }
-                    "Endpoint" => {
-                        if let Some(ref mut peer) = peer_ref {
-                            peer.endpoint = SocketAddr::from_str(value).ok();
-                            // println!("PRE: {:?}", SocketAddr::from_str(value).ok());
-    
-                        }
-                    }
-                    "PersistentKeepalive" => {
-                        if let Some(ref mut peer) = peer_ref {
-                            peer.persistent_keepalive_interval = value.parse().ok();
-                        }
-                    }
-                    "AllowedIPs" => {
-                        // println!("Allowed ips entered");
-                        if let Some(ref mut peer) = peer_ref {
-                            // println!("AllowedIps: {:?}", value);
-                            // let mut split_ips = value.split(",").map(|v| IpAddrMask::from_str(v).unwrap());
+                host.private_key = Key::from_str(data[0]).ok();
+                host.listen_port = data[2].parse().unwrap_or_default();
 
-                            for allowed_ip in value.split(",") {
-                                // println!("allowed ip: {:?}", allowed_ip);
-                                let addr = IpAddrMask::from_str(allowed_ip.trim())?;
-                                peer.allowed_ips.push(addr);
-                            }
-
-                            // peer.allowed_ips.append(&split_ips);
-                            // IpAddrMask()
-
-                            // if let Ok(addr) = value.parse() {
-                            //     let split_ips = addr.split(",");
-                            //     println!("ips: {:?}", split_ips);
-                            //     // peer.allowed_ips.push(addr);
-                            //     peer.allowed_ips.append(&split_ips);
-                            // }
-                        }
-                    }
-                    "last_handshake_time_sec" => {
-                        if let Some(ref mut peer) = peer_ref {
-                            // let handshake =
-                            //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
-                            // *handshake += Duration::from_secs(value.parse().unwrap_or_default());
-                        }
-                    }
-                    "last_handshake_time_nsec" => {
-                        if let Some(ref mut peer) = peer_ref {
-                            // let handshake =
-                            //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
-                            // *handshake += Duration::from_nanos(value.parse().unwrap_or_default());
-                        }
-                    }
-                    // "rx_bytes" => {
-                    //     if let Some(ref mut peer) = peer_ref {
-                    //         peer.rx_bytes = value.parse().unwrap_or_default();
-                    //     }
-                    // }
-                    // "tx_bytes" => {
-                    //     if let Some(ref mut peer) = peer_ref {
-                    //         peer.tx_bytes = value.parse().unwrap_or_default();
-                    //     }
-                    // }
-                    // // "errno" ends config
-                    // "errno" => {
-                    //     if let Ok(errno) = value.parse::<u32>() {
-                    //         if errno == 0 {
-                    //             // Break here, or BufReader will wait for EOF.
-                    //             break;
-                    //         }
-                    //     }
-                    //     return;
-                    // }
-                    _ => println!("Unknown UAPI keyword {}", keyword),
+                if data[3] != "off" {
+                    host.fwmark = Some(data[3].parse().unwrap());
                 }
+            } else {
+                // Peer data: public key, preshared key, endpoint, allowed ips, latest handshake, transfer-rx,
+                // transfer-tx, persistent-keepalive
+                println!("Peer data - index {:?}", index);
+
+                if let Ok(public_key) = Key::from_str(data[0]) {
+                    let mut peer = Peer::new(public_key.clone());
+                    
+                    if data[1] != "(none)" {
+                        let key = Key::from_str(data[0]).ok();
+                        peer.preshared_key = key.clone();
+                    }
+
+                    peer.endpoint = SocketAddr::from_str(data[2]).ok();
+
+                    for allowed_ip in data[3].split(",") {
+                        println!("allowed ip: {:?}", allowed_ip);
+                        let addr = IpAddrMask::from_str(allowed_ip.trim())?;
+                        peer.allowed_ips.push(addr);
+                    }
+
+                    // peer.last_handshake =  
+                    println!("Handshake? {:?}", data[4]);
+                    // peer.last_handshake = data[4].parse().ok();
+                    // 1704225418
+                    // Duration()
+                    let handshake =
+                        peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
+                        println!("SystemTime::UNIX_EPOCH {:?}", SystemTime::UNIX_EPOCH);
+                        *handshake += Duration::from_secs(data[4].parse().unwrap_or_default());
+
+                    peer.rx_bytes = data[5].parse().unwrap_or_default();
+                    peer.tx_bytes = data[6].parse().unwrap_or_default();
+
+                    peer.persistent_keepalive_interval = data[7].parse().ok();
+
+                    host.peers.insert(public_key.clone(), peer);
+                }
+                // let peer = Peer::new(Key::from_str(data[0]).ok());
             }
 
 
+            // if let Some((key, val)) = line.split_once(' ') {
+            //     println!("Split line: {:?}; value: {:?}", key, val);
+            //     let keyword: &str = key.trim();
+            //     let value = val.trim();
+
+            //     // println!("Trimmed: {:?} {:?}", keyword, value);
+
+            //     match keyword {
+            //         "ListenPort" => host.listen_port = value.parse().unwrap_or_default(),
+            //         // "ListenPort" => println!("port: {:?}", value.parse().unwrap_or_default()),
+            //         // "fwmark" => host.fwmark = value.parse().ok(),
+            //         "PrivateKey" => {
+            //             // host.private_key = Key::decode(value).ok();
+            //             let key = Key::from_str(value);
+            //             host.private_key = key.ok();
+            //         },
+            //         // "PrivateKey" => println!("prv key {:?}", Key::decode(value).ok()),
+            //         // "public_key" starts new peer definition
+            //         "PublicKey" => {
+            //             // println!("Public key entered {:?}", value);
+            //             // print!("decode pub key {:?}", Key::from_str(value));
+            //             if let Ok(key) = Key::from_str(value) {
+            //                 // println!("public KEY: {:?}", key);
+            //                 let peer = Peer::new(key.clone());
+            //                 host.peers.insert(key.clone(), peer);
+            //                 peer_ref = host.peers.get_mut(&key);
+            //             } else {
+            //                 peer_ref = None;
+            //             }
+            //             // if let Ok(key) = Key::decode(value) {
+            //             //     println!("public KEY: {:?}", key);
+            //             //     let peer = Peer::new(key.clone());
+            //             //     host.peers.insert(key.clone(), peer);
+            //             //     peer_ref = host.peers.get_mut(&key);
+            //             // } else {
+            //             //     peer_ref = None;
+            //             // }
+            //         }
+            //         "preshared_key" => {
+            //             if let Some(ref mut peer) = peer_ref {
+            //                 // peer.preshared_key = Key::decode(value).ok();
+            //                 // println!("PRE: {:?}", Key::decode(value).ok());
+            //             }
+            //         }
+            //         "protocol_version" => {
+            //             if let Some(ref mut peer) = peer_ref {
+            //                 // peer.protocol_version = value.parse().ok();
+            //             }
+            //         }
+            //         "Endpoint" => {
+            //             if let Some(ref mut peer) = peer_ref {
+            //                 peer.endpoint = SocketAddr::from_str(value).ok();
+            //                 // println!("PRE: {:?}", SocketAddr::from_str(value).ok());
+    
+            //             }
+            //         }
+            //         "PersistentKeepalive" => {
+            //             if let Some(ref mut peer) = peer_ref {
+            //                 peer.persistent_keepalive_interval = value.parse().ok();
+            //             }
+            //         }
+            //         "AllowedIPs" => {
+            //             // println!("Allowed ips entered");
+            //             if let Some(ref mut peer) = peer_ref {
+            //                 // println!("AllowedIps: {:?}", value);
+            //                 // let mut split_ips = value.split(",").map(|v| IpAddrMask::from_str(v).unwrap());
+
+            //                 for allowed_ip in value.split(",") {
+            //                     // println!("allowed ip: {:?}", allowed_ip);
+            //                     let addr = IpAddrMask::from_str(allowed_ip.trim())?;
+            //                     peer.allowed_ips.push(addr);
+            //                 }
+
+            //                 // peer.allowed_ips.append(&split_ips);
+            //                 // IpAddrMask()
+
+            //                 // if let Ok(addr) = value.parse() {
+            //                 //     let split_ips = addr.split(",");
+            //                 //     println!("ips: {:?}", split_ips);
+            //                 //     // peer.allowed_ips.push(addr);
+            //                 //     peer.allowed_ips.append(&split_ips);
+            //                 // }
+            //             }
+            //         }
+            //         "last_handshake_time_sec" => {
+            //             if let Some(ref mut peer) = peer_ref {
+            //                 // let handshake =
+            //                 //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
+            //                 // *handshake += Duration::from_secs(value.parse().unwrap_or_default());
+            //             }
+            //         }
+            //         "last_handshake_time_nsec" => {
+            //             if let Some(ref mut peer) = peer_ref {
+            //                 // let handshake =
+            //                 //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
+            //                 // *handshake += Duration::from_nanos(value.parse().unwrap_or_default());
+            //             }
+            //         }
+            //         // "rx_bytes" => {
+            //         //     if let Some(ref mut peer) = peer_ref {
+            //         //         peer.rx_bytes = value.parse().unwrap_or_default();
+            //         //     }
+            //         // }
+            //         // "tx_bytes" => {
+            //         //     if let Some(ref mut peer) = peer_ref {
+            //         //         peer.tx_bytes = value.parse().unwrap_or_default();
+            //         //     }
+            //         // }
+            //         // // "errno" ends config
+            //         // "errno" => {
+            //         //     if let Ok(errno) = value.parse::<u32>() {
+            //         //         if errno == 0 {
+            //         //             // Break here, or BufReader will wait for EOF.
+            //         //             break;
+            //         //         }
+            //         //     }
+            //         //     return;
+            //         // }
+            //         _ => println!("Unknown UAPI keyword {}", keyword),
+            //     }
+            // }
         }
+
+
+        //     if let Some((key, val)) = line.split_once(' ') {
+        //         println!("Split line: {:?}; value: {:?}", key, val);
+        //         let keyword: &str = key.trim();
+        //         let value = val.trim();
+
+        //         // println!("Trimmed: {:?} {:?}", keyword, value);
+
+        //         match keyword {
+        //             "ListenPort" => host.listen_port = value.parse().unwrap_or_default(),
+        //             // "ListenPort" => println!("port: {:?}", value.parse().unwrap_or_default()),
+        //             // "fwmark" => host.fwmark = value.parse().ok(),
+        //             "PrivateKey" => {
+        //                 // host.private_key = Key::decode(value).ok();
+        //                 let key = Key::from_str(value);
+        //                 host.private_key = key.ok();
+        //             },
+        //             // "PrivateKey" => println!("prv key {:?}", Key::decode(value).ok()),
+        //             // "public_key" starts new peer definition
+        //             "PublicKey" => {
+        //                 // println!("Public key entered {:?}", value);
+        //                 // print!("decode pub key {:?}", Key::from_str(value));
+        //                 if let Ok(key) = Key::from_str(value) {
+        //                     // println!("public KEY: {:?}", key);
+        //                     let peer = Peer::new(key.clone());
+        //                     host.peers.insert(key.clone(), peer);
+        //                     peer_ref = host.peers.get_mut(&key);
+        //                 } else {
+        //                     peer_ref = None;
+        //                 }
+        //                 // if let Ok(key) = Key::decode(value) {
+        //                 //     println!("public KEY: {:?}", key);
+        //                 //     let peer = Peer::new(key.clone());
+        //                 //     host.peers.insert(key.clone(), peer);
+        //                 //     peer_ref = host.peers.get_mut(&key);
+        //                 // } else {
+        //                 //     peer_ref = None;
+        //                 // }
+        //             }
+        //             "preshared_key" => {
+        //                 if let Some(ref mut peer) = peer_ref {
+        //                     // peer.preshared_key = Key::decode(value).ok();
+        //                     // println!("PRE: {:?}", Key::decode(value).ok());
+        //                 }
+        //             }
+        //             "protocol_version" => {
+        //                 if let Some(ref mut peer) = peer_ref {
+        //                     // peer.protocol_version = value.parse().ok();
+        //                 }
+        //             }
+        //             "Endpoint" => {
+        //                 if let Some(ref mut peer) = peer_ref {
+        //                     peer.endpoint = SocketAddr::from_str(value).ok();
+        //                     // println!("PRE: {:?}", SocketAddr::from_str(value).ok());
+    
+        //                 }
+        //             }
+        //             "PersistentKeepalive" => {
+        //                 if let Some(ref mut peer) = peer_ref {
+        //                     peer.persistent_keepalive_interval = value.parse().ok();
+        //                 }
+        //             }
+        //             "AllowedIPs" => {
+        //                 // println!("Allowed ips entered");
+        //                 if let Some(ref mut peer) = peer_ref {
+        //                     // println!("AllowedIps: {:?}", value);
+        //                     // let mut split_ips = value.split(",").map(|v| IpAddrMask::from_str(v).unwrap());
+
+        //                     for allowed_ip in value.split(",") {
+        //                         // println!("allowed ip: {:?}", allowed_ip);
+        //                         let addr = IpAddrMask::from_str(allowed_ip.trim())?;
+        //                         peer.allowed_ips.push(addr);
+        //                     }
+
+        //                     // peer.allowed_ips.append(&split_ips);
+        //                     // IpAddrMask()
+
+        //                     // if let Ok(addr) = value.parse() {
+        //                     //     let split_ips = addr.split(",");
+        //                     //     println!("ips: {:?}", split_ips);
+        //                     //     // peer.allowed_ips.push(addr);
+        //                     //     peer.allowed_ips.append(&split_ips);
+        //                     // }
+        //                 }
+        //             }
+        //             "last_handshake_time_sec" => {
+        //                 if let Some(ref mut peer) = peer_ref {
+        //                     // let handshake =
+        //                     //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
+        //                     // *handshake += Duration::from_secs(value.parse().unwrap_or_default());
+        //                 }
+        //             }
+        //             "last_handshake_time_nsec" => {
+        //                 if let Some(ref mut peer) = peer_ref {
+        //                     // let handshake =
+        //                     //     peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
+        //                     // *handshake += Duration::from_nanos(value.parse().unwrap_or_default());
+        //                 }
+        //             }
+        //             // "rx_bytes" => {
+        //             //     if let Some(ref mut peer) = peer_ref {
+        //             //         peer.rx_bytes = value.parse().unwrap_or_default();
+        //             //     }
+        //             // }
+        //             // "tx_bytes" => {
+        //             //     if let Some(ref mut peer) = peer_ref {
+        //             //         peer.tx_bytes = value.parse().unwrap_or_default();
+        //             //     }
+        //             // }
+        //             // // "errno" ends config
+        //             // "errno" => {
+        //             //     if let Ok(errno) = value.parse::<u32>() {
+        //             //         if errno == 0 {
+        //             //             // Break here, or BufReader will wait for EOF.
+        //             //             break;
+        //             //         }
+        //             //     }
+        //             //     return;
+        //             // }
+        //             _ => println!("Unknown UAPI keyword {}", keyword),
+        //         }
+        //     }
+
+
+        // }
+
+
+
         // TODO: this needs to be updated
         // thread 'tokio-runtime-worker' panicked at C:\Users\User\.cargo\git\checkouts\wireguard-rs-fba7499ea125cbe3\d135a53\src\wgapi_windows.rs:288:48:
 // called `Result::unwrap()` on an `Err` value: InvalidLength
