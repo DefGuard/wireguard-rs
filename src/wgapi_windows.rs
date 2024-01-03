@@ -134,7 +134,13 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             self.ifname
         );
 
-        let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        // let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        //     error!("Failed to read interface data. Error: {err}");
+        //     // WireguardInterfaceError::CommandExecutionFailed(err)
+        //     WireguardInterfaceError::ReadInterfaceError(err.to_string())
+        // })?;
+
+        let output = Command::new("wg").arg("--help").output().map_err(|err| {
             error!("Failed to read interface data. Error: {err}");
             // WireguardInterfaceError::CommandExecutionFailed(err)
             WireguardInterfaceError::ReadInterfaceError(err.to_string())
