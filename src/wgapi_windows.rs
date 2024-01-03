@@ -134,46 +134,58 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             self.ifname
         );
 
-        // Interface is created here so that there is no need to pass private key
-
+        // Interface is created here so that there is no need to pass private key only for Windows
         let file_name = format!("{}.conf", &self.ifname);
         let path = env::current_dir()?;
         let file_path = path.join(&file_name).display().to_string();
-        println!("File path {:?}", file_path);
 
-        println!("Creating file {:?}", file_name);
+        debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
         let mut file = File::create(&file_name)?;
 
-        println!("SETTING DNS");
         let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
 
-        println!("dns_addresses {:?}", dns_addresses);
-        // DNS = 10.4.0.1
-        // \nDNS = 10.4.0.1
-        //  file.write_all(b"[Interface]\nPrivateKey = wM6n6yt+i3X94cR1wAQZ5M18Iajw13Rwljcz7LGwNnI=")?;
+        debug!("Setting Address {}, DNS: {}", config.address, dns_addresses);
         file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}", config.prvkey, dns_addresses, config.address).as_bytes())?;
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
-            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+            WireguardInterfaceError::CommandExecutionFailed(err)
         })?;
  
         println!("service_installation_output {:?}", service_installation_output);
         // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
-        // TODO: try to update the running instance.
 
         // TODO: Service is not immediately available, we need to wait a few seconds.
-        sleep(Duration::from_secs(10));
+        // sleep(Duration::from_secs(10));
 
-        Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
-            error!("Failed to update interface. Error: {err}");
-            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-        })?;
+        // Windows service is not immediately available after the /installtunnelservice command.
+        let mut counter = 1;
+        loop {
+            let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+                error!("Failed to read interface data. Error: {err}");
+                WireguardInterfaceError::CommandExecutionFailed(err)
+            })?;
+    
+            println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
+    
+            if output.stderr.is_empty() || counter == 10 {
+                break;
+            }
+    
+            sleep(Duration::from_secs(1));
+            counter = counter + 1;
+        }
 
-        Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
-            error!("Failed to update interface. Error: {err}");
-            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-        })?;
+        // TODO: is it needed?
+        // Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
+        //     error!("Failed to update interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
+
+        // Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        //     error!("Failed to update interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
 
         // let wireguard = Self::load_dll();
 
@@ -182,8 +194,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         //     Err((_, __)) => panic!("Cannot open adapter {}", self.ifname),
         // };
 
-        println!("Configuring interface");
-        
         for peer in &config.peers {
             println!("Adding a new peer {:?}", peer);
             println!("Peer pubkey {:?}", peer.public_key);
@@ -220,23 +230,19 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
             println!("Peer: {:?}", arg_list);
 
-            info!("&self.ifname {:?}", &self.ifname);
+            // let y = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+            //     error!("Failed to update interface. Error: {err}");
+            //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+            // })?;
 
-            let y = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
-                error!("Failed to update interface. Error: {err}");
-                WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-            })?;
+            // println!("Output wg show {:?}", y);
 
-            println!("Output wg show {:?}", y);
-
-            let x = Command::new("wg").arg("set").arg(&self.ifname).arg("peer").args(arg_list).output().map_err(|err| {
+            let add_peer_output = Command::new("wg").arg("set").arg(&self.ifname).arg("peer").args(&arg_list).output().map_err(|err| {
                 error!("Failed to update interface. Error: {err}");
                 WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
             })?;
     
-            println!("Output wg set {:?}", x);
-    
-            println!("Configured interface");
+            info!("Add peer with arguments {:?} output {:?}", arg_list, add_peer_output);
         }
 
         // let interface = wireguard_nt::SetInterface {
@@ -276,9 +282,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     }
 
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        // 
-        add_peer_routing(peers, &self.ifname)
-        // Ok(())
+        // add_peer_routing(peers, &self.ifname)
+        Ok(())
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
@@ -309,11 +314,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
 
-        // let output = Command::new("wg").arg("showconf").arg(&self.ifname).output().map_err(|err| {
-        //     error!("Failed to update interface. Error: {err}");
-        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-        // })?;
-
         let output = Command::new("wg").arg("show").arg(&self.ifname).arg("dump").output().map_err(|err| {
             error!("Failed to update interface. Error: {err}");
             WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
@@ -321,50 +321,25 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         println!("Read interface output: {:?}", output);
 
-        // let buf = BufReader::new(Cursor::new(output.stdout));
-        // Get all lines from stdout without asterisk (*).
-        // An asterisk (*) denotes that a network service is disabled.
-        // if output.status.success() {
-        //     let lines = buf
-        //         .lines()
-        //         .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
-        //         // .collect();
-        //         ;
-        // }
-        // let lines = buf
-        //     .lines()
-        //     .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
-        //     .collect();
-
         let reader = BufReader::new(Cursor::new(output.stdout));
         let mut host = Host::default();
         // let mut peer_ref: Option<&mut Peer> = None;
-        let mut peer_ref: Option<&mut Peer> = None;
-
         // reader.buffer().lines();
-
-        // let l = reader.lines()
-        // let x = buf.lines()
-
+    
         let lines = reader.lines();
-
-        // println!("reader.buffer().lines() {:?}", lines);
-
 
         for (index, line_result) in lines.enumerate() {
             let line = match &line_result {
-                // .trim()
                 Ok(line) => line,
-                Err(err) => {
+                Err(_err) => {
                     continue;
                 }
             };
 
-            // println!("Line trimmed: {:?}", line);
-
             let data: Vec<&str> = line.split("\t").collect();
             println!("Data: {:?}", data);
 
+            // First line contains [Interface] section data, every other line is a separate [Peer]
             if index == 0 {
                 // Interface data: private key, public key, listen port, fwmark
                 println!("Interface data - index 0");
@@ -376,16 +351,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     host.fwmark = Some(data[3].parse().unwrap());
                 }
             } else {
-                // Peer data: public key, preshared key, endpoint, allowed ips, latest handshake, transfer-rx,
-                // transfer-tx, persistent-keepalive
+                // Peer data: public key, preshared key, endpoint, allowed ips, latest handshake, transfer-rx, transfer-tx, persistent-keepalive
                 println!("Peer data - index {:?}", index);
 
                 if let Ok(public_key) = Key::from_str(data[0]) {
                     let mut peer = Peer::new(public_key.clone());
                     
                     if data[1] != "(none)" {
-                        let key = Key::from_str(data[0]).ok();
-                        peer.preshared_key = key.clone();
+                        peer.preshared_key = Key::from_str(data[0]).ok();
                     }
 
                     peer.endpoint = SocketAddr::from_str(data[2]).ok();
@@ -396,11 +369,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                         peer.allowed_ips.push(addr);
                     }
 
-                    // peer.last_handshake =  
-                    println!("Handshake? {:?}", data[4]);
-                    // peer.last_handshake = data[4].parse().ok();
-                    // 1704225418
-                    // Duration()
                     let handshake =
                         peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
                         println!("SystemTime::UNIX_EPOCH {:?}", SystemTime::UNIX_EPOCH);
@@ -413,7 +381,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
                     host.peers.insert(public_key.clone(), peer);
                 }
-                // let peer = Peer::new(Key::from_str(data[0]).ok());
             }
 
 
