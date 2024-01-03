@@ -279,24 +279,24 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         // Windows service is not immediately available after the /installtunnelservice command.
         // TODO: it was necessary because of wg set usage. Service had to be installed and running for it to work.
-        // let mut counter = 1;
-        // loop {
-        //     let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
-        //         error!("Failed to read interface data. Error: {err}");
-        //         WireguardInterfaceError::ReadInterfaceError(err.to_string())
-        //     })?;
+        let mut counter = 1;
+        loop {
+            let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+                error!("Failed to read interface data. Error: {err}");
+                WireguardInterfaceError::ReadInterfaceError(err.to_string())
+            })?;
     
-        //     println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
+            println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
     
-        //     // if output.stderr.is_empty() || counter == 10 {
-        //     if output.status.success() || counter == 10 {
-        //         break;
-        //         // TODO: throw error if counter reaches threshold
-        //     }
+            // if output.stderr.is_empty() || counter == 10 {
+            if output.status.success() || counter == 10 {
+                break;
+                // TODO: throw error if counter reaches threshold
+            }
     
-        //     sleep(Duration::from_secs(1));
-        //     counter = counter + 1;
-        // }
+            sleep(Duration::from_secs(1));
+            counter = counter + 1;
+        }
 
     
 
