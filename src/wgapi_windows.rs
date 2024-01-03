@@ -188,7 +188,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             println!("Peer pubkey lower hex {:?}", peer.public_key.to_lower_hex());
 
             let mut arg_list = Vec::new();
-            // TODO: Handle errors; refactor
 
             wireguard_configuration.push_str("\n[Peer]");
             wireguard_configuration.push_str(format!("\nPublicKey = {}", peer.public_key.to_string()).as_str());
@@ -240,13 +239,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
             let message = err.to_string();
+            let _ = ff.write_all(format!("\nInstall service output: {:?}", err.to_string()).as_bytes());
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
 
-        ff.write_all(format!("Install service output: {:?}", service_installation_output.stdout).as_bytes())?;
+        ff.write_all(format!("\nInstall service output: {:?}", service_installation_output.stdout).as_bytes())?;
 
         if !service_installation_output.status.success() {
-            let message = format!("Failed to install tunnel as a Windows service: {:?}", service_installation_output.stdout);
+            let message = format!("Failed to install WireGuard tunnel as a Windows service: {:?}", service_installation_output.stdout);
             return Err(WireguardInterfaceError::ServiceInstallationFailed { err: io::Error::new(io::ErrorKind::Other, "Cannot create service"), message });
         }
  
