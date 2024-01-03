@@ -155,9 +155,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         println!("service_installation_output {:?}", service_installation_output);
         // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
 
-        // TODO: Service is not immediately available, we need to wait a few seconds.
-        // sleep(Duration::from_secs(10));
-
         // Windows service is not immediately available after the /installtunnelservice command.
         let mut counter = 1;
         loop {
@@ -177,10 +174,10 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         }
 
         // TODO: is it needed?
-        Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
-            error!("Failed to update interface. Error: {err}");
-            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-        })?;
+        // Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
+        //     error!("Failed to update interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
 
         // Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
         //     error!("Failed to update interface. Error: {err}");
@@ -291,7 +288,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output().map_err(|err| {
             error!("Failed to remove interface. Error: {err}");
-            // WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
             WireguardInterfaceError::CommandExecutionFailed(err)
         })?;
 
