@@ -167,7 +167,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let file_path = path.join(&file_name).display().to_string();
         // let file_path = "";
 
-        let p = "C:/".to_string() + file_name.as_str();
+        // let p = "C:/".to_string() + file_name.as_str();
 
         debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
 
@@ -245,6 +245,10 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             let message = err.to_string();
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
+
+        // if !output.stderr.is_empty() {
+        //     return Err(WireguardInterfaceError::ServiceInstallationFailed { err, message });
+        // }
  
         println!("service_installation_output {:?}", service_installation_output);
         // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
