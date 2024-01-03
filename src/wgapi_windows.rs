@@ -140,19 +140,17 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         //     WireguardInterfaceError::ReadInterfaceError(err.to_string())
         // })?;
 
-        let output = Command::new("wg").arg("--help").output().map_err(|err| {
-            error!("Failed to read interface data. Error: {err}");
-            // WireguardInterfaceError::CommandExecutionFailed(err)
-            WireguardInterfaceError::ReadInterfaceError(err.to_string())
-        })?;
+        // let output = Command::new("wg").arg("--help").output().map_err(|err| {
+        //     error!("Failed to read interface data. Error: {err}");
+        //     // WireguardInterfaceError::CommandExecutionFailed(err)
+        //     WireguardInterfaceError::ReadInterfaceError(err.to_string())
+        // })?;
 
-        if !output.stderr.is_empty() {
-            let x = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
-            // panic!("Not empty {:?}", message=output.stdout);
-            return Err(WireguardInterfaceError::ReadInterfaceError(x));
-        }
-
-        // return Ok(());
+        // if !output.stderr.is_empty() {
+        //     let x = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
+        //     // panic!("Not empty {:?}", message=output.stdout);
+        //     return Err(WireguardInterfaceError::ReadInterfaceError(x));
+        // }
 
         // Interface is created here so that there is no need to pass private key only for Windows
         let file_name = format!("{}.conf", &self.ifname);
@@ -165,7 +163,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // }
 
         let file_path = path.join(&file_name).display().to_string();
-        // let file_path = "";
 
         let p = "C:/".to_string() + "defguard-rs-log.txt";
 
@@ -173,19 +170,13 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
 
 
-        // return Ok(());
-
         let mut ff = File::create(p)?;
         ff.write_all(file_path.as_bytes())?;
 
 
-        // return Ok(());
-
         let mut file = File::create(&file_name)?;
         let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
         println!("dns dns {:?}", dns);
-
-        // return Ok(());
 
 
         let mut wireguard_configuration = format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}\n", config.prvkey, dns_addresses, config.address);
@@ -240,12 +231,12 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         info!("Setting Address {}, DNS: {}", config.address, dns_addresses);
         // file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}", config.prvkey, dns_addresses, config.address).as_bytes())?;
         file.write_all(wireguard_configuration.as_bytes())?;
+
+        // Remove existing service
+        let _ = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output();
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
-            // error!("Failed to create interface. Error: {err}");
-        // return Err(WireguardInterfaceError::CommandExecutionError { stdout, stderr });
-            // WireguardInterfaceError::CommandExecutionError { stdout, stderr }
-            // WireguardInterfaceError::CommandExecutionFailed(err)
+            error!("Failed to create interface. Error: {err}");
             let message = err.to_string();
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
@@ -271,6 +262,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     
             println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
     
+            // TODO: change to status
             if output.stderr.is_empty() || counter == 10 {
                 break;
                 // TODO: throw error if counter reaches threshold
