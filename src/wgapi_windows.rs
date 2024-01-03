@@ -232,9 +232,37 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         file.write_all(wireguard_configuration.as_bytes())?;
 
         // Remove existing service
-        let _ = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output();
+        // let _ = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output();
 
         // sleep(Duration::from_secs(4));
+
+        // TODO: check if there is an existing service and remove it
+        let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+            error!("Failed to read interface data. Error: {err}");
+            WireguardInterfaceError::ReadInterfaceError(err.to_string())
+        })?;
+
+        // Service already exists
+        if output.status.success() {
+            Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output()?;
+
+            let mut counter = 1;
+            loop {
+                let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+                    error!("Failed to read interface data. Error: {err}");
+                    WireguardInterfaceError::ReadInterfaceError(err.to_string())
+                })?;
+
+                // Service has been removed
+                if !output.status.success() || counter == 5 {
+                    break;
+                }
+
+                sleep(Duration::from_secs(1));
+                counter = counter + 1;
+            }
+        }
+
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
@@ -243,7 +271,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
 
-        ff.write_all(format!("\nInstall service output: {:?}", service_installation_output.stdout).as_bytes())?;
+        ff.write_all(format!("\nInstall service output: {:?}\n", service_installation_output).as_bytes())?;
 
         if !service_installation_output.status.success() {
             let message = format!("Failed to install WireGuard tunnel as a Windows service: {:?}", service_installation_output.stdout);
