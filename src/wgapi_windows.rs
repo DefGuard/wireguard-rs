@@ -144,6 +144,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
         println!("dns dns {:?}", dns);
 
+        return Ok(());
+
         let mut wireguard_configuration = format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}\n", config.prvkey, dns_addresses, config.address);
 
         for peer in &config.peers {
@@ -222,6 +224,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     
             if output.stderr.is_empty() || counter == 10 {
                 break;
+                // TODO: throw error if counter reaches threshold
             }
     
             sleep(Duration::from_secs(1));
