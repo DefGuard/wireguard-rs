@@ -141,8 +141,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         })?;
 
         if !output.stderr.is_empty() {
-            panic!("Not empty {:?}", message=output.stdout);
-            // return WireguardInterfaceError::ReadInterfaceError(output.stdout);
+            let x = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
+            // panic!("Not empty {:?}", message=output.stdout);
+            return Err(WireguardInterfaceError::ReadInterfaceError(x));
         }
 
         return Ok(());
