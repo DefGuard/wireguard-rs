@@ -234,6 +234,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         // Remove existing service
         let _ = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output();
+
+        sleep(Duration::from_secs(4));
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
