@@ -214,7 +214,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         loop {
             let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
                 error!("Failed to read interface data. Error: {err}");
-                WireguardInterfaceError::CommandExecutionFailed(err)
+                // WireguardInterfaceError::CommandExecutionFailed(err)
+                WireguardInterfaceError::ReadInterfaceError(err.to_string())
             })?;
     
             println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
