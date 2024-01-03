@@ -164,13 +164,10 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         let file_path = path.join(&file_name).display().to_string();
 
-        // let p = "C:/".to_string() + "defguard-rs-log.txt";
-
         debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
 
-
-
-        // let mut ff = File::create(p)?;
+        let p = "C:/".to_string() + "defguard-rs-log.txt";
+        let mut ff = File::create(p)?;
         // ff.write_all(file_path.as_bytes())?;
 
 
@@ -263,13 +260,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
             let message = err.to_string();
-            // let _ = ff.write_all(format!("\nInstall service output: {:?}", err.to_string()).as_bytes());
+            let _ = ff.write_all(format!("\nInstall service output: {:?}", err.to_string()).as_bytes());
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
 
         // ff.write_all(format!("\nInstall service output: {:?}\n", service_installation_output).as_bytes())?;
 
         if !service_installation_output.status.success() {
+            let _ = ff.write_all(format!("\nnot success: {:?}", service_installation_output.stdout).as_bytes());
             let message = format!("Failed to install WireGuard tunnel as a Windows service: {:?}", service_installation_output.stdout);
             return Err(WireguardInterfaceError::ServiceInstallationFailed { err: io::Error::new(io::ErrorKind::Other, "Cannot create service"), message });
         }
