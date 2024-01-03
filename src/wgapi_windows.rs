@@ -233,7 +233,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         file.write_all(wireguard_configuration.as_bytes())?;
 
         // Remove existing service
-        let _ = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output();
+        // let _ = Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output();
 
         // sleep(Duration::from_secs(4));
  
