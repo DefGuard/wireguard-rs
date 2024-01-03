@@ -1,4 +1,4 @@
-use std::{env, net::{IpAddr, SocketAddr}, str::FromStr, sync::Arc, process::Command, fs::File, io::{Write, BufReader, Cursor, BufRead}, thread::sleep, time::{Duration, SystemTime}};
+use std::{env, net::{IpAddr, SocketAddr}, str::FromStr, sync::Arc, process::Command, fs::File, io::{Write, BufReader, Cursor, BufRead, self}, thread::sleep, time::{Duration, SystemTime}};
 
 use wireguard_nt::dll;
 
@@ -250,9 +250,10 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
 
-        // if !output.stderr.is_empty() {
-        //     return Err(WireguardInterfaceError::ServiceInstallationFailed { err, message });
-        // }
+        if !output.stderr.is_empty() {
+            let message = format!("Failed to install tunnel as a Windows service: {:?}", output.stdout);
+            return Err(WireguardInterfaceError::ServiceInstallationFailed { err: io::Error::new(io::ErrorKind::Other, "Cannot create service"), message });
+        }
  
         println!("service_installation_output {:?}", service_installation_output);
         // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
