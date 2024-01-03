@@ -189,8 +189,6 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             arg_list.push(allowed_ips);
 
             println!("Peer: {:?}", arg_list);
-      
-            
         }
 
         println!("!!!wireguard_configuration {:?}", wireguard_configuration);
@@ -200,8 +198,12 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         file.write_all(wireguard_configuration.as_bytes())?;
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
-            error!("Failed to create interface. Error: {err}");
-            WireguardInterfaceError::CommandExecutionFailed(err)
+            // error!("Failed to create interface. Error: {err}");
+        // return Err(WireguardInterfaceError::CommandExecutionError { stdout, stderr });
+            // WireguardInterfaceError::CommandExecutionError { stdout, stderr }
+            // WireguardInterfaceError::CommandExecutionFailed(err)
+            let message = err.to_string();
+            WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
  
         println!("service_installation_output {:?}", service_installation_output);
