@@ -156,36 +156,36 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
 
         // TODO: Service is not immediately available, we need to wait a few seconds.
-        sleep(Duration::from_secs(10));
+        // sleep(Duration::from_secs(10));
 
         // Windows service is not immediately available after the /installtunnelservice command.
-        // let mut counter = 1;
-        // loop {
-        //     let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
-        //         error!("Failed to read interface data. Error: {err}");
-        //         WireguardInterfaceError::CommandExecutionFailed(err)
-        //     })?;
+        let mut counter = 1;
+        loop {
+            let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+                error!("Failed to read interface data. Error: {err}");
+                WireguardInterfaceError::CommandExecutionFailed(err)
+            })?;
     
-        //     println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
+            println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
     
-        //     if output.stderr.is_empty() || counter == 10 {
-        //         break;
-        //     }
+            if output.stderr.is_empty() || counter == 10 {
+                break;
+            }
     
-        //     sleep(Duration::from_secs(1));
-        //     counter = counter + 1;
-        // }
+            sleep(Duration::from_secs(1));
+            counter = counter + 1;
+        }
 
         // TODO: is it needed?
-        // Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
-        //     error!("Failed to update interface. Error: {err}");
-        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-        // })?;
-
-        Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
             error!("Failed to update interface. Error: {err}");
             WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
         })?;
+
+        // Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        //     error!("Failed to update interface. Error: {err}");
+        //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        // })?;
 
         // let wireguard = Self::load_dll();
 
@@ -282,8 +282,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
     }
 
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        // add_peer_routing(peers, &self.ifname)
-        Ok(())
+        add_peer_routing(peers, &self.ifname)
+        // Ok(())
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
