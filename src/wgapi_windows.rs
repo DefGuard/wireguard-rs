@@ -244,6 +244,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
             let mut counter = 1;
             loop {
+                sleep(Duration::from_secs(1));
+
                 let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
                     error!("Failed to read interface data. Error: {err}");
                     WireguardInterfaceError::ReadInterfaceError(err.to_string())
@@ -256,7 +258,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     break;
                 }
 
-                sleep(Duration::from_secs(1));
+                // sleep(Duration::from_secs(1));
                 counter = counter + 1;
             }
         }
