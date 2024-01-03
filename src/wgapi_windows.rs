@@ -141,11 +141,13 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
 
+        return Ok(());
+
         let mut file = File::create(&file_name)?;
         let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
         println!("dns dns {:?}", dns);
 
-        return Ok(());
+        // return Ok(());
 
 
         let mut wireguard_configuration = format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}\n", config.prvkey, dns_addresses, config.address);
