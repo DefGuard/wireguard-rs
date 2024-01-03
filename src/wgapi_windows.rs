@@ -171,9 +171,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         // debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
 
-        return Ok(());
+        // return Ok(());
 
-        let mut file = File::create(&file_name)?;
+        let mut file = File::create(p)?;
 
         return Ok(());
 
