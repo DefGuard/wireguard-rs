@@ -7,8 +7,10 @@ use crate::WireguardApiFreebsd;
 use crate::WireguardApiLinux;
 #[cfg(target_os = "macos")]
 use crate::WireguardApiUserspace;
+#[cfg(target_os = "windows")]
+use crate::WireguardApiWindows;
 use crate::{
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardApiWindows,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     WireguardInterfaceApi, WireguardInterfaceError,
 };
 
