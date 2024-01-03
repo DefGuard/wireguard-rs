@@ -152,15 +152,25 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             return Err(WireguardInterfaceError::ReadInterfaceError(x));
         }
 
-        return Ok(());
+        // return Ok(());
 
         // Interface is created here so that there is no need to pass private key only for Windows
         let file_name = format!("{}.conf", &self.ifname);
-        let path = env::current_dir()?;
-        let file_path = path.join(&file_name).display().to_string();
+        // let path = env::current_dir()?;
+        let path = env::current_dir();
 
+        // if path.is_err() {
+        //     let i = path.unwrap_err();
+        //     return Err(WireguardInterfaceError::ReadInterfaceError(i.to_string()));
+        // }
 
-        debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
+        // let file_path = path.join(&file_name).display().to_string();
+
+        let p = "C:/".to_string() + file_name.as_str();
+
+        // debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
+
+        let mut file = File::create(&file_name)?;
 
         return Ok(());
 
