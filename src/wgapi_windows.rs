@@ -167,13 +167,17 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let file_path = path.join(&file_name).display().to_string();
         // let file_path = "";
 
-        // let p = "C:/".to_string() + file_name.as_str();
+        let p = "C:/".to_string() + "defguard-rs-log.txt";
 
         debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
 
+
+
         // return Ok(());
 
-        // let mut file = File::create(p)?;
+        let mut ff = File::create(p)?;
+        ff.write_all(file_path.as_bytes())?;
+
 
         // return Ok(());
 
