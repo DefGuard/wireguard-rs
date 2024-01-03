@@ -34,6 +34,7 @@ impl WireguardApiUserspace {
     /// # Errors
     /// Will return `WireguardInterfaceError` if `wireguard-go` can't be found.
     pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
+        // TODO: consider moving this to create_interface function to keep the return value cross-platform
         // check that `wireguard-go` is available
         Command::new(USERSPACE_EXECUTABLE).arg("--version").output().map_err(|err| {
             error!("Failed to create userspace API. {USERSPACE_EXECUTABLE} executable not found in PATH. Error: {err}");

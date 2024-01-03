@@ -29,8 +29,9 @@ impl WGApi {
         #[cfg(target_os = "windows")]
         return Ok(Self(Box::new(WireguardApiWindows::new(ifname))));
 
+        // TODO: refactor
         #[cfg(target_os = "macos")]
-        return Ok(Self(Box::new(WireguardApiUserspace::new(ifname))));
+        return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
 
         #[cfg(target_os = "linux")]
         return Ok(Self(Box::new(WireguardApiLinux::new(ifname))));
