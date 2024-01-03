@@ -251,11 +251,11 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                 })?;
 
                 // Service has been removed
-                if !output.status.success() || counter == 10 {
+                if !output.status.success() || counter == 5 {
                     break;
                 }
 
-                sleep(Duration::from_millis(500));
+                sleep(Duration::from_secs(1));
                 counter = counter + 1;
             }
         }
@@ -275,28 +275,26 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         }
  
         println!("service_installation_output {:?}", service_installation_output);
-        // TODO: output can return an already running error. It shouldn't interfere with the rest of the program.
 
         // Windows service is not immediately available after the /installtunnelservice command.
-        let mut counter = 1;
-        loop {
-            let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
-                error!("Failed to read interface data. Error: {err}");
-                // WireguardInterfaceError::CommandExecutionFailed(err)
-                WireguardInterfaceError::ReadInterfaceError(err.to_string())
-            })?;
+        // let mut counter = 1;
+        // loop {
+        //     let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        //         error!("Failed to read interface data. Error: {err}");
+        //         WireguardInterfaceError::ReadInterfaceError(err.to_string())
+        //     })?;
     
-            println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
+        //     println!("iteration: {}, {:?}", counter, output.stderr.is_empty());
     
-            // TODO: change to status
-            if output.stderr.is_empty() || counter == 10 {
-                break;
-                // TODO: throw error if counter reaches threshold
-            }
+        //     // if output.stderr.is_empty() || counter == 10 {
+        //     if output.status.success() || counter == 10 {
+        //         break;
+        //         // TODO: throw error if counter reaches threshold
+        //     }
     
-            sleep(Duration::from_secs(1));
-            counter = counter + 1;
-        }
+        //     sleep(Duration::from_secs(1));
+        //     counter = counter + 1;
+        // }
 
         // TODO: is it needed?
         // Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
