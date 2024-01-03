@@ -141,11 +141,63 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
         let mut file = File::create(&file_name)?;
-
         let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
         println!("dns dns {:?}", dns);
+
+        let mut wireguard_configuration = format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}\n", config.prvkey, dns_addresses, config.address);
+
+        for peer in &config.peers {
+            println!("Adding a new peer {:?}", peer);
+            println!("Peer pubkey {:?}", peer.public_key);
+            println!("Peer pubkey to string {:?}", peer.public_key.to_string());
+            println!("Peer pubkey lower hex {:?}", peer.public_key.to_lower_hex());
+
+            let mut arg_list = Vec::new();
+            // TODO: Handle errors; refactor
+
+            wireguard_configuration.push_str("\n[Peer]");
+            wireguard_configuration.push_str(format!("\nPublicKey = {}", peer.public_key.to_string()).as_str());
+
+            arg_list.push(format!("{}", peer.public_key.to_string()));
+            // arg_list.push(format!("{}", peer.public_key.to_lower_hex()));
+            println!("Pubkey pushed {:?}", arg_list);
+
+            if let Some(preshared_key) = &peer.preshared_key {
+                arg_list.push(format!("preshared-key {}", preshared_key));
+                wireguard_configuration.push_str(format!("\nPresharedKey = {}", preshared_key).as_str());
+            }
+
+            if let Some(keep_alive) = peer.persistent_keepalive_interval {
+                arg_list.push("persistent-keepalive".to_string());
+                arg_list.push(keep_alive.to_string());
+                wireguard_configuration.push_str(format!("\nPersistentKeepalive = {}", keep_alive).as_str());
+            }
+
+            if let Some(endpoint) = peer.endpoint {
+                arg_list.push("endpoint".to_string());
+                arg_list.push(endpoint.to_string());
+                wireguard_configuration.push_str(format!("\nEndpoint = {}", endpoint).as_str());
+            }
+
+            arg_list.push("allowed-ips".to_string());
+
+            let allowed_ips = format!("{}", peer.allowed_ips.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
+            println!("allowed_ips {}", allowed_ips);
+
+            wireguard_configuration.push_str(format!("\nAllowedIPs = {}", allowed_ips).as_str());
+
+            arg_list.push(allowed_ips);
+
+            println!("Peer: {:?}", arg_list);
+      
+            
+        }
+
+        println!("!!!wireguard_configuration {:?}", wireguard_configuration);
+
         info!("Setting Address {}, DNS: {}", config.address, dns_addresses);
-        file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}", config.prvkey, dns_addresses, config.address).as_bytes())?;
+        // file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}", config.prvkey, dns_addresses, config.address).as_bytes())?;
+        file.write_all(wireguard_configuration.as_bytes())?;
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
@@ -191,56 +243,59 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         //     Err((_, __)) => panic!("Cannot open adapter {}", self.ifname),
         // };
 
-        for peer in &config.peers {
-            println!("Adding a new peer {:?}", peer);
-            println!("Peer pubkey {:?}", peer.public_key);
-            println!("Peer pubkey to string {:?}", peer.public_key.to_string());
-            println!("Peer pubkey lower hex {:?}", peer.public_key.to_lower_hex());
+        // TODO: uncomment
+        // for peer in &config.peers {
+        //     println!("Adding a new peer {:?}", peer);
+        //     println!("Peer pubkey {:?}", peer.public_key);
+        //     println!("Peer pubkey to string {:?}", peer.public_key.to_string());
+        //     println!("Peer pubkey lower hex {:?}", peer.public_key.to_lower_hex());
 
-            let mut arg_list = Vec::new();
-            // TODO: Handle errors; refactor
+        //     let mut arg_list = Vec::new();
+        //     // TODO: Handle errors; refactor
 
-            arg_list.push(format!("{}", peer.public_key.to_string()));
-            // arg_list.push(format!("{}", peer.public_key.to_lower_hex()));
-            println!("Pubkey pushed {:?}", arg_list);
+        //     arg_list.push(format!("{}", peer.public_key.to_string()));
+        //     // arg_list.push(format!("{}", peer.public_key.to_lower_hex()));
+        //     println!("Pubkey pushed {:?}", arg_list);
 
-            if let Some(preshared_key) = &peer.preshared_key {
-                arg_list.push(format!("preshared-key {}", preshared_key));
-            }
+        //     if let Some(preshared_key) = &peer.preshared_key {
+        //         arg_list.push(format!("preshared-key {}", preshared_key));
+        //     }
 
-            if let Some(keep_alive) = peer.persistent_keepalive_interval {
-                arg_list.push("persistent-keepalive".to_string());
-                arg_list.push(keep_alive.to_string());
-            }
+        //     if let Some(keep_alive) = peer.persistent_keepalive_interval {
+        //         arg_list.push("persistent-keepalive".to_string());
+        //         arg_list.push(keep_alive.to_string());
+        //     }
 
-            if let Some(endpoint) = peer.endpoint {
-                arg_list.push("endpoint".to_string());
-                arg_list.push(endpoint.to_string());
-            }
+        //     if let Some(endpoint) = peer.endpoint {
+        //         arg_list.push("endpoint".to_string());
+        //         arg_list.push(endpoint.to_string());
+        //     }
 
-            arg_list.push("allowed-ips".to_string());
+        //     arg_list.push("allowed-ips".to_string());
 
-            let allowed_ips = format!("{}", peer.allowed_ips.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
-            println!("allowed_ips {}", allowed_ips);
+        //     let allowed_ips = format!("{}", peer.allowed_ips.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
+        //     println!("allowed_ips {}", allowed_ips);
 
-            arg_list.push(allowed_ips);
+        //     arg_list.push(allowed_ips);
 
-            println!("Peer: {:?}", arg_list);
+        //     println!("Peer: {:?}", arg_list);
 
-            // let y = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
-            //     error!("Failed to update interface. Error: {err}");
-            //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-            // })?;
+        //     // let y = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
+        //     //     error!("Failed to update interface. Error: {err}");
+        //     //     WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        //     // })?;
 
-            // println!("Output wg show {:?}", y);
+        //     // println!("Output wg show {:?}", y);
+            
 
-            let add_peer_output = Command::new("wg").arg("set").arg(&self.ifname).arg("peer").args(&arg_list).output().map_err(|err| {
-                error!("Failed to update interface. Error: {err}");
-                WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-            })?;
+        //     let add_peer_output = Command::new("wg").arg("set").arg(&self.ifname).arg("peer").args(&arg_list).output().map_err(|err| {
+        //         error!("Failed to update interface. Error: {err}");
+        //         WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        //     })?;
     
-            info!("Add peer with arguments {:?} output {:?}", arg_list, add_peer_output);
-        }
+        //     info!("Add peer with arguments {:?} output {:?}", arg_list, add_peer_output);
+        // }
+
 
         // let interface = wireguard_nt::SetInterface {
         //     listen_port: Some(u16::try_from(config.port).unwrap()),
