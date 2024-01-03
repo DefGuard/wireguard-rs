@@ -164,18 +164,18 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         //     return Err(WireguardInterfaceError::ReadInterfaceError(i.to_string()));
         // }
 
-        // let file_path = path.join(&file_name).display().to_string();
-        let file_path = "";
+        let file_path = path.join(&file_name).display().to_string();
+        // let file_path = "";
 
         let p = "C:/".to_string() + file_name.as_str();
 
-        // debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
+        debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
 
         // return Ok(());
 
-        let mut file = File::create(p)?;
+        // let mut file = File::create(p)?;
 
-        return Ok(());
+        // return Ok(());
 
         let mut file = File::create(&file_name)?;
         let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
