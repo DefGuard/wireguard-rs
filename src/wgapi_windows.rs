@@ -143,8 +143,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let mut file = File::create(&file_name)?;
 
         let dns_addresses = format!("{}", dns.iter().map(|v| v.to_string()).collect::<Vec<String>>().join(","));
-
-        debug!("Setting Address {}, DNS: {}", config.address, dns_addresses);
+        println!("dns dns {:?}", dns);
+        info!("Setting Address {}, DNS: {}", config.address, dns_addresses);
         file.write_all(format!("[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}", config.prvkey, dns_addresses, config.address).as_bytes())?;
  
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
