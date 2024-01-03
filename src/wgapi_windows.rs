@@ -236,6 +236,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             WireguardInterfaceError::ReadInterfaceError(err.to_string())
         })?;
 
+        let _ = ff.write_all(format!("\ncheck existing service: {:?}\n", output).as_bytes());
+
         // Service already exists
         if output.status.success() {
             Command::new("wireguard").arg("/uninstalltunnelservice").arg(&self.ifname).output()?;
@@ -246,6 +248,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                     error!("Failed to read interface data. Error: {err}");
                     WireguardInterfaceError::ReadInterfaceError(err.to_string())
                 })?;
+
+                let _ = ff.write_all(format!("\nwaiting for tunnel to be removed: counter {:?}: {:?}\n", counter, output).as_bytes());
 
                 // Service has been removed
                 if !output.status.success() || counter == 5 {
@@ -264,7 +268,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
 
-        // ff.write_all(format!("\nInstall service output: {:?}\n", service_installation_output).as_bytes())?;
+        ff.write_all(format!("\nInstall service after output: {:?}\n", service_installation_output).as_bytes())?;
 
         if !service_installation_output.status.success() {
             let _ = ff.write_all(format!("\nnot success: {:?}", service_installation_output).as_bytes());
