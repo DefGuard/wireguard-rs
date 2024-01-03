@@ -165,6 +165,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // }
 
         // let file_path = path.join(&file_name).display().to_string();
+        let file_path = "";
 
         let p = "C:/".to_string() + file_name.as_str();
 
