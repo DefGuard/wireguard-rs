@@ -164,14 +164,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         let file_path = path.join(&file_name).display().to_string();
 
-        let p = "C:/".to_string() + "defguard-rs-log.txt";
+        // let p = "C:/".to_string() + "defguard-rs-log.txt";
 
         debug!("Creating WireGuard configuration file {} in: {}", file_name, file_path);
 
 
 
-        let mut ff = File::create(p)?;
-        ff.write_all(file_path.as_bytes())?;
+        // let mut ff = File::create(p)?;
+        // ff.write_all(file_path.as_bytes())?;
 
 
         let mut file = File::create(&file_name)?;
@@ -263,11 +263,11 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         let service_installation_output = Command::new("wireguard").arg("/installtunnelservice").arg(file_path).output().map_err(|err| {
             error!("Failed to create interface. Error: {err}");
             let message = err.to_string();
-            let _ = ff.write_all(format!("\nInstall service output: {:?}", err.to_string()).as_bytes());
+            // let _ = ff.write_all(format!("\nInstall service output: {:?}", err.to_string()).as_bytes());
             WireguardInterfaceError::ServiceInstallationFailed { err, message }
         })?;
 
-        ff.write_all(format!("\nInstall service output: {:?}\n", service_installation_output).as_bytes())?;
+        // ff.write_all(format!("\nInstall service output: {:?}\n", service_installation_output).as_bytes())?;
 
         if !service_installation_output.status.success() {
             let message = format!("Failed to install WireGuard tunnel as a Windows service: {:?}", service_installation_output.stdout);
@@ -276,7 +276,9 @@ impl WireguardInterfaceApi for WireguardApiWindows {
  
         println!("service_installation_output {:?}", service_installation_output);
 
+
         // Windows service is not immediately available after the /installtunnelservice command.
+        // TODO: it was necessary because of wg set usage. Service had to be installed and running for it to work.
         // let mut counter = 1;
         // loop {
         //     let output = Command::new("wg").arg("show").arg(&self.ifname).output().map_err(|err| {
@@ -295,6 +297,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         //     sleep(Duration::from_secs(1));
         //     counter = counter + 1;
         // }
+
+    
 
         // TODO: is it needed?
         // Command::new("sc.exe").arg("queryex").arg("type=service").arg("state=all").output().map_err(|err| {
