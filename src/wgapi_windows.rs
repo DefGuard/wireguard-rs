@@ -267,7 +267,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // ff.write_all(format!("\nInstall service output: {:?}\n", service_installation_output).as_bytes())?;
 
         if !service_installation_output.status.success() {
-            let _ = ff.write_all(format!("\nnot success: {:?}", service_installation_output.stdout).as_bytes());
+            let _ = ff.write_all(format!("\nnot success: {:?}", service_installation_output).as_bytes());
             let message = format!("Failed to install WireGuard tunnel as a Windows service: {:?}", service_installation_output.stdout);
             return Err(WireguardInterfaceError::ServiceInstallationFailed { err: io::Error::new(io::ErrorKind::Other, "Cannot create service"), message });
         }
