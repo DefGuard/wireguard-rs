@@ -400,7 +400,7 @@ impl<'a> NvList<'a> {
                     array.iter().for_each(|number| self.store_u64(*number, buf));
                 }
                 NvValue::StringArray(array) => {
-                    for string in array.iter() {
+                    for string in array {
                         buf.extend_from_slice(string.as_bytes());
                         buf.push(0); // NUL
                     }

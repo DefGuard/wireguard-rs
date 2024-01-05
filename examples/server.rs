@@ -40,6 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         port: 12345,
         peers: vec![peer],
     };
+    println!("Prepared interface configuration: {interface_config:?}");
 
     // apply initial interface configuration
     #[cfg(not(windows))]
@@ -49,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // read current interface status
     let host = wgapi.read_interface_data()?;
-    println!("WireGuard interface initial config: {host:#?}");
+    println!("WireGuard interface after configuration: {host:#?}");
 
     // add more WireGuard clients
     for peer_id in 3..13 {

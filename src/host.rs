@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::{Debug, Formatter},
     io::{self, BufRead, BufReader, Read},
     net::SocketAddr,
     str::FromStr,
@@ -164,12 +165,23 @@ impl Peer {
 }
 
 /// WireGuard host representation.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Host {
     pub listen_port: u16,
     pub private_key: Option<Key>,
     pub(super) fwmark: Option<u32>,
     pub peers: HashMap<Key, Peer>,
+}
+
+// implement manually to avoid exposing private keys
+impl Debug for Host {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Host")
+            .field("listen_port", &self.listen_port)
+            .field("fwmark", &self.fwmark)
+            .field("peers", &self.peers)
+            .finish()
+    }
 }
 
 impl Host {
