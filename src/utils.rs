@@ -284,121 +284,12 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
-/// Helper function to add routing.  
+/// Helper function to add routing.
 #[cfg(any(target_os = "windows"))]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    debug!("Adding peer routing for interface: {ifname}");
-    let mut unique_allowed_ips = HashSet::new();
-    let mut endpoints = HashSet::new();
-    let mut default_route = None;
-
-    // TODO: find a better way to handle default routes.
-    for peer in peers {
-        if let Some(endpoint) = peer.endpoint {
-            endpoints.insert(endpoint);
-        }
-        for addr in &peer.allowed_ips {
-            // Handle default route
-            if addr.ip.is_unspecified() {
-                default_route = Some(addr);
-                break;
-            }
-            unique_allowed_ips.insert(addr);
-        }
-    }
-
-    println!("default_route {:?}", default_route);
-    println!("endpoints {:?}", endpoints);
-    println!("unique_allowed_ips {:?}", unique_allowed_ips);
-
-    if let Some(default_route) = default_route {
-        info!("Found default route: {default_route:?}");
-        let is_ipv6 = default_route.ip.is_ipv6();
-        // let (proto, route1, route2) = if is_ipv6 {
-        //     ("-inet6", "::/1", "8000::/1")
-        // } else {
-        //     ("-inet", "0.0.0.0/1", "128.0.0.0/1")
-        // };
-        let (proto, route1, route2) = if is_ipv6 {
-            ("ipv6", "::/1", "8000::/1")
-        } else {
-            ("ipv4", "0.0.0.0/1", "128.0.0.0/1")
-        };
-        // Add table rules
-        // let args = ["interface", "ipv4", "add", "route", proto, route1, "-interface", ifname];
-        let args = ["interface", proto, "add", "route", route1, ifname];
-        info!("Executing command route with args: {args:?}");
-        let output = Command::new("netsh").args(args).output()?;
-        check_command_output_status(output)?;
-        // let args = ["-q", "-n", "add", proto, route2, "-interface", ifname];
-        let args = ["interface", proto, "add", "route", route2, ifname];
-        info!("Executing command route with args: {args:?}");
-        let output = Command::new("netsh").args(args).output()?;
-        check_command_output_status(output)?;
-        // route endpoints
-        for endpoint in &endpoints {
-            let (ip_version, proto) = if endpoint.is_ipv4() {
-                (IpVersion::IPv4, "-inet")
-            } else {
-                (IpVersion::IPv6, "-inet6")
-            };
-            let gateway = get_gateway(&ip_version)?;
-            // Precautionary `route delete` don't handle result because it may not exist.
-            let _ = Command::new("route")
-                .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
-                .output();
-
-            let endpoint_ip = endpoint.ip().to_string();
-            let args = if gateway.is_empty() {
-                // Prevent routing loop as in wg-quick
-                info!("Default gateway not found.");
-                let address = if endpoint.is_ipv4() {
-                    "127.0.0.1"
-                } else {
-                    "::1"
-                };
-                [
-                    "-q",
-                    "-n",
-                    "add",
-                    proto,
-                    &endpoint_ip,
-                    address,
-                    "-blackhole",
-                ]
-            } else {
-                info!("Found default gateway: {gateway}");
-                ["-q", "-n", "add", proto, &endpoint_ip, "-gateway", &gateway]
-            };
-            info!("Executing command route with args: {args:?}");
-            let output = Command::new("route").args(args).output()?;
-            check_command_output_status(output)?;
-        }
-    } else {
-        info!("No default route found");
-        for allowed_ip in unique_allowed_ips {
-            debug!("Processing allowed IP: {}", allowed_ip);
-            let is_ipv6 = allowed_ip.ip.is_ipv6();
-            // let proto = if is_ipv6 { "-inet6" } else { "-inet" };
-            let proto = if is_ipv6 { "ipv6" } else { "ipv4" };
-            let args = [
-                "interface",
-                proto,
-                "add",
-                "route",
-                &allowed_ip.to_string(),
-                ifname,
-            ];
-            info!("Executing command route with args: {args:?}");
-            let output = Command::new("netsh").args(args).output()?;
-            check_command_output_status(output)?;
-        }
-    }
-
-    info!("Peers routing added successfully");
     Ok(())
 }
 
@@ -435,31 +326,7 @@ pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInt
 }
 
 #[cfg(any(target_os = "windows"))]
-pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInterfaceError> {
-    let command_args = match ip_version {
-        IpVersion::IPv4 => &["-nr", "-f", "inet"],
-        IpVersion::IPv6 => &["-nr", "-f", "inet6"],
-    };
-
-    let output: Result<std::process::Output, std::io::Error> = Command::new("ipconfig").arg("| findstr \"Default Gateway\"").output();
-    println!("windows: ipconfig: {:?}", output);
-
-    let output = Command::new("ipconfig").arg("| findstr \"Default Gateway\"").output()?;
-    // ipconfig | findstr "Default Gateway"
-
-    let output_str = String::from_utf8_lossy(&output.stdout);
-
-    for line in output_str.lines() {
-        // let fields: Vec<&str> = line.split_whitespace().collect();
-        let fields: Vec<&str> = line.split(":").collect();
-        println!("getting gateway: fields {:?}", fields);
-        if fields.len() > 1 && fields[0] == "default" && !fields[1].starts_with("link#") {
-            // return Ok(fields[1].to_string());
-        }
-    }
-
-    return Ok("192.168.1.1".to_string());
-
+pub(crate) fn get_gateway(_ip_version: &IpVersion) -> Result<String, WireguardInterfaceError> {
     Ok(String::new())
 }
 

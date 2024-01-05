@@ -33,5 +33,8 @@ pub enum WireguardInterfaceError {
     #[error("DNS error")]
     DnsError,
     #[error("Service installation failed")]
-    ServiceInstallationFailed { err: std::io::Error, message: String },
+    ServiceInstallationFailed {
+        err: std::io::Error,
+        message: String,
+    },
 }

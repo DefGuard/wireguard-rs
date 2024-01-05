@@ -10,8 +10,8 @@ use crate::WireguardApiUserspace;
 #[cfg(target_os = "windows")]
 use crate::WireguardApiWindows;
 use crate::{
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
-    WireguardInterfaceApi, WireguardInterfaceError,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    WireguardInterfaceError,
 };
 
 /// Shared multi-platform WireGuard management API
