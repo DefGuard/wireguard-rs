@@ -36,11 +36,6 @@ netlink-packet-utils = "0.5"
 netlink-packet-wireguard = "0.2"
 netlink-sys = "0.8"
 
-[target.'cfg(target_os = "windows")'.dependencies]
-wireguard-nt = "0.3"
-winapi = { version = "0.3.9", features = ["winerror"] }
-ipnet = "2.9.0"
-
 [profile.release]
 lto = "thin"
 strip = "symbols"
