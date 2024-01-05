@@ -1,7 +1,6 @@
-use defguard_wireguard_rs::{
-    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, WireguardApiUserspace,
-    WireguardInterfaceApi,
-};
+#[cfg(target_os = "mac_os")]
+use defguard_wireguard_rs::WireguardApiUserspace;
+use defguard_wireguard_rs::{host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration};
 use std::{
     io::{stdin, stdout, Read, Write},
     net::SocketAddr,
@@ -16,6 +15,7 @@ fn pause() {
     stdin().read_exact(&mut [0]).unwrap();
 }
 
+#[cfg(target_os = "mac_os")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup API struct for interface management
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
@@ -72,3 +72,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(not(mac_os))]
+fn main() {}
