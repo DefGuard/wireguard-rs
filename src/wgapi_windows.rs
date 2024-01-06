@@ -76,9 +76,13 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         );
 
         let mut wireguard_configuration = format!(
-            "[Interface]\nPrivateKey = {}\nDNS = {}\nAddress = {}\n",
-            config.prvkey, dns_addresses, config.address
+            "[Interface]\nPrivateKey = {}\nAddress = {}\n",
+            config.prvkey, config.address
         );
+
+        if !dns_addresses.is_empty() {
+            wireguard_configuration.push_str(format!("\nDNS = {}", dns_addresses).as_str());
+        }
 
         for peer in &config.peers {
             wireguard_configuration.push_str("\n[Peer]");
