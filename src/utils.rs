@@ -285,7 +285,7 @@ pub(crate) fn add_peer_routing(
 }
 
 /// Helper function to add routing.
-#[cfg(any(target_os = "windows"))]
+#[cfg(target_os = "windows")]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
@@ -325,7 +325,7 @@ pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInt
     Ok(String::new())
 }
 
-#[cfg(any(target_os = "windows"))]
+#[cfg(target_os = "windows")]
 pub(crate) fn get_gateway(_ip_version: &IpVersion) -> Result<String, WireguardInterfaceError> {
     Ok(String::new())
 }

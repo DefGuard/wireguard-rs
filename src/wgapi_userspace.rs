@@ -33,15 +33,22 @@ impl WireguardApiUserspace {
     ///
     /// # Errors
     /// Will return `WireguardInterfaceError` if `wireguard-go` can't be found.
-    pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
+    // pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
+    //     // TODO: consider moving this to create_interface function to keep the return value cross-platform
+    //     // check that `wireguard-go` is available
+    //     Command::new(USERSPACE_EXECUTABLE).arg("--version").output().map_err(|err| {
+    //         error!("Failed to create userspace API. {USERSPACE_EXECUTABLE} executable not found in PATH. Error: {err}");
+    //         WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+    //     })?;
+
+    //     Ok(WireguardApiUserspace { ifname })
+    // }
+
+    pub fn new(ifname: String) -> Self {
         // TODO: consider moving this to create_interface function to keep the return value cross-platform
         // check that `wireguard-go` is available
-        Command::new(USERSPACE_EXECUTABLE).arg("--version").output().map_err(|err| {
-            error!("Failed to create userspace API. {USERSPACE_EXECUTABLE} executable not found in PATH. Error: {err}");
-            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-        })?;
 
-        Ok(WireguardApiUserspace { ifname })
+        WireguardApiUserspace { ifname }
     }
 
     fn socket_path(&self) -> String {
@@ -105,6 +112,11 @@ impl WireguardApiUserspace {
 impl WireguardInterfaceApi for WireguardApiUserspace {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating userspace interface {}", self.ifname);
+        Command::new(USERSPACE_EXECUTABLE).arg("--version").output().map_err(|err| {
+            error!("Failed to create userspace API. {USERSPACE_EXECUTABLE} executable not found in PATH. Error: {err}");
+            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
+        })?;
+
         let output = Command::new(USERSPACE_EXECUTABLE)
             .arg(&self.ifname)
             .output()?;

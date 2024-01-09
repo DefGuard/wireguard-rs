@@ -17,13 +17,13 @@ pub trait WireguardInterfaceApi {
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError>;
 
     /// Updates configuration of an existing WireGuard interface.
-    #[cfg(not(windows))]
+    #[cfg(not(target_os = "windows"))]
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
     ) -> Result<(), WireguardInterfaceError>;
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,

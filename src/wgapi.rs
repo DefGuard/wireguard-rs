@@ -31,7 +31,8 @@ impl WGApi {
 
         // TODO: refactor
         #[cfg(target_os = "macos")]
-        return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
+        return Ok(Self(Box::new(WireguardApiUserspace::new(ifname))));
+        // return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
 
         #[cfg(target_os = "linux")]
         return Ok(Self(Box::new(WireguardApiLinux::new(ifname))));
@@ -57,7 +58,7 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer_routing(peers)
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(target_os = "windows"))]
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
@@ -65,7 +66,7 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_interface(config)
     }
 
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
