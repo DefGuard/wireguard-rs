@@ -214,11 +214,11 @@ pub(crate) fn add_peer_routing(
         };
         // Add table rules
         let args = ["-q", "-n", "add", proto, route1, "-interface", ifname];
-        debug!("Executing command route with args: {args:?}");
+        info!("Executing command route with args: {args:?}");
         let output = Command::new("route").args(args).output()?;
         check_command_output_status(output)?;
         let args = ["-q", "-n", "add", proto, route2, "-interface", ifname];
-        debug!("Executing command route with args: {args:?}");
+        info!("Executing command route with args: {args:?}");
         let output = Command::new("route").args(args).output()?;
         check_command_output_status(output)?;
         // route endpoints
@@ -274,13 +274,22 @@ pub(crate) fn add_peer_routing(
                 "-interface",
                 ifname,
             ];
-            debug!("Executing command route with args: {args:?}");
+            info!("Executing command route with args: {args:?}");
             let output = Command::new("route").args(args).output()?;
             check_command_output_status(output)?;
         }
     }
 
     info!("Peers routing added successfully");
+    Ok(())
+}
+
+/// Helper function to add routing.
+#[cfg(target_os = "windows")]
+pub(crate) fn add_peer_routing(
+    peers: &[Peer],
+    ifname: &str,
+) -> Result<(), WireguardInterfaceError> {
     Ok(())
 }
 
@@ -313,6 +322,11 @@ pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInt
         }
     }
 
+    Ok(String::new())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn get_gateway(_ip_version: &IpVersion) -> Result<String, WireguardInterfaceError> {
     Ok(String::new())
 }
 
