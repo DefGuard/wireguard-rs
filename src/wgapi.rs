@@ -26,20 +26,28 @@ impl WGApi {
     /// # Errors
     /// Will return `WireguardInterfaceError` is platform is not supported.
     pub fn new(ifname: String, userspace: bool) -> Result<Self, WireguardInterfaceError> {
-        #[cfg(target_os = "windows")]
-        return Ok(Self(Box::new(WireguardApiWindows::new(ifname))));
+        if userspace {
+            if cfg!(target_family = "unix") {
+                Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)))
+            } else {
+                Err(WireguardInterfaceError::UserspaceNotSupported)
+            }
+        } else {
+            #[cfg(target_os = "windows")]
+            return Ok(Self(Box::new(WireguardApiWindows::new(ifname))));
 
-        #[cfg(target_os = "macos")]
-        return Ok(Self(Box::new(WireguardApiUserspace::new(ifname))));
+            #[cfg(target_os = "macos")]
+            return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
 
-        #[cfg(target_os = "linux")]
-        return Ok(Self(Box::new(WireguardApiLinux::new(ifname))));
+            #[cfg(target_os = "linux")]
+            return Ok(Self(Box::new(WireguardApiLinux::new(ifname))));
 
-        #[cfg(target_os = "freebsd")]
-        return Ok(Self(Box::new(WireguardApiFreebsd::new(ifname))));
+            #[cfg(target_os = "freebsd")]
+            return Ok(Self(Box::new(WireguardApiFreebsd::new(ifname))));
 
-        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-        Err(WireguardInterfaceError::KernelNotSupported)
+            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+            Err(WireguardInterfaceError::KernelNotSupported)
+        }
     }
 }
 

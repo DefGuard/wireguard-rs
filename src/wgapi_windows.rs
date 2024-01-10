@@ -27,12 +27,6 @@ impl WireguardApiWindows {
     pub fn new(ifname: String) -> Self {
         Self { ifname }
     }
-
-    fn _convert_key(key: &String) -> [u8; 32] {
-        let mut interface_private = [0; 32];
-        interface_private.copy_from_slice(key.as_bytes());
-        interface_private
-    }
 }
 
 impl WireguardInterfaceApi for WireguardApiWindows {
