@@ -43,7 +43,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Prepared interface configuration: {interface_config:?}");
 
     // apply initial interface configuration
+    #[cfg(not(windows))]
     wgapi.configure_interface(&interface_config)?;
+    #[cfg(windows)]
+    wgapi.configure_interface(&interface_config, &[])?;
 
     // read current interface status
     let host = wgapi.read_interface_data()?;

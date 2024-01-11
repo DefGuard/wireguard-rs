@@ -66,6 +66,8 @@ mod wgapi_freebsd;
 mod wgapi_linux;
 #[cfg(target_family = "unix")]
 mod wgapi_userspace;
+#[cfg(target_family = "windows")]
+mod wgapi_windows;
 mod wireguard_interface;
 
 #[macro_use]
@@ -92,6 +94,8 @@ pub use wgapi_freebsd::WireguardApiFreebsd;
 pub use wgapi_linux::WireguardApiLinux;
 #[cfg(target_family = "unix")]
 pub use wgapi_userspace::WireguardApiUserspace;
+#[cfg(target_os = "windows")]
+pub use wgapi_windows::WireguardApiWindows;
 pub use wireguard_interface::WireguardInterfaceApi;
 
 /// Host WireGuard interface configuration

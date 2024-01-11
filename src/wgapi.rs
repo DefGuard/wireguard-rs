@@ -7,6 +7,8 @@ use crate::WireguardApiFreebsd;
 use crate::WireguardApiLinux;
 #[cfg(target_family = "unix")]
 use crate::WireguardApiUserspace;
+#[cfg(target_os = "windows")]
+use crate::WireguardApiWindows;
 use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
@@ -25,12 +27,18 @@ impl WGApi {
     /// Will return `WireguardInterfaceError` is platform is not supported.
     pub fn new(ifname: String, userspace: bool) -> Result<Self, WireguardInterfaceError> {
         if userspace {
-            if cfg!(target_family = "unix") {
-                Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)))
-            } else {
-                Err(WireguardInterfaceError::UserspaceNotSupported)
-            }
+            #[cfg(target_family = "unix")]
+            return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
+
+            #[cfg(not(target_family = "unix"))]
+            return Err(WireguardInterfaceError::UserspaceNotSupported);
         } else {
+            #[cfg(target_os = "windows")]
+            return Ok(Self(Box::new(WireguardApiWindows::new(ifname))));
+
+            #[cfg(target_os = "macos")]
+            return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
+
             #[cfg(target_os = "linux")]
             return Ok(Self(Box::new(WireguardApiLinux::new(ifname))));
 
@@ -56,11 +64,21 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer_routing(peers)
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
     ) -> Result<(), WireguardInterfaceError> {
         self.0.configure_interface(config)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn configure_interface(
+        &self,
+        config: &InterfaceConfiguration,
+        dns: &[IpAddr],
+    ) -> Result<(), WireguardInterfaceError> {
+        self.0.configure_interface(config, dns)
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
