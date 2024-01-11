@@ -27,11 +27,11 @@ impl WGApi {
     /// Will return `WireguardInterfaceError` is platform is not supported.
     pub fn new(ifname: String, userspace: bool) -> Result<Self, WireguardInterfaceError> {
         if userspace {
-            if cfg!(target_family = "unix") {
-                Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)))
-            } else {
-                Err(WireguardInterfaceError::UserspaceNotSupported)
-            }
+            #[cfg(target_family = "unix")]
+            return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
+
+            #[cfg(not(target_family = "unix"))]
+            return Err(WireguardInterfaceError::UserspaceNotSupported);
         } else {
             #[cfg(target_os = "windows")]
             return Ok(Self(Box::new(WireguardApiWindows::new(ifname))));
