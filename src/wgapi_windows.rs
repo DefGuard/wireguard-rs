@@ -53,28 +53,26 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         // Interface is created here so that there is no need to pass private key only for Windows
         let file_name = format!("{}.conf", &self.ifname);
         let path = env::current_dir()?;
-        let file_path = path.join(&file_name).display().to_string();
+        let file_path_buf = path.join(&file_name);
+        let file_path = file_path_buf.to_str().unwrap_or_default();
 
-        debug!(
-            "Creating WireGuard configuration file {} in: {}",
-            file_name, file_path
-        );
+        debug!("Creating WireGuard configuration file {file_name} in: {file_path}");
 
         let mut file = File::create(&file_name)?;
-        let dns_addresses = format!(
-            "{}",
-            dns.iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>()
-                .join(",")
-        );
 
         let mut wireguard_configuration = format!(
             "[Interface]\nPrivateKey = {}\nAddress = {}\n",
             config.prvkey, config.address
         );
 
-        if !dns_addresses.is_empty() {
+        if !dns.is_empty() {
+            let dns_addresses = format!(
+                "{}",
+                dns.iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<String>>()
+                    .join(",")
+            );
             wireguard_configuration.push_str(format!("\nDNS = {}", dns_addresses).as_str());
         }
 
@@ -108,10 +106,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             wireguard_configuration.push_str(format!("\nAllowedIPs = {}", allowed_ips).as_str());
         }
 
-        info!(
-            "Prepared WireGuard configuration: {}",
-            wireguard_configuration
-        );
+        info!("Prepared WireGuard configuration: {wireguard_configuration}",);
         file.write_all(wireguard_configuration.as_bytes())?;
 
         // Check for existing service and remove it
@@ -165,10 +160,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                 WireguardInterfaceError::ServiceInstallationFailed { err, message }
             })?;
 
-        info!(
-            "Service installation output: {:?}",
-            service_installation_output
-        );
+        info!("Service installation output: {service_installation_output:?}",);
 
         if !service_installation_output.status.success() {
             let message = format!(
@@ -280,7 +272,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             }
         }
 
-        debug!("Read interface data: {:?}", host);
+        debug!("Read interface data: {host:?}");
         Ok(host)
     }
 

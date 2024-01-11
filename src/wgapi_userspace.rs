@@ -104,7 +104,6 @@ impl WireguardApiUserspace {
 impl WireguardInterfaceApi for WireguardApiUserspace {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating userspace interface {}", self.ifname);
-
         let output = Command::new(USERSPACE_EXECUTABLE)
             .arg(&self.ifname)
             .output()?;
