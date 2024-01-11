@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(windows))]
     wgapi.configure_interface(&interface_config)?;
     #[cfg(windows)]
-    wgapi.configure_interface(&interface_config, &Vec::new())?;
+    wgapi.configure_interface(&interface_config, &[])?;
     wgapi.configure_peer_routing(&interface_config.peers)?;
 
     Ok(())

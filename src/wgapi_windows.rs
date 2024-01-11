@@ -67,19 +67,19 @@ impl WireguardInterfaceApi for WireguardApiWindows {
 
         if !dns.is_empty() {
             let dns_addresses = format!(
-                "{}",
+                "\nDNS = {}",
                 dns.iter()
                     .map(|v| v.to_string())
                     .collect::<Vec<String>>()
                     .join(",")
             );
-            wireguard_configuration.push_str(format!("\nDNS = {}", dns_addresses).as_str());
+            wireguard_configuration.push_str(dns_addresses.as_str());
         }
 
         for peer in &config.peers {
-            wireguard_configuration.push_str("\n[Peer]");
-            wireguard_configuration
-                .push_str(format!("\nPublicKey = {}", peer.public_key.to_string()).as_str());
+            wireguard_configuration.push_str(
+                format!("\n[Peer]\nPublicKey = {}", peer.public_key.to_string()).as_str(),
+            );
 
             if let Some(preshared_key) = &peer.preshared_key {
                 wireguard_configuration
@@ -96,14 +96,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             }
 
             let allowed_ips = format!(
-                "{}",
+                "\nAllowedIPs = {}",
                 peer.allowed_ips
                     .iter()
                     .map(|v| v.to_string())
                     .collect::<Vec<String>>()
                     .join(",")
             );
-            wireguard_configuration.push_str(format!("\nAllowedIPs = {}", allowed_ips).as_str());
+            wireguard_configuration.push_str(allowed_ips.as_str());
         }
 
         info!("Prepared WireGuard configuration: {wireguard_configuration}",);

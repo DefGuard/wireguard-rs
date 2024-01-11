@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(windows))]
     api.configure_interface(&interface_config)?;
     #[cfg(windows)]
-    api.configure_interface(&interface_config, &Vec::new())?;
+    api.configure_interface(&interface_config, &[])?;
 
     println!("Interface {ifname} configured.");
     pause();
