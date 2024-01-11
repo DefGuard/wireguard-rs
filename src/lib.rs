@@ -92,7 +92,7 @@ pub use wgapi::WGApi;
 pub use wgapi_freebsd::WireguardApiFreebsd;
 #[cfg(target_os = "linux")]
 pub use wgapi_linux::WireguardApiLinux;
-#[cfg(target_os = "macos")]
+#[cfg(target_family = "unix")]
 pub use wgapi_userspace::WireguardApiUserspace;
 #[cfg(target_os = "windows")]
 pub use wgapi_windows::WireguardApiWindows;

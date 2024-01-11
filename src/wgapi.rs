@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use crate::WireguardApiFreebsd;
 #[cfg(target_os = "linux")]
 use crate::WireguardApiLinux;
-#[cfg(target_os = "macos")]
+#[cfg(target_family = "unix")]
 use crate::WireguardApiUserspace;
 #[cfg(target_os = "windows")]
 use crate::WireguardApiWindows;
