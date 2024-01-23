@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer = Peer::new(peer_key.clone());
 
     log::info!("endpoint");
-    // Your wireguard server endpoint which peer connects too
+    // Your WireGuard server endpoint which peer connects too
     let endpoint: SocketAddr = "10.20.30.40:55001".parse().unwrap();
     // Peer endpoint and interval
     peer.endpoint = Some(endpoint);

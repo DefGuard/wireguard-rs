@@ -149,7 +149,6 @@ where
     NetlinkPayload<I>: From<I>,
     I: Clone + Debug + Eq + NetlinkSerializable + NetlinkDeserializable,
 {
-    debug!("Sending Netlink request: {message:?}, flags: {flags}, socket: {socket}",);
     let mut req = NetlinkMessage::from(message);
 
     if req.buffer_len() > SOCKET_BUFFER_LENGTH {
