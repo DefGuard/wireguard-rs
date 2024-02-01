@@ -106,8 +106,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             wireguard_configuration.push_str(allowed_ips.as_str());
         }
 
-        info!("Prepared WireGuard configuration: {wireguard_configuration}",);
         file.write_all(wireguard_configuration.as_bytes())?;
+        info!("WireGuard configuration written to file: {file_path}",);
 
         // Check for existing service and remove it
         let output = Command::new("wg")
