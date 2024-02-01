@@ -9,7 +9,7 @@ use crate::{
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
-/// Requires FreeBSD version 14+.
+/// Requires FreeBSD version 13+.
 #[derive(Clone)]
 pub struct WireguardApiFreebsd {
     ifname: String,

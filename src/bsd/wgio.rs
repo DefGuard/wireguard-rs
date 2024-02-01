@@ -62,11 +62,17 @@ impl WgDataIo {
         let socket = create_socket(AddressFamily::Unix).map_err(IoError::ReadIo)?;
         unsafe {
             // First do ioctl with empty `wg_data` to obtain buffer size.
-            read_wireguard_data(socket.as_raw_fd(), self).map_err(IoError::ReadIo)?;
+            if let Err(err) = read_wireguard_data(socket.as_raw_fd(), self) {
+                error!("WgDataIo first read error {err}");
+                return Err(IoError::ReadIo(err));
+            }
             // Allocate buffer.
             self.alloc_data()?;
             // Second call to ioctl with allocated buffer.
-            read_wireguard_data(socket.as_raw_fd(), self).map_err(IoError::ReadIo)?;
+            if let Err(err) = read_wireguard_data(socket.as_raw_fd(), self) {
+                error!("WgDataIo second read error {err}");
+                return Err(IoError::ReadIo(err));
+            }
         }
 
         Ok(())
@@ -75,7 +81,10 @@ impl WgDataIo {
     pub(super) fn write_data(&mut self) -> Result<(), IoError> {
         let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
         unsafe {
-            write_wireguard_data(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+            if let Err(err) = write_wireguard_data(socket.as_raw_fd(), self) {
+                error!("WgDataIo write error {err}");
+                return Err(IoError::WriteIo(err));
+            }
         }
 
         Ok(())

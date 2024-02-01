@@ -1,6 +1,6 @@
-#[cfg(target_os = "mac_os")]
-use defguard_wireguard_rs::WireguardApiUserspace;
 use defguard_wireguard_rs::{host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration};
+#[cfg(target_os = "macos")]
+use defguard_wireguard_rs::{WireguardApiUserspace, WireguardInterfaceApi};
 use std::{
     io::{stdin, stdout, Read, Write},
     net::SocketAddr,
@@ -15,7 +15,7 @@ fn pause() {
     stdin().read_exact(&mut [0]).unwrap();
 }
 
-#[cfg(target_os = "mac_os")]
+#[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup API struct for interface management
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer_key: Key = key.as_ref().try_into().unwrap();
     let mut peer = Peer::new(peer_key.clone());
 
-    log::info!("endpoint");
+    println!("endpoint");
     // Your WireGuard server endpoint which peer connects too
     let endpoint: SocketAddr = "10.20.30.40:55001".parse().unwrap();
     // Peer endpoint and interval
@@ -73,5 +73,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(mac_os))]
+#[cfg(not(target_os = "macos"))]
 fn main() {}

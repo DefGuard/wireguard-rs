@@ -45,7 +45,7 @@ impl WGApi {
             #[cfg(target_os = "freebsd")]
             return Ok(Self(Box::new(WireguardApiFreebsd::new(ifname))));
 
-            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+            #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "macos", target_os = "windows")))]
             Err(WireguardInterfaceError::KernelNotSupported)
         }
     }
