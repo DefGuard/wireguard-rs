@@ -51,7 +51,7 @@ impl WGApi {
                 target_os = "macos",
                 target_os = "windows"
             )))]
-            Err(WireguardInterfaceError::PlatformNotSupported)
+            Err(WireguardInterfaceError::KernelNotSupported)
         }
     }
 }
