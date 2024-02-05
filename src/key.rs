@@ -1,7 +1,7 @@
 //! Public key utilities
 
 use std::{
-    error, fmt,
+    fmt,
     hash::{Hash, Hasher},
     str::FromStr,
 };
@@ -11,28 +11,20 @@ use serde::{Deserialize, Serialize};
 
 const KEY_LENGTH: usize = 32;
 
-/// WireGuard key representation in binary form.
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct Key([u8; KEY_LENGTH]);
-
-#[derive(Debug)]
-pub enum KeyError {
-    InvalidCharacter(u8),
-    InvalidStringLength(usize),
-}
-
-impl error::Error for KeyError {}
-
-impl fmt::Display for KeyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::InvalidCharacter(char) => {
-                write!(f, "Invalid character {char}")
-            }
-            Self::InvalidStringLength(length) => write!(f, "Invalid string length {length}"),
-        }
+/// Returns value of hex digit, if possible.
+fn hex_value(char: u8) -> Option<u8> {
+    match char {
+        b'A'..=b'F' => Some(char - b'A' + 10),
+        b'a'..=b'f' => Some(char - b'a' + 10),
+        b'0'..=b'9' => Some(char - b'0'),
+        _ => None,
     }
 }
+
+/// WireGuard key representation in binary form.
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(try_from = "&str")]
+pub struct Key([u8; KEY_LENGTH]);
 
 impl Key {
     /// Create a new key from buffer.
@@ -71,28 +63,22 @@ impl Key {
     /// Converts a text string of hexadecimal digits to `Key`.
     ///
     /// # Errors
-    /// Will return `KeyError` if text string has wrong length,
+    /// Will return `DecodeError` if text string has wrong length,
     /// or contains an invalid character.
-    pub fn decode<T: AsRef<[u8]>>(hex: T) -> Result<Self, KeyError> {
+    pub fn decode<T: AsRef<[u8]>>(hex: T) -> Result<Self, DecodeError> {
         let hex = hex.as_ref();
-        let length = hex.len();
-        if length != 64 {
-            return Err(KeyError::InvalidStringLength(length));
+        if hex.len() != KEY_LENGTH * 2 {
+            return Err(DecodeError::InvalidLength);
         }
-
-        let hex_value = |char: u8| -> Result<u8, KeyError> {
-            match char {
-                b'A'..=b'F' => Ok(char - b'A' + 10),
-                b'a'..=b'f' => Ok(char - b'a' + 10),
-                b'0'..=b'9' => Ok(char - b'0'),
-                _ => Err(KeyError::InvalidCharacter(char)),
-            }
-        };
 
         let mut key = [0; KEY_LENGTH];
         for (index, chunk) in hex.chunks(2).enumerate() {
-            let msd = hex_value(chunk[0])?;
-            let lsd = hex_value(chunk[1])?;
+            let Some(msd) = hex_value(chunk[0]) else {
+                return Err(DecodeError::InvalidByte(index, chunk[0]));
+            };
+            let Some(lsd) = hex_value(chunk[1]) else {
+                return Err(DecodeError::InvalidByte(index, chunk[1]));
+            };
             key[index] = msd << 4 | lsd;
         }
         Ok(Self(key))
@@ -102,13 +88,20 @@ impl Key {
 impl TryFrom<&str> for Key {
     type Error = DecodeError;
 
+    /// Try to decode `Key` from base16 or base64 encoded string.
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let v = BASE64_STANDARD.decode(value)?;
-        if v.len() == KEY_LENGTH {
-            let buf = v.try_into().map_err(|_| Self::Error::InvalidLength)?;
-            Ok(Self::new(buf))
+        if value.len() == KEY_LENGTH * 2 {
+            // Try base16
+            Key::decode(value)
         } else {
-            Err(Self::Error::InvalidLength)
+            // Try base64
+            let v = BASE64_STANDARD.decode(value)?;
+            if v.len() == KEY_LENGTH {
+                let buf = v.try_into().map_err(|_| Self::Error::InvalidLength)?;
+                Ok(Self::new(buf))
+            } else {
+                Err(Self::Error::InvalidLength)
+            }
         }
     }
 }

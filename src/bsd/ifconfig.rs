@@ -50,7 +50,11 @@ impl IfReq {
             .for_each(|(i, b)| ifr_name[i] = b);
 
         // First, try to load a kernel module for this type of network interface.
-        let mod_name = format!("if_{if_name}");
+        // Omit digits at the end of interface name, e.g. "wg0" -> "if_wg".
+        let index = if_name
+            .find(|c: char| c.is_ascii_digit())
+            .unwrap_or(if_name.len());
+        let mod_name = format!("if_{}", &if_name[0..index]);
         unsafe {
             // Ignore the return value for the time being.
             // Do the cast because `c_char` differs across platforms.
