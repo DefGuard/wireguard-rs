@@ -21,7 +21,7 @@ use self::{
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
-    wgio::WgDataIo,
+    wgio::{WgReadIo, WgWriteIo},
 };
 use crate::{
     host::{Host, Peer},
@@ -253,7 +253,7 @@ impl<'a> Key {
 }
 
 pub fn get_host(if_name: &str) -> Result<Host, IoError> {
-    let mut wg_data = WgDataIo::new(if_name);
+    let mut wg_data = WgReadIo::new(if_name);
     wg_data.read_data()?;
 
     let mut nvlist = NvList::new();
@@ -266,40 +266,31 @@ pub fn get_host(if_name: &str) -> Result<Host, IoError> {
 }
 
 pub fn set_host(if_name: &str, host: &Host) -> Result<(), IoError> {
-    let mut wg_data = WgDataIo::new(if_name);
-
     let nvlist = host.as_nvlist();
     // FIXME: use proper error, here and above
     let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
 
-    wg_data.wgd_data = buf.as_mut_ptr();
-    wg_data.wgd_size = buf.len();
+    let mut wg_data = WgWriteIo::new(if_name, &mut buf);
     wg_data.write_data()
 }
 
 pub fn set_peer(if_name: &str, peer: &Peer) -> Result<(), IoError> {
-    let mut wg_data = WgDataIo::new(if_name);
-
     let mut nvlist = NvList::new();
     nvlist.append_nvlist_array(NV_PEERS, vec![peer.as_nvlist()]);
     // FIXME: use proper error, here and above
     let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
 
-    wg_data.wgd_data = buf.as_mut_ptr();
-    wg_data.wgd_size = buf.len();
+    let mut wg_data = WgWriteIo::new(if_name, &mut buf);
     wg_data.write_data()
 }
 
 pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
-    let mut wg_data = WgDataIo::new(if_name);
-
     let mut nvlist = NvList::new();
     nvlist.append_nvlist_array(NV_PEERS, vec![public_key.as_nvlist_for_removal()]);
     // FIXME: use proper error, here and above
     let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
 
-    wg_data.wgd_data = buf.as_mut_ptr();
-    wg_data.wgd_size = buf.len();
+    let mut wg_data = WgWriteIo::new(if_name, &mut buf);
     wg_data.write_data()
 }
 
