@@ -18,9 +18,9 @@ ioctl_readwrite!(read_wireguard_data, b'i', 211, WgReadIo);
 /// https://github.com/freebsd/freebsd-src/blob/main/sys/dev/wg/if_wg.h
 #[repr(C)]
 pub struct WgReadIo {
-    pub(super) wgd_name: [u8; IF_NAMESIZE],
-    pub(super) wgd_data: *mut u8, // *void
-    pub(super) wgd_size: usize,
+    wgd_name: [u8; IF_NAMESIZE],
+    wgd_data: *mut u8, // *void
+    wgd_size: usize,
 }
 
 impl WgReadIo {
@@ -93,9 +93,9 @@ impl Drop for WgReadIo {
 /// Same data layout as `WgReadIo`, but avoid `Drop`.
 #[repr(C)]
 pub struct WgWriteIo {
-    pub(super) wgd_name: [u8; IF_NAMESIZE],
-    pub(super) wgd_data: *mut u8, // *void
-    pub(super) wgd_size: usize,
+    wgd_name: [u8; IF_NAMESIZE],
+    wgd_data: *mut u8, // *void
+    wgd_size: usize,
 }
 
 impl WgWriteIo {
