@@ -121,7 +121,7 @@ where
         });
         let responses = netlink_request_genl::<GenlCtrl>(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
 
-        match responses.get(0) {
+        match responses.first() {
             Some(NetlinkMessage {
                 payload:
                     NetlinkPayload::InnerMessage(GenlMessage {
