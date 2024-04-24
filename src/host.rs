@@ -53,7 +53,7 @@ impl Peer {
         self.allowed_ips = allowed_ips;
     }
 
-    /// Resolves endpoint address to SocketAddr and sets the field
+    /// Resolves endpoint address to [SocketAddr] and sets the field
     pub fn set_endpoint(&mut self, endpoint: &str) -> Result<(), WireguardInterfaceError> {
         self.endpoint = match endpoint.parse() {
             Ok(addr) => Some(addr),
