@@ -16,7 +16,7 @@ use netlink_packet_wireguard::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{key::Key, net::IpAddrMask};
+use crate::{error::WireguardInterfaceError, key::Key, net::IpAddrMask, utils::resolve};
 
 /// WireGuard peer representation.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
@@ -51,6 +51,12 @@ impl Peer {
 
     pub fn set_allowed_ips(&mut self, allowed_ips: Vec<IpAddrMask>) {
         self.allowed_ips = allowed_ips;
+    }
+
+    /// Resolves endpoint address to [SocketAddr] and sets the field
+    pub fn set_endpoint(&mut self, endpoint: &str) -> Result<(), WireguardInterfaceError> {
+        self.endpoint = Some(resolve(endpoint)?);
+        Ok(())
     }
 
     #[must_use]

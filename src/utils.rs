@@ -3,7 +3,11 @@ use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 use std::{collections::HashSet, process::Command};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use std::{io::Write, net::IpAddr, process::Stdio};
+use std::{
+    io::Write,
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
+    process::Stdio,
+};
 #[cfg(target_os = "macos")]
 use std::{
     io::{BufRead, BufReader, Cursor, Error as IoError},
@@ -339,4 +343,13 @@ pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceEr
     netlink::delete_rule(IpVersion::IPv6, fwmark)?;
     netlink::delete_main_table_rule(IpVersion::IPv6, 0)?;
     Ok(())
+}
+
+/// Resolves domain name to [SocketAddr]
+pub fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError> {
+    let error = || WireguardInterfaceError::PeerConfigurationError;
+    addr.to_socket_addrs()
+        .map_err(|_| error())?
+        .next()
+        .ok_or_else(error)
 }
