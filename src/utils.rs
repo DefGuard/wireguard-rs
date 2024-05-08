@@ -1,18 +1,15 @@
 #[cfg(target_os = "linux")]
 use crate::netlink;
 use crate::{check_command_output_status, Peer, WireguardInterfaceError};
-use std::{collections::HashSet, process::Command};
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use std::{
-    io::Write,
-    net::{IpAddr, SocketAddr, ToSocketAddrs},
-    process::Stdio,
-};
 #[cfg(target_os = "macos")]
+use std::io::{BufRead, BufReader, Cursor, Error as IoError};
 use std::{
-    io::{BufRead, BufReader, Cursor, Error as IoError},
-    net::IpAddr,
+    collections::HashSet,
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
+    process::Command,
 };
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use std::{io::Write, process::Stdio};
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {

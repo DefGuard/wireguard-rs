@@ -22,11 +22,11 @@ x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
 libc = { version = "0.2", default-features = false }
-nix = { version = "0.27", features = ["ioctl", "socket"] }
+nix = { version = "0.28", features = ["ioctl", "socket"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = { version = "0.2", default-features = false }
-nix = { version = "0.27", features = ["ioctl", "socket"] }
+nix = { version = "0.28", features = ["ioctl", "socket"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-packet-core = "0.7"
