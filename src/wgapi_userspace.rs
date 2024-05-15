@@ -150,15 +150,18 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
         let output = if cfg!(target_os = "macos") {
-          match address.ip {
-              IpAddr::V4(ip) => Command::new("ifconfig")
-                  // On macOS ipv4, interface is point-to-point and requires a pair of addresses
-                  .args([&self.ifname, "inet", &ip.to_string(), &ip.to_string()])
-                  .output()?,
-              IpAddr::V6(ip) => Command::new("ifconfig")
-                  .args([&self.ifname, "inet6", &ip.to_string()])
-                  .output()?,
-          }
+            match address.ip {
+                IpAddr::V4(ip) => {
+                    let ip_string = ip.to_string();
+                    Command::new("ifconfig")
+                        // On macOS ipv4, interface is point-to-point and requires a pair of addresses
+                        .args([&self.ifname, "inet", &ip_string, &ip_string])
+                        .output()?
+                }
+                IpAddr::V6(ip) => Command::new("ifconfig")
+                    .args([&self.ifname, "inet6", &ip.to_string()])
+                    .output()?,
+            }
         } else {
             Command::new("ifconfig")
                 .args([&self.ifname, &address.to_string()])
