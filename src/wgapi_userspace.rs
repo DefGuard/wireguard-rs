@@ -150,11 +150,15 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
         let output = if cfg!(target_os = "macos") {
-            // On macOS, interface is point-to-point and requires a pair of addresses
-            let address_string = address.ip.to_string();
-            Command::new("ifconfig")
-                .args([&self.ifname, &address_string, &address_string])
-                .output()?
+          match address.ip {
+              IpAddr::V4(ip) => Command::new("ifconfig")
+                  // On macOS ipv4, interface is point-to-point and requires a pair of addresses
+                  .args([&self.ifname, "inet", &ip.to_string(), &ip.to_string()])
+                  .output()?,
+              IpAddr::V6(ip) => Command::new("ifconfig")
+                  .args([&self.ifname, "inet6", &ip.to_string()])
+                  .output()?,
+          }
         } else {
             Command::new("ifconfig")
                 .args([&self.ifname, &address.to_string()])
@@ -187,35 +191,35 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Add peer addresses to network routing table.
     ///
     /// # Linux:
-    /// On a Linux system, the `sysctl` command is required to work if using `0.0.0.0/0` or `::/0`.  
-    /// For every allowed IP, it runs:  
-    /// `ip <ip_version> route add <allowed_ip> dev <ifname>`   
-    /// `<ifname>` - interface name while creating api  
-    /// `<ip_version>` - `-4` or `-6` based on allowed ip type  
+    /// On a Linux system, the `sysctl` command is required to work if using `0.0.0.0/0` or `::/0`.
+    /// For every allowed IP, it runs:
+    /// `ip <ip_version> route add <allowed_ip> dev <ifname>`
+    /// `<ifname>` - interface name while creating api
+    /// `<ip_version>` - `-4` or `-6` based on allowed ip type
     /// `<allowed_ip>`- one of [Peer](crate::Peer) allowed ip
     ///
     /// For `0.0.0.0/0` or `::/0` allowed IP, it runs belowed additional commands in order:
-    /// - `ip <ip_version> route add 0.0.0.0/0 dev <ifname> table <fwmark>`  
-    /// `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.  
-    /// `<ifname>` - Interface name.  
-    /// - `ip <ip_version> rule add not fwmark <fwmark> table <fwmark>`.  
-    /// - `ip <ip_version> rule add table main suppress_prefixlength 0`.   
-    /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.  
-    /// - `iptables-restore -n`. For `0.0.0.0/0` only.  
-    /// - `iptables6-restore -n`. For `::/0` only.    
+    /// - `ip <ip_version> route add 0.0.0.0/0 dev <ifname> table <fwmark>`
+    /// `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.
+    /// `<ifname>` - Interface name.
+    /// - `ip <ip_version> rule add not fwmark <fwmark> table <fwmark>`.
+    /// - `ip <ip_version> rule add table main suppress_prefixlength 0`.
+    /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.
+    /// - `iptables-restore -n`. For `0.0.0.0/0` only.
+    /// - `iptables6-restore -n`. For `::/0` only.
     /// Based on IP type `<ip_version>` will be equal to `-4` or `-6`.
     ///
     ///
     /// # macOS, FreeBSD:
-    /// For every allowed IP, it runs:  
-    /// - `route -q -n add <inet> allowed_ip -interface if_name`   
-    /// `ifname` - interface name while creating api  
+    /// For every allowed IP, it runs:
+    /// - `route -q -n add <inet> allowed_ip -interface if_name`
+    /// `ifname` - interface name while creating api
     /// `allowed_ip`- one of [Peer](crate::Peer) allowed ip
     /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other routings.
-    /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.   
-    /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.   
-    /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`  
-    /// `<endpoint>` - Add routing for every unique Peer endpoint.   
+    /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.
+    /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.
+    /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`
+    /// `<endpoint>` - Add routing for every unique Peer endpoint.
     /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)
