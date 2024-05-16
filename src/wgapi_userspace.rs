@@ -149,22 +149,23 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Assign IP address to network interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
+        let address_string = address.ip.to_string();
+
         let output = if cfg!(target_os = "macos") {
             match address.ip {
-                IpAddr::V4(ip) => {
-                    let ip_string = ip.to_string();
+                IpAddr::V4(_) => {
                     Command::new("ifconfig")
                         // On macOS ipv4, interface is point-to-point and requires a pair of addresses
-                        .args([&self.ifname, "inet", &ip_string, &ip_string])
+                        .args([&self.ifname, "inet", &address_string, &address_string])
                         .output()?
                 }
-                IpAddr::V6(ip) => Command::new("ifconfig")
-                    .args([&self.ifname, "inet6", &ip.to_string()])
+                IpAddr::V6(_) => Command::new("ifconfig")
+                    .args([&self.ifname, "inet6", &address_string])
                     .output()?,
             }
         } else {
             Command::new("ifconfig")
-                .args([&self.ifname, &address.to_string()])
+                .args([&self.ifname, &address_string])
                 .output()?
         };
         check_command_output_status(output)?;
