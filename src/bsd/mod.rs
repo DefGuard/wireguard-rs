@@ -1,4 +1,3 @@
-#[cfg(target_os = "freebsd")]
 mod ifconfig;
 mod nvlist;
 mod sockaddr;
@@ -6,7 +5,8 @@ mod timespec;
 mod wgio;
 
 use std::{
-    collections::HashMap, mem::size_of, net::IpAddr, os::fd::OwnedFd, slice::from_raw_parts,
+    collections::HashMap, mem::size_of, net::IpAddr, os::fd::OwnedFd, ptr::from_ref,
+    slice::from_raw_parts,
 };
 
 use nix::{
@@ -15,9 +15,8 @@ use nix::{
 };
 use thiserror::Error;
 
-#[cfg(target_os = "freebsd")]
-use self::ifconfig::{IfReq, IfReq6, IfReqFlags, In6AliasReq, InAliasReq};
 use self::{
+    ifconfig::{IfReq, IfReq6, IfReqFlags, In6AliasReq, InAliasReq},
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
@@ -58,7 +57,7 @@ unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
 
 /// Cast `T' to bytes.
 unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
-    from_raw_parts((p as *const T).cast::<u8>(), size_of::<T>())
+    from_raw_parts(from_ref::<T>(p).cast::<u8>(), size_of::<T>())
 }
 
 /// Create socket for ioctl communication.
@@ -294,7 +293,6 @@ pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
     wg_data.write_data()
 }
 
-#[cfg(target_os = "freebsd")]
 pub fn create_interface(if_name: &str) -> Result<(), IoError> {
     let mut ifreq = IfReq::new(if_name);
     ifreq.create()?;
@@ -303,42 +301,37 @@ pub fn create_interface(if_name: &str) -> Result<(), IoError> {
     ifreq.up()
 }
 
-#[cfg(target_os = "freebsd")]
 pub fn delete_interface(if_name: &str) -> Result<(), IoError> {
     let ifreq = IfReq::new(if_name);
     ifreq.destroy()
 }
 
-#[cfg(target_os = "freebsd")]
 pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
     let broadcast = address.broadcast();
     let mask = address.mask();
 
     match (address.ip, broadcast, mask) {
         (IpAddr::V4(address), IpAddr::V4(broadcast), IpAddr::V4(mask)) => {
-            let inaliasreq = InAliasReq::new(if_name, &address, &broadcast, &mask);
+            let inaliasreq = InAliasReq::new(if_name, address, broadcast, mask);
             inaliasreq.add_address()
         }
-        // FIXME: currently doesn't work.
-        (IpAddr::V6(address), IpAddr::V6(broadcast), IpAddr::V6(mask)) => {
-            let inaliasreq = In6AliasReq::new(if_name, &address, &broadcast, &mask);
+        (IpAddr::V6(address), IpAddr::V6(_broadcast), IpAddr::V6(mask)) => {
+            let inaliasreq = In6AliasReq::new(if_name, address, mask);
             inaliasreq.add_address()
         }
         _ => unreachable!(),
     }
 }
 
-#[cfg(target_os = "freebsd")]
 pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
     match address.ip {
         IpAddr::V4(address) => {
             let mut ifreq = IfReq::new(if_name);
-            ifreq.delete_address(&address)
+            ifreq.delete_address(address)
         }
-        // FIXME: currently doesn't work.
         IpAddr::V6(address) => {
             let mut ifreq6 = IfReq6::new(if_name);
-            ifreq6.delete_address(&address)
+            ifreq6.delete_address(address)
         }
     }
 }

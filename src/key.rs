@@ -67,8 +67,9 @@ impl Key {
     /// or contains an invalid character.
     pub fn decode<T: AsRef<[u8]>>(hex: T) -> Result<Self, DecodeError> {
         let hex = hex.as_ref();
-        if hex.len() != KEY_LENGTH * 2 {
-            return Err(DecodeError::InvalidLength);
+        let length = hex.len();
+        if length != KEY_LENGTH * 2 {
+            return Err(DecodeError::InvalidLength(length));
         }
 
         let mut key = [0; KEY_LENGTH];
@@ -96,11 +97,14 @@ impl TryFrom<&str> for Key {
         } else {
             // Try base64
             let v = BASE64_STANDARD.decode(value)?;
-            if v.len() == KEY_LENGTH {
-                let buf = v.try_into().map_err(|_| Self::Error::InvalidLength)?;
+            let length = v.len();
+            if length == KEY_LENGTH {
+                let buf = v
+                    .try_into()
+                    .map_err(|_| Self::Error::InvalidLength(length))?;
                 Ok(Self::new(buf))
             } else {
-                Err(Self::Error::InvalidLength)
+                Err(Self::Error::InvalidLength(length))
             }
         }
     }
@@ -110,12 +114,13 @@ impl TryFrom<&[u8]> for Key {
     type Error = DecodeError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() == KEY_LENGTH {
-            let buf =
-                <[u8; KEY_LENGTH]>::try_from(value).map_err(|_| Self::Error::InvalidLength)?;
+        let length = value.len();
+        if length == KEY_LENGTH {
+            let buf = <[u8; KEY_LENGTH]>::try_from(value)
+                .map_err(|_| Self::Error::InvalidLength(length))?;
             Ok(Self::new(buf))
         } else {
-            Err(Self::Error::InvalidLength)
+            Err(Self::Error::InvalidLength(length))
         }
     }
 }
@@ -125,11 +130,12 @@ impl FromStr for Key {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let v = BASE64_STANDARD.decode(value)?;
-        if v.len() == KEY_LENGTH {
-            let buf = v.try_into().map_err(|_| Self::Err::InvalidLength)?;
+        let length = v.len();
+        if length == KEY_LENGTH {
+            let buf = v.try_into().map_err(|_| Self::Err::InvalidLength(length))?;
             Ok(Self::new(buf))
         } else {
-            Err(Self::Err::InvalidLength)
+            Err(Self::Err::InvalidLength(length))
         }
     }
 }

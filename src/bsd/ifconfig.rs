@@ -3,7 +3,9 @@ use std::{
     os::fd::AsRawFd,
 };
 
-use libc::{c_char, kld_load, IFF_UP, IF_NAMESIZE};
+#[cfg(target_os = "freebsd")]
+use libc::{c_char, kld_load};
+use libc::{IFF_UP, IF_NAMESIZE};
 use nix::{ioctl_readwrite, ioctl_write_ptr, sys::socket::AddressFamily};
 
 use super::{
@@ -20,11 +22,17 @@ ioctl_write_ptr!(destroy_clone_if, b'i', 121, IfReq);
 // SIOCIFCREATE2
 ioctl_readwrite!(create_clone_if, b'i', 124, IfReq);
 // SIOCAIFADDR
+#[cfg(target_os = "freebsd")]
 ioctl_write_ptr!(add_addr_if, b'i', 43, InAliasReq);
+#[cfg(target_os = "macos")]
+ioctl_write_ptr!(add_addr_if, b'i', 26, InAliasReq);
 // SIOCDIFADDR
 ioctl_write_ptr!(del_addr_if, b'i', 25, IfReq);
 // SIOCAIFADDR_IN6
+#[cfg(target_os = "freebsd")]
 ioctl_write_ptr!(add_addr_if_in6, b'i', 27, In6AliasReq);
+#[cfg(target_os = "macos")]
+ioctl_write_ptr!(add_addr_if_in6, b'i', 26, In6AliasReq);
 // SIOCDIFADDR_IN6
 ioctl_write_ptr!(del_addr_if_in6, b'i', 25, IfReq6);
 // SIOCSIFFLAGS
@@ -51,14 +59,17 @@ impl IfReq {
 
         // First, try to load a kernel module for this type of network interface.
         // Omit digits at the end of interface name, e.g. "wg0" -> "if_wg".
-        let index = if_name
-            .find(|c: char| c.is_ascii_digit())
-            .unwrap_or(if_name.len());
-        let mod_name = format!("if_{}", &if_name[0..index]);
-        unsafe {
-            // Ignore the return value for the time being.
-            // Do the cast because `c_char` differs across platforms.
-            kld_load(mod_name.as_ptr() as *const c_char);
+        #[cfg(target_os = "freebsd")]
+        {
+            let index = if_name
+                .find(|c: char| c.is_ascii_digit())
+                .unwrap_or(if_name.len());
+            let mod_name = format!("if_{}", &if_name[0..index]);
+            unsafe {
+                // Ignore the return value for the time being.
+                // Do the cast because `c_char` differs across platforms.
+                kld_load(mod_name.as_ptr() as *const c_char);
+            }
         }
 
         Self {
@@ -87,7 +98,7 @@ impl IfReq {
         Ok(())
     }
 
-    pub(super) fn delete_address(&mut self, addr: &Ipv4Addr) -> Result<(), IoError> {
+    pub(super) fn delete_address(&mut self, addr: Ipv4Addr) -> Result<(), IoError> {
         self.ifr_ifru = addr.into();
 
         let socket = create_socket(AddressFamily::Inet).map_err(IoError::WriteIo)?;
@@ -104,6 +115,7 @@ impl IfReq {
 pub struct IfReq6 {
     ifr_name: [u8; IF_NAMESIZE],
     ifr_ifru: SockAddrIn6,
+    _padding: [u8; 244],
 }
 
 impl IfReq6 {
@@ -119,10 +131,11 @@ impl IfReq6 {
         Self {
             ifr_name,
             ifr_ifru: SockAddrIn6::default(),
+            _padding: [0u8; 244],
         }
     }
 
-    pub(super) fn delete_address(&mut self, addr: &Ipv6Addr) -> Result<(), IoError> {
+    pub(super) fn delete_address(&mut self, addr: Ipv6Addr) -> Result<(), IoError> {
         self.ifr_ifru = addr.into();
 
         let socket = create_socket(AddressFamily::Inet6).map_err(IoError::WriteIo)?;
@@ -141,6 +154,7 @@ pub struct InAliasReq {
     ifra_addr: SockAddrIn,
     ifra_broadaddr: SockAddrIn,
     ifra_mask: SockAddrIn,
+    #[cfg(target_os = "freebsd")]
     ifra_vhid: u32,
 }
 
@@ -148,9 +162,9 @@ impl InAliasReq {
     #[must_use]
     pub(super) fn new(
         if_name: &str,
-        addr: &Ipv4Addr,
-        broadcast: &Ipv4Addr,
-        mask: &Ipv4Addr,
+        address: Ipv4Addr,
+        broadcast: Ipv4Addr,
+        mask: Ipv4Addr,
     ) -> Self {
         let mut ifr_name = [0u8; IF_NAMESIZE];
         if_name
@@ -161,9 +175,10 @@ impl InAliasReq {
 
         Self {
             ifr_name,
-            ifra_addr: addr.into(),
+            ifra_addr: address.into(),
             ifra_broadaddr: broadcast.into(),
             ifra_mask: mask.into(),
+            #[cfg(target_os = "freebsd")]
             ifra_vhid: 0,
         }
     }
@@ -192,6 +207,7 @@ pub struct In6AliasReq {
     ia6t_preferred: u64,
     ia6t_vltime: u32,
     ia6t_pltime: u32,
+    #[cfg(target_os = "freebsd")]
     ifra_vhid: u32,
 }
 
@@ -199,9 +215,9 @@ impl In6AliasReq {
     #[must_use]
     pub(super) fn new(
         if_name: &str,
-        address: &Ipv6Addr,
-        dstaddr: &Ipv6Addr,
-        prefixmask: &Ipv6Addr,
+        address: Ipv6Addr,
+        // FIXME: currenlty unused: dstaddr: Ipv6Addr,
+        prefixmask: Ipv6Addr,
     ) -> Self {
         let mut ifr_name = [0u8; IF_NAMESIZE];
         if_name
@@ -213,13 +229,14 @@ impl In6AliasReq {
         Self {
             ifr_name,
             ifra_addr: address.into(),
-            ifra_dstaddr: dstaddr.into(),
+            ifra_dstaddr: SockAddrIn6::zeroed(),
             ifra_prefixmask: prefixmask.into(),
             ifra_flags: 0,
             ia6t_expire: 0,
             ia6t_preferred: 0,
             ia6t_vltime: ND6_INFINITE_LIFETIME,
             ia6t_pltime: ND6_INFINITE_LIFETIME,
+            #[cfg(target_os = "freebsd")]
             ifra_vhid: 0,
         }
     }
