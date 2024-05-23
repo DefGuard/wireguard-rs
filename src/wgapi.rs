@@ -32,27 +32,27 @@ impl WGApi {
 
             #[cfg(not(target_family = "unix"))]
             return Err(WireguardInterfaceError::UserspaceNotSupported);
-        } else {
-            #[cfg(target_os = "windows")]
-            return Ok(Self(Box::new(WireguardApiWindows::new(ifname))));
-
-            #[cfg(target_os = "macos")]
-            return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
-
-            #[cfg(target_os = "linux")]
-            return Ok(Self(Box::new(WireguardApiLinux::new(ifname))));
-
-            #[cfg(target_os = "freebsd")]
-            return Ok(Self(Box::new(WireguardApiFreebsd::new(ifname))));
-
-            #[cfg(not(any(
-                target_os = "linux",
-                target_os = "freebsd",
-                target_os = "macos",
-                target_os = "windows"
-            )))]
-            Err(WireguardInterfaceError::KernelNotSupported)
         }
+
+        #[cfg(target_os = "windows")]
+        return Ok(Self(Box::new(WireguardApiWindows::new(ifname))));
+
+        #[cfg(target_os = "macos")]
+        return Ok(Self(Box::new(WireguardApiUserspace::new(ifname)?)));
+
+        #[cfg(target_os = "linux")]
+        return Ok(Self(Box::new(WireguardApiLinux::new(ifname))));
+
+        #[cfg(target_os = "freebsd")]
+        return Ok(Self(Box::new(WireguardApiFreebsd::new(ifname))));
+
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "macos",
+            target_os = "windows"
+        )))]
+        Err(WireguardInterfaceError::KernelNotSupported)
     }
 }
 

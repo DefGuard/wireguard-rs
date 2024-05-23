@@ -43,7 +43,7 @@ impl IpAddrMask {
             }
             IpAddr::V6(ip) => {
                 let addr = u128::from(ip);
-                let bits = if self.cidr >= 32 {
+                let bits = if self.cidr >= 128 {
                     0
                 } else {
                     u128::MAX >> self.cidr
@@ -206,5 +206,23 @@ mod tests {
         let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)), 32);
         assert_eq!(ip.broadcast(), IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)));
         assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)));
+    }
+
+    #[test]
+    fn addr_mask_v6() {
+        let ip = IpAddrMask::new(
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0x1428, 0x57ab)),
+            96,
+        );
+        assert_eq!(
+            ip.broadcast(),
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0xffff, 0xffff))
+        );
+        assert_eq!(
+            ip.mask(),
+            IpAddr::V6(Ipv6Addr::new(
+                0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 0
+            ))
+        );
     }
 }

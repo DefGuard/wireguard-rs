@@ -10,7 +10,7 @@ pub enum WireguardInterfaceError {
     CommandExecutionFailed(#[from] std::io::Error),
     #[error("WireGuard key error")]
     KeyDecode(#[from] base64::DecodeError),
-    #[error("Command returned error status")]
+    #[error("Command returned error status: `{stdout}`")]
     CommandExecutionError { stdout: String, stderr: String },
     #[error("IP address/mask error")]
     IpAddrMask(#[from] crate::net::IpAddrParseError),
@@ -32,7 +32,7 @@ pub enum WireguardInterfaceError {
     KernelNotSupported,
     #[error("DNS error")]
     DnsError,
-    #[error("Service installation failed")]
+    #[error("Service installation failed: `{message}`")]
     ServiceInstallationFailed {
         err: std::io::Error,
         message: String,

@@ -55,8 +55,8 @@ impl From<&SocketAddrV4> for SockAddrIn {
     }
 }
 
-impl From<&Ipv4Addr> for SockAddrIn {
-    fn from(ip: &Ipv4Addr) -> Self {
+impl From<Ipv4Addr> for SockAddrIn {
+    fn from(ip: Ipv4Addr) -> Self {
         Self {
             len: SA_IN_SIZE as u8,
             family: AF_INET as u8,
@@ -76,6 +76,22 @@ pub(super) struct SockAddrIn6 {
     flowinfo: u32,
     addr: [u8; 16],
     scope_id: u32,
+}
+
+impl SockAddrIn6 {
+    /// This is needed for assigning IPv6 address to a network interface.
+    /// Note, `len` and `family` fields are zero.
+    #[must_use]
+    pub(super) fn zeroed() -> Self {
+        Self {
+            len: 0,
+            family: 0,
+            port: 0,
+            flowinfo: 0,
+            addr: [0u8; 16],
+            scope_id: 0,
+        }
+    }
 }
 
 impl Default for SockAddrIn6 {
@@ -115,8 +131,8 @@ impl From<&SocketAddrV6> for SockAddrIn6 {
     }
 }
 
-impl From<&Ipv6Addr> for SockAddrIn6 {
-    fn from(ip: &Ipv6Addr) -> Self {
+impl From<Ipv6Addr> for SockAddrIn6 {
+    fn from(ip: Ipv6Addr) -> Self {
         Self {
             len: SA_IN6_SIZE as u8,
             family: AF_INET6 as u8,
