@@ -53,6 +53,11 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         let host = config.try_into()?;
         netlink::set_host(&self.ifname, &host)?;
 
+        // set maximum transfer unit
+        if let Some(mtu) = config.mtu {
+            netlink::set_mtu(mtu)?;
+        }
+
         Ok(())
     }
 

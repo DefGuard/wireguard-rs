@@ -32,6 +32,7 @@
 //!     address: "10.6.0.30".to_string(),
 //!     port: 12345,
 //!     peers: vec![],
+//!     mtu: None,
 //! };
 //! wgapi.configure_interface(&interface_config)?;
 //!
@@ -103,6 +104,8 @@ pub struct InterfaceConfiguration {
     pub address: String,
     pub port: u32,
     pub peers: Vec<Peer>,
+    /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
+    pub mtu: Option<u16>,
 }
 
 // implement manually to avoid exposing private keys
@@ -113,6 +116,7 @@ impl fmt::Debug for InterfaceConfiguration {
             .field("address", &self.address)
             .field("port", &self.port)
             .field("peers", &self.peers)
+            .field("mtu", &self.mtu)
             .finish()
     }
 }

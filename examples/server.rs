@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         address: "10.6.0.30".to_string(),
         port: 12345,
         peers: vec![peer],
+        mtu: None,
     };
     println!("Prepared interface configuration: {interface_config:?}");
 
