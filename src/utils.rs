@@ -228,7 +228,7 @@ pub(crate) fn add_peer_routing(
             } else {
                 (IpVersion::IPv6, "-inet6")
             };
-            let gateway = get_gateway(&ip_version)?;
+            let gateway = get_gateway(ip_version)?;
             // Precautionary `route delete` don't handle result because it may not exist.
             let _ = Command::new("route")
                 .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
@@ -293,6 +293,7 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
+#[derive(Copy, Clone)]
 pub enum IpVersion {
     IPv4,
     IPv6,
@@ -305,7 +306,7 @@ pub enum IpVersion {
 /// based on allowed IP version.
 /// Needed to add proper routing for 0.0.0.0/0, ::/0.
 #[cfg(any(target_os = "macos", target_os = "freebsd"))]
-pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInterfaceError> {
+pub(crate) fn get_gateway(ip_version: IpVersion) -> Result<String, WireguardInterfaceError> {
     let command_args = match ip_version {
         IpVersion::IPv4 => &["-nr", "-f", "inet"],
         IpVersion::IPv6 => &["-nr", "-f", "inet6"],
@@ -326,7 +327,7 @@ pub(crate) fn get_gateway(ip_version: &IpVersion) -> Result<String, WireguardInt
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn get_gateway(_ip_version: &IpVersion) -> Result<String, WireguardInterfaceError> {
+pub(crate) fn get_gateway(_ip_version: IpVersion) -> Result<String, WireguardInterfaceError> {
     Ok(String::new())
 }
 
