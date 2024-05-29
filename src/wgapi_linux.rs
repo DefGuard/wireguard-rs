@@ -17,6 +17,7 @@ pub struct WireguardApiLinux {
 }
 
 impl WireguardApiLinux {
+    #[must_use]
     pub fn new(ifname: String) -> Self {
         WireguardApiLinux { ifname }
     }

@@ -138,9 +138,8 @@ pub(crate) fn add_peer_routing(
                         netlink::set_host(ifname, &host)?;
                         debug!("Assigned fwmark: {table}");
                         break;
-                    } else {
-                        table += 1;
                     }
+                    table += 1;
                 }
                 table
             }

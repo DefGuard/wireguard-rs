@@ -278,8 +278,7 @@ fn set_address(ifindex: u32, address: &IpAddrMask) -> NetlinkResult<()> {
             ..
         } = address
         {
-            let broadcast =
-                Ipv4Addr::from((0xffff_ffff_u32) >> u32::from(address.cidr) | u32::from(*ipv4));
+            let broadcast = Ipv4Addr::from(u32::MAX >> u32::from(address.cidr) | u32::from(*ipv4));
             message
                 .nlas
                 .push(address::Nla::Broadcast(broadcast.octets().to_vec()));
@@ -392,20 +391,20 @@ fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
     )?;
 
     for nlmsg in responses {
-        match nlmsg {
-            NetlinkMessage {
-                payload: NetlinkPayload::InnerMessage(message),
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(message),
+            ..
+        } = nlmsg
+        {
+            if let RtnlMessage::NewLink(LinkMessage {
+                header: LinkHeader { index, .. },
                 ..
-            } => {
-                if let RtnlMessage::NewLink(LinkMessage {
-                    header: LinkHeader { index, .. },
-                    ..
-                }) = message
-                {
-                    return Ok(Some(index));
-                }
+            }) = message
+            {
+                return Ok(Some(index));
             }
-            _ => debug!("unknown nlmsg response"),
+        } else {
+            debug!("unknown nlmsg response");
         }
     }
 
@@ -529,6 +528,7 @@ pub fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
         }
     }
 }
+
 /// Add rule for main table.
 pub fn add_main_table_rule(address: &IpAddrMask, suppress_prefix_len: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
@@ -601,5 +601,74 @@ pub fn delete_main_table_rule(
             error!("Failed to delete WireGuard interface rule: {err}");
             Err(NetlinkError::DeleteRuleError)
         }
+    }
+}
+
+pub fn get_mtu(ifindex: u32) -> NetlinkResult<u32> {
+    let mut message = LinkMessage::default();
+    message.header.index = ifindex;
+
+    let responses = netlink_request(
+        RtnlMessage::GetLink(message),
+        NLM_F_REQUEST | NLM_F_ACK,
+        NETLINK_ROUTE,
+    )?;
+
+    for nlmsg in responses {
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(message),
+            ..
+        } = nlmsg
+        {
+            if let RtnlMessage::NewLink(LinkMessage { nlas, .. }) = message {
+                for nla in nlas {
+                    if let Nla::Mtu(mtu) = nla {
+                        return Ok(mtu);
+                    }
+                }
+            }
+        } else {
+            debug!("unknown nlmsg response")
+        }
+    }
+
+    Err(NetlinkError::AttributeNotFound)
+}
+
+pub fn set_mtu(ifindex: u32, mtu: u32) -> NetlinkResult<()> {
+    let mut message = LinkMessage::default();
+    message.header.index = ifindex;
+    message.nlas.push(Nla::Mtu(mtu));
+
+    netlink_request(
+        RtnlMessage::SetLink(message),
+        NLM_F_REQUEST | NLM_F_ACK,
+        NETLINK_ROUTE,
+    )?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[ignore]
+    #[test]
+    fn docker_networking() {
+        const IF_NAME: &str = "wg0";
+
+        create_interface(IF_NAME).unwrap();
+
+        let index = get_interface_index(IF_NAME).unwrap().unwrap();
+
+        let ip = "fe80::20c:29ff:fe1a:adac/96".parse::<IpAddrMask>().unwrap();
+        set_address(index, &ip).unwrap();
+
+        set_mtu(index, 1400).unwrap();
+        let mtu = get_mtu(index).unwrap();
+        assert_eq!(mtu, 1400);
+
+        delete_interface(IF_NAME).unwrap();
     }
 }

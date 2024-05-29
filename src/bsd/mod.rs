@@ -16,7 +16,7 @@ use nix::{
 use thiserror::Error;
 
 use self::{
-    ifconfig::{IfReq, IfReq6, IfReqFlags, In6AliasReq, InAliasReq},
+    ifconfig::{IfMtu, IfReq, IfReq6, IfReqFlags, In6AliasReq, InAliasReq},
     nvlist::NvList,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
@@ -334,4 +334,14 @@ pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError
             ifreq6.delete_address(address)
         }
     }
+}
+
+pub fn get_mtu(if_name: &str) -> Result<u32, IoError> {
+    let mut ifmtu = IfMtu::new(if_name);
+    ifmtu.get_mtu()
+}
+
+pub fn set_mtu(if_name: &str, mtu: u32) -> Result<(), IoError> {
+    let mut ifmtu = IfMtu::new(if_name);
+    ifmtu.set_mtu(mtu)
 }

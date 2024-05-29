@@ -74,10 +74,7 @@ mod wireguard_interface;
 extern crate log;
 
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::{Debug, Formatter},
-    process::Output,
-};
+use std::{fmt, process::Output};
 
 use self::{
     error::WireguardInterfaceError,
@@ -109,8 +106,8 @@ pub struct InterfaceConfiguration {
 }
 
 // implement manually to avoid exposing private keys
-impl Debug for InterfaceConfiguration {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for InterfaceConfiguration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InterfaceConfiguration")
             .field("name", &self.name)
             .field("address", &self.address)
