@@ -635,16 +635,18 @@ pub fn get_mtu(ifindex: u32) -> NetlinkResult<u32> {
     Err(NetlinkError::AttributeNotFound)
 }
 
-pub fn set_mtu(ifindex: u32, mtu: u32) -> NetlinkResult<()> {
-    let mut message = LinkMessage::default();
-    message.header.index = ifindex;
-    message.nlas.push(Nla::Mtu(mtu));
+pub fn set_mtu(if_name: &str, mtu: u32) -> NetlinkResult<()> {
+    if let Some(index) = get_interface_index(if_name)? {
+        let mut message = LinkMessage::default();
+        message.header.index = index;
+        message.nlas.push(Nla::Mtu(mtu));
 
-    netlink_request(
-        RtnlMessage::SetLink(message),
-        NLM_F_REQUEST | NLM_F_ACK,
-        NETLINK_ROUTE,
-    )?;
+        netlink_request(
+            RtnlMessage::SetLink(message),
+            NLM_F_REQUEST | NLM_F_ACK,
+            NETLINK_ROUTE,
+        )?;
+    }
 
     Ok(())
 }

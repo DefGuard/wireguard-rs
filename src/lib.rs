@@ -105,7 +105,7 @@ pub struct InterfaceConfiguration {
     pub port: u32,
     pub peers: Vec<Peer>,
     /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
-    pub mtu: Option<u16>,
+    pub mtu: Option<u32>,
 }
 
 // implement manually to avoid exposing private keys

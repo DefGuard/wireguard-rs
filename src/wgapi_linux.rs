@@ -55,7 +55,7 @@ impl WireguardInterfaceApi for WireguardApiLinux {
 
         // set maximum transfer unit
         if let Some(mtu) = config.mtu {
-            netlink::set_mtu(mtu)?;
+            netlink::set_mtu(&self.ifname, mtu)?;
         }
 
         Ok(())
