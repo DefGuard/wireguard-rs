@@ -604,37 +604,6 @@ pub fn delete_main_table_rule(
     }
 }
 
-pub fn get_mtu(ifindex: u32) -> NetlinkResult<u32> {
-    let mut message = LinkMessage::default();
-    message.header.index = ifindex;
-
-    let responses = netlink_request(
-        RtnlMessage::GetLink(message),
-        NLM_F_REQUEST | NLM_F_ACK,
-        NETLINK_ROUTE,
-    )?;
-
-    for nlmsg in responses {
-        if let NetlinkMessage {
-            payload: NetlinkPayload::InnerMessage(message),
-            ..
-        } = nlmsg
-        {
-            if let RtnlMessage::NewLink(LinkMessage { nlas, .. }) = message {
-                for nla in nlas {
-                    if let Nla::Mtu(mtu) = nla {
-                        return Ok(mtu);
-                    }
-                }
-            }
-        } else {
-            debug!("unknown nlmsg response")
-        }
-    }
-
-    Err(NetlinkError::AttributeNotFound)
-}
-
 pub fn set_mtu(if_name: &str, mtu: u32) -> NetlinkResult<()> {
     if let Some(index) = get_interface_index(if_name)? {
         let mut message = LinkMessage::default();
@@ -655,6 +624,37 @@ pub fn set_mtu(if_name: &str, mtu: u32) -> NetlinkResult<()> {
 mod tests {
     use super::*;
 
+    fn get_mtu(ifindex: u32) -> NetlinkResult<u32> {
+        let mut message = LinkMessage::default();
+        message.header.index = ifindex;
+
+        let responses = netlink_request(
+            RtnlMessage::GetLink(message),
+            NLM_F_REQUEST | NLM_F_ACK,
+            NETLINK_ROUTE,
+        )?;
+
+        for nlmsg in responses {
+            if let NetlinkMessage {
+                payload: NetlinkPayload::InnerMessage(message),
+                ..
+            } = nlmsg
+            {
+                if let RtnlMessage::NewLink(LinkMessage { nlas, .. }) = message {
+                    for nla in nlas {
+                        if let Nla::Mtu(mtu) = nla {
+                            return Ok(mtu);
+                        }
+                    }
+                }
+            } else {
+                debug!("unknown nlmsg response")
+            }
+        }
+
+        Err(NetlinkError::AttributeNotFound)
+    }
+
     #[ignore]
     #[test]
     fn docker_networking() {
@@ -662,12 +662,12 @@ mod tests {
 
         create_interface(IF_NAME).unwrap();
 
-        let index = get_interface_index(IF_NAME).unwrap().unwrap();
-
         let ip = "fe80::20c:29ff:fe1a:adac/96".parse::<IpAddrMask>().unwrap();
-        set_address(index, &ip).unwrap();
+        address_interface(IF_NAME, &ip).unwrap();
 
-        set_mtu(index, 1400).unwrap();
+        set_mtu(IF_NAME, 1400).unwrap();
+
+        let index = get_interface_index(IF_NAME).unwrap().unwrap();
         let mtu = get_mtu(index).unwrap();
         assert_eq!(mtu, 1400);
 
