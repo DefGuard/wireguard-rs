@@ -57,7 +57,7 @@ pub mod host;
 pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
-pub mod netlink;
+pub(crate) mod netlink;
 mod utils;
 mod wgapi;
 
@@ -117,7 +117,7 @@ impl fmt::Debug for InterfaceConfiguration {
             .field("port", &self.port)
             .field("peers", &self.peers)
             .field("mtu", &self.mtu)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

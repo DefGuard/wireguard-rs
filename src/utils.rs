@@ -95,7 +95,7 @@ pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
 #[cfg(target_os = "linux")]
 const DEFAULT_FWMARK_TABLE: u32 = 51820;
 
-/// Helper function to add routing.  
+/// Helper function to add routing.
 #[cfg(target_os = "linux")]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
@@ -178,7 +178,7 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
-/// Helper function to add routing.  
+/// Helper function to add routing.
 #[cfg(any(target_os = "macos", target_os = "freebsd"))]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
@@ -342,7 +342,7 @@ pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceEr
     Ok(())
 }
 
-/// Resolves domain name to [SocketAddr]
+/// Resolves domain name to [`SocketAddr`].
 pub fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError> {
     let error = || WireguardInterfaceError::PeerConfigurationError;
     addr.to_socket_addrs()
