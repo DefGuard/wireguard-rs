@@ -25,7 +25,10 @@ use netlink_packet_wireguard::{
     nlas::{WgDeviceAttrs, WgPeer, WgPeerAttrs},
     Wireguard, WireguardCmd,
 };
-use netlink_sys::{constants::NETLINK_GENERIC, protocols::NETLINK_ROUTE, Socket, SocketAddr};
+use netlink_sys::{
+    constants::{NETLINK_GENERIC, NETLINK_ROUTE},
+    Socket, SocketAddr,
+};
 use thiserror::Error;
 
 use crate::{
@@ -112,6 +115,16 @@ impl IpAddrMask {
     }
 }
 
+impl IpVersion {
+    #[must_use]
+    fn address_family(&self) -> AddressFamily {
+        match self {
+            Self::IPv4 => AddressFamily::Inet,
+            Self::IPv6 => AddressFamily::Inet6,
+        }
+    }
+}
+
 fn netlink_request_genl<F>(
     mut message: GenlMessage<F>,
     flags: u16,
@@ -149,7 +162,7 @@ where
 fn netlink_request<I>(
     message: I,
     flags: u16,
-    socket: isize,
+    protocol: isize,
 ) -> NetlinkResult<Vec<NetlinkMessage<I>>>
 where
     NetlinkPayload<I>: From<I>,
@@ -171,7 +184,7 @@ where
     req.serialize(&mut buf);
     let len = req.buffer_len();
 
-    let socket = Socket::new(socket).map_err(|err| {
+    let socket = Socket::new(protocol).map_err(|err| {
         error!("Failed to open socket: {err}");
         NetlinkError::SocketError(err.to_string())
     })?;
@@ -288,12 +301,54 @@ fn set_address(index: u32, address: &IpAddrMask) -> NetlinkResult<()> {
     Ok(())
 }
 
-/// Set IP address of a WireGuard network interface
+/// Remove all addresses from a network interface with `index`.
+fn flush_addresses(index: u32) -> NetlinkResult<()> {
+    let mut message = AddressMessage::default();
+    message.header.index = index;
+
+    let responses = netlink_request(
+        RouteNetlinkMessage::GetAddress(message),
+        NLM_F_REQUEST | NLM_F_DUMP,
+        NETLINK_ROUTE,
+    )?;
+
+    for nlmsg in responses {
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(message),
+            ..
+        } = nlmsg
+        {
+            if let RouteNetlinkMessage::NewAddress(msg) = message {
+                netlink_request(
+                    RouteNetlinkMessage::DelAddress(msg),
+                    NLM_F_REQUEST | NLM_F_ACK,
+                    NETLINK_ROUTE,
+                )?;
+            }
+        } else {
+            debug!("unknown nlmsg response")
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove IP addresses from a WireGuard network interface.
+pub(crate) fn flush_interface(ifname: &str) -> NetlinkResult<()> {
+    if let Some(index) = get_interface_index(ifname)? {
+        flush_addresses(index)
+    } else {
+        Ok(())
+    }
+}
+
+/// Set IP address of a WireGuard network interface.
 pub(crate) fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()> {
     if let Some(index) = get_interface_index(ifname)? {
-        return set_address(index, address);
+        set_address(index, address)
+    } else {
+        Ok(())
     }
-    Ok(())
 }
 
 /// Delete WireGuard interface.
@@ -494,18 +549,11 @@ pub(crate) fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
 /// Delete rule for fwmark.
 pub(crate) fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
-    let mut rule_msg_hdr = RuleHeader {
+    let rule_msg_hdr = RuleHeader {
         table: RouteHeader::RT_TABLE_UNSPEC,
         action: RuleAction::Unspec,
+        family: ip_version.address_family(),
         ..Default::default()
-    };
-    match ip_version {
-        IpVersion::IPv4 => {
-            rule_msg_hdr.family = AddressFamily::Inet;
-        }
-        IpVersion::IPv6 => {
-            rule_msg_hdr.family = AddressFamily::Inet6;
-        }
     };
 
     message.header = rule_msg_hdr;
@@ -563,19 +611,12 @@ pub(crate) fn delete_main_table_rule(
     suppress_prefix_len: u32,
 ) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
-    let mut rule_msg_hdr = RuleHeader {
+    let rule_msg_hdr = RuleHeader {
         table: RouteHeader::RT_TABLE_MAIN,
         action: RuleAction::ToTable,
         flags: RuleFlags::Invert,
+        family: ip_version.address_family(),
         ..Default::default()
-    };
-    match ip_version {
-        IpVersion::IPv4 => {
-            rule_msg_hdr.family = AddressFamily::Inet;
-        }
-        IpVersion::IPv6 => {
-            rule_msg_hdr.family = AddressFamily::Inet6;
-        }
     };
 
     message.header = rule_msg_hdr;
@@ -732,6 +773,10 @@ mod tests {
 
         let mtu = get_mtu(index).unwrap();
         assert_eq!(mtu, 1400);
+
+        flush_addresses(index).unwrap();
+        let addrs = get_address(index).unwrap();
+        assert_eq!(addrs.len(), 0);
 
         delete_interface(IF_NAME).unwrap();
     }

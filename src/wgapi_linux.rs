@@ -45,6 +45,9 @@ impl WireguardInterfaceApi for WireguardApiLinux {
             self.ifname
         );
 
+        // flush all IP addresses
+        netlink::flush_interface(&self.ifname)?;
+
         // assign IP address to interface
         let address = IpAddrMask::from_str(&config.address)?;
         self.assign_address(&address)?;
