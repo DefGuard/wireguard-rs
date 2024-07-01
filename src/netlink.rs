@@ -304,6 +304,7 @@ fn set_address(index: u32, address: &IpAddrMask) -> NetlinkResult<()> {
 /// Remove all addresses from a network interface with `index`.
 fn flush_addresses(index: u32) -> NetlinkResult<()> {
     let mut message = AddressMessage::default();
+    // FIXME: Probably this is ignored; `index` must be matched from received messages.
     message.header.index = index;
 
     let responses = netlink_request(
@@ -319,6 +320,9 @@ fn flush_addresses(index: u32) -> NetlinkResult<()> {
         } = nlmsg
         {
             if let RouteNetlinkMessage::NewAddress(msg) = message {
+                if msg.header.index != index {
+                    continue;
+                }
                 netlink_request(
                     RouteNetlinkMessage::DelAddress(msg),
                     NLM_F_REQUEST | NLM_F_ACK,
