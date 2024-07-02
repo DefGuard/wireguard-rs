@@ -29,6 +29,7 @@ impl IpAddrMask {
     }
 
     /// Returns broadcast address as `IpAddr`.
+    /// Note: IPv6 does not really use broadcast.
     #[must_use]
     pub fn broadcast(&self) -> IpAddr {
         match self.ip {
@@ -113,12 +114,18 @@ impl FromStr for IpAddrMask {
 
     fn from_str(ip_str: &str) -> Result<Self, Self::Err> {
         if let Some((left, right)) = ip_str.split_once('/') {
-            Ok(IpAddrMask {
-                ip: left.parse().map_err(|_| IpAddrParseError)?,
-                cidr: right.parse().map_err(|_| IpAddrParseError)?,
-            })
+            let ip = left.parse().map_err(|_| IpAddrParseError)?;
+            let cidr = right.parse().map_err(|_| IpAddrParseError)?;
+            let max_cidr = match ip {
+                IpAddr::V4(_) => 32,
+                IpAddr::V6(_) => 128,
+            };
+            if cidr > max_cidr {
+                return Err(IpAddrParseError);
+            }
+            Ok(IpAddrMask { ip, cidr })
         } else {
-            let ip: IpAddr = ip_str.parse().map_err(|_| IpAddrParseError)?;
+            let ip = ip_str.parse().map_err(|_| IpAddrParseError)?;
             Ok(IpAddrMask {
                 ip,
                 cidr: if ip.is_ipv4() { 32 } else { 128 },
@@ -174,6 +181,14 @@ mod tests {
             "172.168.0.0/256".parse::<IpAddrMask>(),
             Err(IpAddrParseError)
         );
+    }
+
+    #[test]
+    fn valid_cidr() {
+        assert!("192.168.0.1/32".parse::<IpAddrMask>().is_ok());
+        assert!("192.168.0.1/33".parse::<IpAddrMask>().is_err());
+        assert!("2001:0db8::1428:57ab/128".parse::<IpAddrMask>().is_ok());
+        assert!("2001:0db8::1428:57ab/129".parse::<IpAddrMask>().is_err());
     }
 
     #[test]

@@ -189,6 +189,9 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         // configure interface
         let host = config.try_into()?;
         self.write_host(&host)?;
+
+        // TODO: set maximum transfer unit (MTU)
+
         Ok(())
     }
 

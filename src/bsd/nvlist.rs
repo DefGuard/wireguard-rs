@@ -606,7 +606,7 @@ mod tests {
         4, 0, // nvph_namesize (incl. NUL)
         0, 0, 0, 0, 0, 0, 0, 0, // nvph_datasize
         0, 0, 0, 0, 0, 0, 0, 0, // nvph_nitems
-        'n' as u8, 'u' as u8, 'l' as u8, 0,
+        b'n', b'u', b'l', 0,
     ];
 
     #[test]

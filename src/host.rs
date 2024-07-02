@@ -53,7 +53,7 @@ impl Peer {
         self.allowed_ips = allowed_ips;
     }
 
-    /// Resolves endpoint address to [SocketAddr] and sets the field
+    /// Resolves endpoint address to [`SocketAddr`] and sets the field
     pub fn set_endpoint(&mut self, endpoint: &str) -> Result<(), WireguardInterfaceError> {
         self.endpoint = Some(resolve(endpoint)?);
         Ok(())
@@ -186,7 +186,7 @@ impl Debug for Host {
             .field("listen_port", &self.listen_port)
             .field("fwmark", &self.fwmark)
             .field("peers", &self.peers)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -405,10 +405,6 @@ mod tests {
         let host = Host::parse_uapi(buf).unwrap();
         assert_eq!(host.listen_port, 7301);
         assert_eq!(host.peers.len(), 3);
-
-        assert_eq!(3683056, 3683056);
-        assert_eq!(52759980, 52759980);
-        assert_eq!(1654631933, 1654631933);
     }
 
     #[test]

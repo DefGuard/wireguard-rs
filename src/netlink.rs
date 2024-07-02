@@ -1,4 +1,6 @@
 //! Netlink utilities for controlling network interfaces on Linux
+use std::{fmt::Debug, io::ErrorKind, net::IpAddr};
+
 use netlink_packet_core::{
     NetlinkDeserializable, NetlinkMessage, NetlinkPayload, NetlinkSerializable, NLM_F_ACK,
     NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
@@ -8,13 +10,14 @@ use netlink_packet_generic::{
     GenlFamily, GenlMessage,
 };
 use netlink_packet_route::{
-    address,
-    link::nlas::{Info, InfoKind, Nla},
-    route::nlas::Nla as RouteNla,
-    rule::nlas::Nla as RuleNla,
-    AddressMessage, LinkHeader, LinkMessage, RouteHeader, RouteMessage, RtnlMessage, RuleHeader,
-    RuleMessage, AF_INET, AF_INET6, FIB_RULE_INVERT, FR_ACT_TO_TBL, FR_ACT_UNSPEC, IFF_UP,
-    RTN_UNICAST, RTPROT_BOOT, RT_SCOPE_LINK, RT_TABLE_MAIN, RT_TABLE_UNSPEC,
+    address::{AddressAttribute, AddressMessage},
+    link::{InfoKind, LinkAttribute, LinkFlags, LinkHeader, LinkInfo, LinkMessage},
+    route::{
+        RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteProtocol, RouteScope,
+        RouteType,
+    },
+    rule::{RuleAction, RuleAttribute, RuleFlags, RuleHeader, RuleMessage},
+    AddressFamily, RouteNetlinkMessage,
 };
 use netlink_packet_utils::errors::DecodeError;
 use netlink_packet_wireguard::{
@@ -22,11 +25,9 @@ use netlink_packet_wireguard::{
     nlas::{WgDeviceAttrs, WgPeer, WgPeerAttrs},
     Wireguard, WireguardCmd,
 };
-use netlink_sys::{constants::NETLINK_GENERIC, protocols::NETLINK_ROUTE, Socket, SocketAddr};
-use std::{
-    fmt::Debug,
-    io::ErrorKind,
-    net::{IpAddr, Ipv4Addr},
+use netlink_sys::{
+    constants::{NETLINK_GENERIC, NETLINK_ROUTE},
+    Socket, SocketAddr,
 };
 use thiserror::Error;
 
@@ -40,7 +41,7 @@ use crate::{
 const SOCKET_BUFFER_LENGTH: usize = 12288;
 
 #[derive(Debug, Error)]
-pub enum NetlinkError {
+pub(crate) enum NetlinkError {
     #[error("Unexpected netlink payload")]
     UnexpectedPayload,
     #[error("Failed to send netlink request")]
@@ -53,8 +54,6 @@ pub enum NetlinkError {
     AttributeNotFound,
     #[error("Socket error: {0}")]
     SocketError(String),
-    #[error("Invalid Netlink data")]
-    InvalidData,
     #[error("Failed to read response")]
     ResponseError(#[from] DecodeError),
     #[error("Netlink payload error: {0}")]
@@ -82,7 +81,7 @@ impl From<NetlinkError> for WireguardInterfaceError {
 }
 
 /// Wrapper `Result` type for Netlink operations
-pub type NetlinkResult<T> = Result<T, NetlinkError>;
+type NetlinkResult<T> = Result<T, NetlinkError>;
 
 macro_rules! get_nla_value {
     ($nlas:expr, $e:ident, $v:ident) => {
@@ -103,6 +102,26 @@ impl Key {
                 WgPeerAttrs::Flags(WGPEER_F_REMOVE_ME),
             ])]),
         ]
+    }
+}
+
+impl IpAddrMask {
+    #[must_use]
+    fn address_family(&self) -> AddressFamily {
+        match self.ip {
+            IpAddr::V4(_) => AddressFamily::Inet,
+            IpAddr::V6(_) => AddressFamily::Inet6,
+        }
+    }
+}
+
+impl IpVersion {
+    #[must_use]
+    fn address_family(&self) -> AddressFamily {
+        match self {
+            Self::IPv4 => AddressFamily::Inet,
+            Self::IPv6 => AddressFamily::Inet6,
+        }
     }
 }
 
@@ -143,7 +162,7 @@ where
 fn netlink_request<I>(
     message: I,
     flags: u16,
-    socket: isize,
+    protocol: isize,
 ) -> NetlinkResult<Vec<NetlinkMessage<I>>>
 where
     NetlinkPayload<I>: From<I>,
@@ -165,7 +184,7 @@ where
     req.serialize(&mut buf);
     let len = req.buffer_len();
 
-    let socket = Socket::new(socket).map_err(|err| {
+    let socket = Socket::new(protocol).map_err(|err| {
         error!("Failed to open socket: {err}");
         NetlinkError::SocketError(err.to_string())
     })?;
@@ -218,17 +237,21 @@ where
 }
 
 /// Create WireGuard interface.
-pub fn create_interface(ifname: &str) -> NetlinkResult<()> {
+pub(crate) fn create_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
-    message.header.flags = IFF_UP;
-    message.header.change_mask = IFF_UP;
-    message.nlas.push(Nla::IfName(ifname.into()));
+    message.header.flags = LinkFlags::Up;
+    message.header.change_mask = LinkFlags::Up;
     message
-        .nlas
-        .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
+        .attributes
+        .push(LinkAttribute::IfName(ifname.into()));
+    message
+        .attributes
+        .push(LinkAttribute::LinkInfo(vec![LinkInfo::Kind(
+            InfoKind::Wireguard,
+        )]));
 
     match netlink_request(
-        RtnlMessage::NewLink(message),
+        RouteNetlinkMessage::NewLink(message),
         NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
         NETLINK_ROUTE,
     ) {
@@ -241,77 +264,111 @@ pub fn create_interface(ifname: &str) -> NetlinkResult<()> {
     }
 }
 
-fn set_address(ifindex: u32, address: &IpAddrMask) -> NetlinkResult<()> {
+/// Set `address` for a network interface with `index`.
+fn set_address(index: u32, address: &IpAddrMask) -> NetlinkResult<()> {
     let mut message = AddressMessage::default();
 
     message.header.prefix_len = address.cidr;
-    message.header.index = ifindex;
-
-    let address_vec = match address.ip {
-        IpAddr::V4(ipv4) => {
-            message.header.family = AF_INET as u8;
-            ipv4.octets().to_vec()
-        }
-        IpAddr::V6(ipv6) => {
-            message.header.family = AF_INET6 as u8;
-            ipv6.octets().to_vec()
-        }
-    };
+    message.header.index = index;
+    message.header.family = address.address_family();
 
     if address.ip.is_multicast() {
-        message.nlas.push(address::Nla::Multicast(address_vec));
-    } else if address.ip.is_unspecified() {
-        message.nlas.push(address::Nla::Unspec(address_vec));
-    } else if address.ip.is_ipv6() {
-        message.nlas.push(address::Nla::Address(address_vec));
+        if let IpAddr::V6(addr) = address.ip {
+            message.attributes.push(AddressAttribute::Multicast(addr));
+        }
     } else {
         message
-            .nlas
-            .push(address::Nla::Address(address_vec.clone()));
-        // for IPv4 the IFA_LOCAL address can be set to the same value as IFA_ADDRESS
-        message.nlas.push(address::Nla::Local(address_vec.clone()));
-        // set the IFA_BROADCAST address as well (IPv6 does not support broadcast)
-        if address.cidr == 32 {
-            message.nlas.push(address::Nla::Broadcast(address_vec));
-        } else if let IpAddrMask {
-            ip: IpAddr::V4(ipv4),
-            ..
-        } = address
-        {
-            let broadcast =
-                Ipv4Addr::from((0xffff_ffff_u32) >> u32::from(address.cidr) | u32::from(*ipv4));
-            message
-                .nlas
-                .push(address::Nla::Broadcast(broadcast.octets().to_vec()));
-        };
+            .attributes
+            .push(AddressAttribute::Address(address.ip));
+
+        // For IPv4 the Local address can be set to the same value as
+        // Address.
+        message.attributes.push(AddressAttribute::Local(address.ip));
+
+        // Set the broadcast address as well (IPv6 does not support
+        // broadcast).
+        if let IpAddr::V4(addr) = address.broadcast() {
+            message.attributes.push(AddressAttribute::Broadcast(addr));
+        }
     }
 
+    // Note: always try to replace.
     netlink_request(
-        RtnlMessage::NewAddress(message),
+        RouteNetlinkMessage::NewAddress(message),
         NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE,
         NETLINK_ROUTE,
     )?;
     Ok(())
 }
 
-/// Set IP address of a WireGuard network interface
-pub fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()> {
-    if let Some(index) = get_interface_index(ifname)? {
-        return set_address(index, address);
+/// Remove all addresses from a network interface with `index`.
+fn flush_addresses(index: u32) -> NetlinkResult<()> {
+    let mut message = AddressMessage::default();
+    // FIXME: Probably this is ignored; `index` must be matched from received messages.
+    message.header.index = index;
+
+    let responses = netlink_request(
+        RouteNetlinkMessage::GetAddress(message),
+        NLM_F_REQUEST | NLM_F_DUMP,
+        NETLINK_ROUTE,
+    )?;
+
+    for nlmsg in responses {
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(message),
+            ..
+        } = nlmsg
+        {
+            if let RouteNetlinkMessage::NewAddress(msg) = message {
+                if msg.header.index != index {
+                    continue;
+                }
+                netlink_request(
+                    RouteNetlinkMessage::DelAddress(msg),
+                    NLM_F_REQUEST | NLM_F_ACK,
+                    NETLINK_ROUTE,
+                )?;
+            }
+        } else {
+            debug!("unknown nlmsg response")
+        }
     }
+
     Ok(())
 }
 
-/// Delete WireGuard interface
-pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
+/// Remove IP addresses from a WireGuard network interface.
+pub(crate) fn flush_interface(ifname: &str) -> NetlinkResult<()> {
+    if let Some(index) = get_interface_index(ifname)? {
+        flush_addresses(index)
+    } else {
+        Ok(())
+    }
+}
+
+/// Set IP address of a WireGuard network interface.
+pub(crate) fn address_interface(ifname: &str, address: &IpAddrMask) -> NetlinkResult<()> {
+    if let Some(index) = get_interface_index(ifname)? {
+        set_address(index, address)
+    } else {
+        Ok(())
+    }
+}
+
+/// Delete WireGuard interface.
+pub(crate) fn delete_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
-    message.nlas.push(Nla::IfName(ifname.into()));
     message
-        .nlas
-        .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
+        .attributes
+        .push(LinkAttribute::IfName(ifname.into()));
+    message
+        .attributes
+        .push(LinkAttribute::LinkInfo(vec![LinkInfo::Kind(
+            InfoKind::Wireguard,
+        )]));
 
     netlink_request(
-        RtnlMessage::DelLink(message),
+        RouteNetlinkMessage::DelLink(message),
         NLM_F_REQUEST | NLM_F_ACK,
         NETLINK_ROUTE,
     )
@@ -323,7 +380,7 @@ pub fn delete_interface(ifname: &str) -> NetlinkResult<()> {
 }
 
 /// Read host interface data
-pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
+pub(crate) fn get_host(ifname: &str) -> NetlinkResult<Host> {
     debug!("Reading Netlink data for interface {ifname}");
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::GetDevice,
@@ -348,7 +405,7 @@ pub fn get_host(ifname: &str) -> NetlinkResult<Host> {
 }
 
 /// Perform interface configuration
-pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
+pub(crate) fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
         nlas: host.as_nlas(ifname),
@@ -358,7 +415,7 @@ pub fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
 }
 
 /// Save or update WireGuard peer configuration
-pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
+pub(crate) fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
         nlas: peer.as_nlas(ifname),
@@ -368,7 +425,7 @@ pub fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
 }
 
 /// Delete a WireGuard peer from interface
-pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
+pub(crate) fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     let genlmsg = GenlMessage::from_payload(Wireguard {
         cmd: WireguardCmd::SetDevice,
         nlas: public_key.as_nlas_remove(ifname),
@@ -377,74 +434,78 @@ pub fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
     Ok(())
 }
 
-/// Get interface index by name.
+/// Get WireGuard interface index by name.
 fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
     let mut message = LinkMessage::default();
-    message.nlas.push(Nla::IfName(ifname.into()));
     message
-        .nlas
-        .push(Nla::Info(vec![Info::Kind(InfoKind::Wireguard)]));
+        .attributes
+        .push(LinkAttribute::IfName(ifname.into()));
+    message
+        .attributes
+        .push(LinkAttribute::LinkInfo(vec![LinkInfo::Kind(
+            InfoKind::Wireguard,
+        )]));
 
     let responses = netlink_request(
-        RtnlMessage::GetLink(message),
+        RouteNetlinkMessage::GetLink(message),
         NLM_F_REQUEST | NLM_F_ACK,
         NETLINK_ROUTE,
     )?;
 
     for nlmsg in responses {
-        match nlmsg {
-            NetlinkMessage {
-                payload: NetlinkPayload::InnerMessage(message),
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(message),
+            ..
+        } = nlmsg
+        {
+            if let RouteNetlinkMessage::NewLink(LinkMessage {
+                header: LinkHeader { index, .. },
                 ..
-            } => {
-                if let RtnlMessage::NewLink(LinkMessage {
-                    header: LinkHeader { index, .. },
-                    ..
-                }) = message
-                {
-                    return Ok(Some(index));
-                }
+            }) = message
+            {
+                return Ok(Some(index));
             }
-            _ => debug!("unknown nlmsg response"),
+        } else {
+            debug!("unknown nlmsg response");
         }
     }
 
     Ok(None)
 }
 
-/// Add route for interface.
-pub fn add_route(ifname: &str, address: &IpAddrMask, table: Option<u32>) -> NetlinkResult<()> {
+/// Add a route for an interface.
+pub(crate) fn add_route(
+    ifname: &str,
+    address: &IpAddrMask,
+    table: Option<u32>,
+) -> NetlinkResult<()> {
     let mut message = RouteMessage::default();
     let mut route_msg_header = RouteHeader {
-        table: RT_TABLE_MAIN,
-        scope: RT_SCOPE_LINK,
-        kind: RTN_UNICAST,
-        protocol: RTPROT_BOOT,
+        table: RouteHeader::RT_TABLE_MAIN,
+        scope: RouteScope::Link,
+        kind: RouteType::Unicast,
+        protocol: RouteProtocol::Boot,
         ..Default::default()
     };
-    let address_vec = match address.ip {
-        IpAddr::V4(ipv4) => {
-            route_msg_header.address_family = AF_INET as u8;
-            route_msg_header.destination_prefix_length = address.cidr;
-            ipv4.octets().to_vec()
-        }
-        IpAddr::V6(ipv6) => {
-            route_msg_header.address_family = AF_INET6 as u8;
-            route_msg_header.destination_prefix_length = address.cidr;
-            ipv6.octets().to_vec()
-        }
+    route_msg_header.address_family = address.address_family();
+    route_msg_header.destination_prefix_length = address.cidr;
+    let route_address = match address.ip {
+        IpAddr::V4(ipv4) => RouteAddress::Inet(ipv4),
+        IpAddr::V6(ipv6) => RouteAddress::Inet6(ipv6),
     };
     message.header = route_msg_header;
     if let Some(interface_index) = get_interface_index(ifname)? {
-        message.nlas.push(RouteNla::Oif(interface_index));
         message
-            .nlas
-            .push(RouteNla::Destination(address_vec.clone()));
+            .attributes
+            .push(RouteAttribute::Oif(interface_index));
+        message
+            .attributes
+            .push(RouteAttribute::Destination(route_address));
         if let Some(table) = table {
-            message.nlas.push(RouteNla::Table(table));
+            message.attributes.push(RouteAttribute::Table(table));
         }
         match netlink_request(
-            RtnlMessage::NewRoute(message),
+            RouteNetlinkMessage::NewRoute(message),
             NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
             NETLINK_ROUTE,
         ) {
@@ -462,28 +523,21 @@ pub fn add_route(ifname: &str, address: &IpAddrMask, table: Option<u32>) -> Netl
 }
 
 /// Add rule for fwmark.
-pub fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
+pub(crate) fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
-    let mut rule_msg_hdr = RuleHeader {
-        table: RT_TABLE_UNSPEC,
-        action: FR_ACT_TO_TBL,
-        flags: FIB_RULE_INVERT,
+    let rule_msg_hdr = RuleHeader {
+        family: address.address_family(),
+        table: RouteHeader::RT_TABLE_UNSPEC,
+        action: RuleAction::ToTable,
+        flags: RuleFlags::Invert,
         ..Default::default()
-    };
-    match address.ip {
-        IpAddr::V4(_) => {
-            rule_msg_hdr.family = AF_INET as u8;
-        }
-        IpAddr::V6(_) => {
-            rule_msg_hdr.family = AF_INET6 as u8;
-        }
     };
 
     message.header = rule_msg_hdr;
-    message.nlas.push(RuleNla::FwMark(fwmark));
-    message.nlas.push(RuleNla::Table(fwmark));
+    message.attributes.push(RuleAttribute::FwMark(fwmark));
+    message.attributes.push(RuleAttribute::Table(fwmark));
     match netlink_request(
-        RtnlMessage::NewRule(message),
+        RouteNetlinkMessage::NewRule(message),
         NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
         NETLINK_ROUTE,
     ) {
@@ -497,27 +551,20 @@ pub fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
 }
 
 /// Delete rule for fwmark.
-pub fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
+pub(crate) fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
-    let mut rule_msg_hdr = RuleHeader {
-        table: RT_TABLE_UNSPEC,
-        action: FR_ACT_UNSPEC,
+    let rule_msg_hdr = RuleHeader {
+        table: RouteHeader::RT_TABLE_UNSPEC,
+        action: RuleAction::Unspec,
+        family: ip_version.address_family(),
         ..Default::default()
-    };
-    match ip_version {
-        IpVersion::IPv4 => {
-            rule_msg_hdr.family = AF_INET as u8;
-        }
-        IpVersion::IPv6 => {
-            rule_msg_hdr.family = AF_INET6 as u8;
-        }
     };
 
     message.header = rule_msg_hdr;
-    message.nlas.push(RuleNla::FwMark(fwmark));
-    message.nlas.push(RuleNla::Table(fwmark));
+    message.attributes.push(RuleAttribute::FwMark(fwmark));
+    message.attributes.push(RuleAttribute::Table(fwmark));
     match netlink_request(
-        RtnlMessage::DelRule(message),
+        RouteNetlinkMessage::DelRule(message),
         NLM_F_REQUEST | NLM_F_ACK,
         NETLINK_ROUTE,
     ) {
@@ -529,30 +576,27 @@ pub fn delete_rule(ip_version: IpVersion, fwmark: u32) -> NetlinkResult<()> {
         }
     }
 }
+
 /// Add rule for main table.
-pub fn add_main_table_rule(address: &IpAddrMask, suppress_prefix_len: u32) -> NetlinkResult<()> {
+pub(crate) fn add_main_table_rule(
+    address: &IpAddrMask,
+    suppress_prefix_len: u32,
+) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
-    let mut rule_msg_hdr = RuleHeader {
-        table: RT_TABLE_MAIN,
-        action: FR_ACT_TO_TBL,
-        flags: FIB_RULE_INVERT,
+    let rule_msg_hdr = RuleHeader {
+        family: address.address_family(),
+        table: RouteHeader::RT_TABLE_MAIN,
+        action: RuleAction::ToTable,
+        flags: RuleFlags::Invert,
         ..Default::default()
-    };
-    match address.ip {
-        IpAddr::V4(_) => {
-            rule_msg_hdr.family = AF_INET as u8;
-        }
-        IpAddr::V6(_) => {
-            rule_msg_hdr.family = AF_INET6 as u8;
-        }
     };
 
     message.header = rule_msg_hdr;
     message
-        .nlas
-        .push(RuleNla::SuppressPrefixLen(suppress_prefix_len));
+        .attributes
+        .push(RuleAttribute::SuppressPrefixLen(suppress_prefix_len));
     match netlink_request(
-        RtnlMessage::NewRule(message),
+        RouteNetlinkMessage::NewRule(message),
         NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
         NETLINK_ROUTE,
     ) {
@@ -566,32 +610,25 @@ pub fn add_main_table_rule(address: &IpAddrMask, suppress_prefix_len: u32) -> Ne
 }
 
 /// Delete rule for main table.
-pub fn delete_main_table_rule(
+pub(crate) fn delete_main_table_rule(
     ip_version: IpVersion,
     suppress_prefix_len: u32,
 ) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
-    let mut rule_msg_hdr = RuleHeader {
-        table: RT_TABLE_MAIN,
-        action: FR_ACT_TO_TBL,
-        flags: FIB_RULE_INVERT,
+    let rule_msg_hdr = RuleHeader {
+        table: RouteHeader::RT_TABLE_MAIN,
+        action: RuleAction::ToTable,
+        flags: RuleFlags::Invert,
+        family: ip_version.address_family(),
         ..Default::default()
-    };
-    match ip_version {
-        IpVersion::IPv4 => {
-            rule_msg_hdr.family = AF_INET as u8;
-        }
-        IpVersion::IPv6 => {
-            rule_msg_hdr.family = AF_INET6 as u8;
-        }
     };
 
     message.header = rule_msg_hdr;
     message
-        .nlas
-        .push(RuleNla::SuppressPrefixLen(suppress_prefix_len));
+        .attributes
+        .push(RuleAttribute::SuppressPrefixLen(suppress_prefix_len));
     match netlink_request(
-        RtnlMessage::DelRule(message),
+        RouteNetlinkMessage::DelRule(message),
         NLM_F_REQUEST | NLM_F_ACK,
         NETLINK_ROUTE,
     ) {
@@ -601,5 +638,150 @@ pub fn delete_main_table_rule(
             error!("Failed to delete WireGuard interface rule: {err}");
             Err(NetlinkError::DeleteRuleError)
         }
+    }
+}
+
+pub(crate) fn set_mtu(if_name: &str, mtu: u32) -> NetlinkResult<()> {
+    if let Some(index) = get_interface_index(if_name)? {
+        let mut message = LinkMessage::default();
+        message.header.index = index;
+        message.attributes.push(LinkAttribute::Mtu(mtu));
+
+        netlink_request(
+            RouteNetlinkMessage::SetLink(message),
+            NLM_F_REQUEST | NLM_F_ACK,
+            NETLINK_ROUTE,
+        )?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Get IP addresses for an interface.
+    fn get_address(index: u32) -> NetlinkResult<Vec<IpAddrMask>> {
+        let mut message = AddressMessage::default();
+        message.header.index = index;
+
+        let responses = netlink_request(
+            RouteNetlinkMessage::GetAddress(message),
+            NLM_F_REQUEST | NLM_F_DUMP,
+            NETLINK_ROUTE,
+        )?;
+
+        let mut addresses = Vec::new();
+        for nlmsg in responses {
+            if let NetlinkMessage {
+                payload: NetlinkPayload::InnerMessage(message),
+                ..
+            } = nlmsg
+            {
+                if let RouteNetlinkMessage::NewAddress(AddressMessage {
+                    header, attributes, ..
+                }) = message
+                {
+                    if header.index != index {
+                        continue;
+                    }
+                    let mut address = None;
+                    let mut broadcast = None;
+                    for nla in attributes {
+                        match nla {
+                            AddressAttribute::Address(addr) => address = Some(addr),
+                            AddressAttribute::Local(_) => {
+                                // ignore, should be the same as Address
+                            }
+                            // | AddressAttribute::Multicast(addr)
+                            // | AddressAttribute::Anycast(addr) => address = Some(addr),
+                            AddressAttribute::Broadcast(addr) => broadcast = Some(addr),
+                            _ => (),
+                        }
+                    }
+                    if let Some(addr) = address {
+                        match addr {
+                            IpAddr::V4(ipv4) => {
+                                let cidr = if let Some(br) = broadcast {
+                                    (u32::from(ipv4) ^ u32::from(br)).leading_zeros() as u8
+                                } else {
+                                    32
+                                };
+                                addresses.push(IpAddrMask::new(addr, cidr));
+                            }
+                            IpAddr::V6(_) => {
+                                // FIXME: where to get CIDR from?
+                                addresses.push(IpAddrMask::new(addr, 128));
+                            }
+                        }
+                    }
+                }
+            } else {
+                debug!("unknown nlmsg response")
+            }
+        }
+
+        Ok(addresses)
+    }
+
+    fn get_mtu(index: u32) -> NetlinkResult<u32> {
+        let mut message = LinkMessage::default();
+        message.header.index = index;
+
+        let responses = netlink_request(
+            RouteNetlinkMessage::GetLink(message),
+            NLM_F_REQUEST | NLM_F_ACK,
+            NETLINK_ROUTE,
+        )?;
+
+        for nlmsg in responses {
+            if let NetlinkMessage {
+                payload: NetlinkPayload::InnerMessage(message),
+                ..
+            } = nlmsg
+            {
+                if let RouteNetlinkMessage::NewLink(LinkMessage { attributes, .. }) = message {
+                    for nla in attributes {
+                        if let LinkAttribute::Mtu(mtu) = nla {
+                            return Ok(mtu);
+                        }
+                    }
+                }
+            } else {
+                debug!("unknown nlmsg response")
+            }
+        }
+
+        Err(NetlinkError::AttributeNotFound)
+    }
+
+    #[ignore]
+    #[test]
+    fn docker_networking() {
+        const IF_NAME: &str = "wg0";
+
+        create_interface(IF_NAME).unwrap();
+
+        let index = get_interface_index(IF_NAME).unwrap().unwrap();
+
+        let ip = "fe80::20c:29ff:fe1a:adac/96".parse::<IpAddrMask>().unwrap();
+        set_address(index, &ip).unwrap();
+        let ip = "192.168.11.38/24".parse::<IpAddrMask>().unwrap();
+        set_address(index, &ip).unwrap();
+
+        set_mtu(IF_NAME, 1400).unwrap();
+
+        let addrs = get_address(index).unwrap();
+        assert_eq!(addrs.len(), 2);
+
+        let mtu = get_mtu(index).unwrap();
+        assert_eq!(mtu, 1400);
+
+        flush_addresses(index).unwrap();
+        let addrs = get_address(index).unwrap();
+        assert_eq!(addrs.len(), 0);
+
+        delete_interface(IF_NAME).unwrap();
     }
 }
