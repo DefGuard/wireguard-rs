@@ -73,7 +73,7 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
 
         // Set maximum transfer unit (MTU).
         if let Some(mtu) = config.mtu {
-            bsd::set_mtu(mtu)?;
+            bsd::set_mtu(&self.ifname, mtu)?;
         }
 
         Ok(())
