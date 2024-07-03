@@ -70,6 +70,12 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
         // configure interface
         let host = config.try_into()?;
         bsd::set_host(&self.ifname, &host)?;
+
+        // Set maximum transfer unit (MTU).
+        if let Some(mtu) = config.mtu {
+            bsd::set_mtu(&self.ifname, mtu)?;
+        }
+
         Ok(())
     }
 

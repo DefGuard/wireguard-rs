@@ -173,6 +173,8 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             });
         }
 
+        // TODO: set maximum transfer unit (MTU)
+
         Ok(())
     }
 

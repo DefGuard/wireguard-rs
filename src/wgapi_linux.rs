@@ -17,6 +17,7 @@ pub struct WireguardApiLinux {
 }
 
 impl WireguardApiLinux {
+    #[must_use]
     pub fn new(ifname: String) -> Self {
         WireguardApiLinux { ifname }
     }
@@ -44,6 +45,9 @@ impl WireguardInterfaceApi for WireguardApiLinux {
             self.ifname
         );
 
+        // flush all IP addresses
+        netlink::flush_interface(&self.ifname)?;
+
         // assign IP address to interface
         let address = IpAddrMask::from_str(&config.address)?;
         self.assign_address(&address)?;
@@ -51,6 +55,11 @@ impl WireguardInterfaceApi for WireguardApiLinux {
         // configure interface
         let host = config.try_into()?;
         netlink::set_host(&self.ifname, &host)?;
+
+        // set maximum transfer unit
+        if let Some(mtu) = config.mtu {
+            netlink::set_mtu(&self.ifname, mtu)?;
+        }
 
         Ok(())
     }

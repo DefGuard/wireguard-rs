@@ -32,6 +32,7 @@
 //!     address: "10.6.0.30".to_string(),
 //!     port: 12345,
 //!     peers: vec![],
+//!     mtu: None,
 //! };
 //! wgapi.configure_interface(&interface_config)?;
 //!
@@ -56,7 +57,7 @@ pub mod host;
 pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
-pub mod netlink;
+pub(crate) mod netlink;
 mod utils;
 mod wgapi;
 
@@ -74,10 +75,7 @@ mod wireguard_interface;
 extern crate log;
 
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::{Debug, Formatter},
-    process::Output,
-};
+use std::{fmt, process::Output};
 
 use self::{
     error::WireguardInterfaceError,
@@ -106,17 +104,20 @@ pub struct InterfaceConfiguration {
     pub address: String,
     pub port: u32,
     pub peers: Vec<Peer>,
+    /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
+    pub mtu: Option<u32>,
 }
 
 // implement manually to avoid exposing private keys
-impl Debug for InterfaceConfiguration {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for InterfaceConfiguration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InterfaceConfiguration")
             .field("name", &self.name)
             .field("address", &self.address)
             .field("port", &self.port)
             .field("peers", &self.peers)
-            .finish()
+            .field("mtu", &self.mtu)
+            .finish_non_exhaustive()
     }
 }
 

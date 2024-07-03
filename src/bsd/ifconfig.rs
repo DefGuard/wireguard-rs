@@ -21,6 +21,10 @@ const ND6_INFINITE_LIFETIME: u32 = u32::MAX;
 ioctl_write_ptr!(destroy_clone_if, b'i', 121, IfReq);
 // SIOCIFCREATE2
 ioctl_readwrite!(create_clone_if, b'i', 124, IfReq);
+// SIOCGIFMTU
+ioctl_readwrite!(get_if_mtu, b'i', 51, IfMtu);
+// SIOCSIFMTU
+ioctl_write_ptr!(set_if_mtu, b'i', 52, IfMtu);
 // SIOCAIFADDR
 #[cfg(target_os = "freebsd")]
 ioctl_write_ptr!(add_addr_if, b'i', 43, InAliasReq);
@@ -40,23 +44,28 @@ ioctl_write_ptr!(set_if_flags, b'i', 16, IfReqFlags);
 // SIOCGIFFLAGS
 ioctl_readwrite!(get_if_flags, b'i', 17, IfReqFlags);
 
+type IfName = [u8; IF_NAMESIZE];
+
+fn make_ifr_name(if_name: &str) -> IfName {
+    let mut ifr_name = [0u8; IF_NAMESIZE];
+    if_name
+        .bytes()
+        .take(IF_NAMESIZE - 1)
+        .enumerate()
+        .for_each(|(i, b)| ifr_name[i] = b);
+    ifr_name
+}
+
 /// Represent `struct ifreq` as defined in `net/if.h`.
 #[repr(C)]
 pub struct IfReq {
-    ifr_name: [u8; IF_NAMESIZE],
+    ifr_name: IfName,
     ifr_ifru: SockAddrIn,
 }
 
 impl IfReq {
     #[must_use]
     pub(super) fn new(if_name: &str) -> Self {
-        let mut ifr_name = [0u8; IF_NAMESIZE];
-        if_name
-            .bytes()
-            .take(IF_NAMESIZE - 1)
-            .enumerate()
-            .for_each(|(i, b)| ifr_name[i] = b);
-
         // First, try to load a kernel module for this type of network interface.
         // Omit digits at the end of interface name, e.g. "wg0" -> "if_wg".
         #[cfg(target_os = "freebsd")]
@@ -73,7 +82,7 @@ impl IfReq {
         }
 
         Self {
-            ifr_name,
+            ifr_name: make_ifr_name(if_name),
             ifr_ifru: SockAddrIn::default(),
         }
     }
@@ -110,10 +119,50 @@ impl IfReq {
     }
 }
 
+/// Represent `struct ifreq` as defined in `net/if.h` - ifr_mtu variant.
+#[repr(C)]
+pub struct IfMtu {
+    ifr_name: IfName,
+    ifru_mtu: u32,
+    _padding: [u8; 12],
+}
+
+impl IfMtu {
+    #[must_use]
+    pub(super) fn new(if_name: &str) -> Self {
+        Self {
+            ifr_name: make_ifr_name(if_name),
+            ifru_mtu: 0,
+            _padding: [0u8; 12],
+        }
+    }
+
+    pub(super) fn get_mtu(&mut self) -> Result<u32, IoError> {
+        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
+
+        unsafe {
+            get_if_mtu(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+        }
+
+        Ok(self.ifru_mtu)
+    }
+
+    pub(super) fn set_mtu(&mut self, mtu: u32) -> Result<(), IoError> {
+        self.ifru_mtu = mtu;
+        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
+
+        unsafe {
+            set_if_mtu(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Represent `struct in6_ifreq` as defined in `netinet6/in6_var.h`.
 #[repr(C)]
 pub struct IfReq6 {
-    ifr_name: [u8; IF_NAMESIZE],
+    ifr_name: IfName,
     ifr_ifru: SockAddrIn6,
     _padding: [u8; 244],
 }
@@ -121,15 +170,8 @@ pub struct IfReq6 {
 impl IfReq6 {
     #[must_use]
     pub(super) fn new(if_name: &str) -> Self {
-        let mut ifr_name = [0u8; IF_NAMESIZE];
-        if_name
-            .bytes()
-            .take(IF_NAMESIZE - 1)
-            .enumerate()
-            .for_each(|(i, b)| ifr_name[i] = b);
-
         Self {
-            ifr_name,
+            ifr_name: make_ifr_name(if_name),
             ifr_ifru: SockAddrIn6::default(),
             _padding: [0u8; 244],
         }
@@ -150,7 +192,7 @@ impl IfReq6 {
 /// Respresent `in_aliasreq` as defined in <netinet/in_var.h>.
 #[repr(C)]
 pub struct InAliasReq {
-    ifr_name: [u8; IF_NAMESIZE],
+    ifr_name: IfName,
     ifra_addr: SockAddrIn,
     ifra_broadaddr: SockAddrIn,
     ifra_mask: SockAddrIn,
@@ -166,15 +208,8 @@ impl InAliasReq {
         broadcast: Ipv4Addr,
         mask: Ipv4Addr,
     ) -> Self {
-        let mut ifr_name = [0u8; IF_NAMESIZE];
-        if_name
-            .bytes()
-            .take(IF_NAMESIZE - 1)
-            .enumerate()
-            .for_each(|(i, b)| ifr_name[i] = b);
-
         Self {
-            ifr_name,
+            ifr_name: make_ifr_name(if_name),
             ifra_addr: address.into(),
             ifra_broadaddr: broadcast.into(),
             ifra_mask: mask.into(),
@@ -197,7 +232,7 @@ impl InAliasReq {
 /// Respresent `in6_aliasreq` as defined in <netinet/in6_var.h>.
 #[repr(C)]
 pub struct In6AliasReq {
-    ifr_name: [u8; IF_NAMESIZE],
+    ifr_name: IfName,
     ifra_addr: SockAddrIn6,
     ifra_dstaddr: SockAddrIn6,
     ifra_prefixmask: SockAddrIn6,
@@ -219,15 +254,8 @@ impl In6AliasReq {
         // FIXME: currenlty unused: dstaddr: Ipv6Addr,
         prefixmask: Ipv6Addr,
     ) -> Self {
-        let mut ifr_name = [0u8; IF_NAMESIZE];
-        if_name
-            .bytes()
-            .take(IF_NAMESIZE - 1)
-            .enumerate()
-            .for_each(|(i, b)| ifr_name[i] = b);
-
         Self {
-            ifr_name,
+            ifr_name: make_ifr_name(if_name),
             ifra_addr: address.into(),
             ifra_dstaddr: SockAddrIn6::zeroed(),
             ifra_prefixmask: prefixmask.into(),
@@ -255,7 +283,7 @@ impl In6AliasReq {
 /// Represent `struct ifreq` as defined in `net/if.h`.
 #[repr(C)]
 pub struct IfReqFlags {
-    ifr_name: [u8; IF_NAMESIZE],
+    ifr_name: IfName,
     ifr_flags: u64,
     ifr_zero: u64, // fill in for size of SockAddrIn
 }
@@ -263,14 +291,8 @@ pub struct IfReqFlags {
 impl IfReqFlags {
     #[must_use]
     pub(super) fn new(if_name: &str) -> Self {
-        let mut ifr_name = [0u8; IF_NAMESIZE];
-        if_name
-            .bytes()
-            .take(IF_NAMESIZE - 1)
-            .enumerate()
-            .for_each(|(i, b)| ifr_name[i] = b);
         Self {
-            ifr_name,
+            ifr_name: make_ifr_name(if_name),
             ifr_flags: 0,
             ifr_zero: 0,
         }
