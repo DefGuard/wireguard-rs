@@ -46,10 +46,6 @@ pub(crate) enum NetlinkError {
     UnexpectedPayload,
     #[error("Failed to send netlink request")]
     SendFailure,
-    #[error(
-        "Serialized netlink packet ({0} bytes) larger than maximum size {SOCKET_BUFFER_LENGTH}"
-    )]
-    InvalidPacketLength(usize),
     #[error("Attribute value not found")]
     AttributeNotFound,
     #[error("Socket error: {0}")]
@@ -117,7 +113,7 @@ impl IpAddrMask {
 
 impl IpVersion {
     #[must_use]
-    fn address_family(&self) -> AddressFamily {
+    fn address_family(self) -> AddressFamily {
         match self {
             Self::IPv4 => AddressFamily::Inet,
             Self::IPv6 => AddressFamily::Inet6,
@@ -170,19 +166,11 @@ where
 {
     let mut req = NetlinkMessage::from(message);
 
-    if req.buffer_len() > SOCKET_BUFFER_LENGTH {
-        error!(
-                "Serialized netlink packet ({} bytes) larger than maximum size {SOCKET_BUFFER_LENGTH}: {req:?}",
-                req.buffer_len(),
-            );
-        return Err(NetlinkError::InvalidPacketLength(req.buffer_len()));
-    }
-
     req.header.flags = flags;
     req.finalize();
-    let mut buf = [0; SOCKET_BUFFER_LENGTH];
-    req.serialize(&mut buf);
     let len = req.buffer_len();
+    let mut buf = vec![0u8; len];
+    req.serialize(&mut buf);
 
     let socket = Socket::new(protocol).map_err(|err| {
         error!("Failed to open socket: {err}");
@@ -193,7 +181,7 @@ where
         error!("Failed to connect to socket: {err}");
         NetlinkError::SocketError(err.to_string())
     })?;
-    let n_sent = socket.send(&buf[..len], 0).map_err(|err| {
+    let n_sent = socket.send(&buf, 0).map_err(|err| {
         error!("Failed to send to socket: {err}");
         NetlinkError::SocketError(err.to_string())
     })?;
@@ -203,13 +191,14 @@ where
 
     let mut responses = Vec::new();
     loop {
-        let n_received = socket.recv(&mut &mut buf[..], 0).map_err(|err| {
+        let mut recv_buf = [0; SOCKET_BUFFER_LENGTH];
+        let n_received = socket.recv(&mut &mut recv_buf[..], 0).map_err(|err| {
             error!("Failed to receive from socket: {err}");
             NetlinkError::SocketError(err.to_string())
         })?;
         let mut offset = 0;
         loop {
-            let response = NetlinkMessage::<I>::deserialize(&buf[offset..])?;
+            let response = NetlinkMessage::<I>::deserialize(&recv_buf[offset..])?;
             debug!("Read netlink response from socket: {response:?}");
             match response.payload {
                 // We've parsed all parts of the response and can leave the loop.
@@ -330,7 +319,7 @@ fn flush_addresses(index: u32) -> NetlinkResult<()> {
                 )?;
             }
         } else {
-            debug!("unknown nlmsg response")
+            debug!("unknown nlmsg response");
         }
     }
 
@@ -411,6 +400,11 @@ pub(crate) fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
         nlas: host.as_nlas(ifname),
     });
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
+    // Add peers one by one to avoid packet buffer overflow.
+    for peer in host.peers.values() {
+        set_peer(ifname, peer)?;
+    }
+
     Ok(())
 }
 
@@ -782,6 +776,38 @@ mod tests {
         let addrs = get_address(index).unwrap();
         assert_eq!(addrs.len(), 0);
 
+        delete_interface(IF_NAME).unwrap();
+    }
+
+    #[ignore]
+    #[test]
+    fn docker_peers() {
+        use x25519_dalek::{EphemeralSecret, PublicKey};
+
+        const MAX_PEERS: usize = 1600;
+
+        let secret = EphemeralSecret::random();
+        let key = PublicKey::from(&secret);
+        // Peer secret key
+        let key: Key = key.as_ref().try_into().unwrap();
+        let mut host = Host::new(1234, key);
+
+        for _ in 0..MAX_PEERS {
+            let secret = EphemeralSecret::random();
+            let key = PublicKey::from(&secret);
+            let key: Key = key.as_ref().try_into().unwrap();
+            let peer = Peer::new(key.clone());
+            host.peers.insert(key, peer);
+        }
+
+        const IF_NAME: &str = "wg0";
+        create_interface(IF_NAME).unwrap();
+        set_host(IF_NAME, &host).unwrap();
+
+        let host = get_host(IF_NAME).unwrap();
+        assert_eq!(host.peers.len(), MAX_PEERS);
+
+        // With many peers, this takes a long time.
         delete_interface(IF_NAME).unwrap();
     }
 }

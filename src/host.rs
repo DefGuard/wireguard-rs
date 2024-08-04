@@ -99,7 +99,7 @@ impl Peer {
 #[cfg(target_os = "linux")]
 impl Peer {
     #[must_use]
-    pub fn from_nlas(nlas: &[WgPeerAttrs]) -> Self {
+    pub(crate) fn from_nlas(nlas: &[WgPeerAttrs]) -> Self {
         let mut peer = Self::default();
 
         for nla in nlas {
@@ -136,7 +136,7 @@ impl Peer {
     }
 
     #[must_use]
-    pub fn as_nlas(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
+    pub(crate) fn as_nlas(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
         vec![
             WgDeviceAttrs::IfName(ifname.into()),
             WgDeviceAttrs::Peers(vec![self.as_nlas_peer()]),
@@ -144,7 +144,7 @@ impl Peer {
     }
 
     #[must_use]
-    pub fn as_nlas_peer(&self) -> WgPeer {
+    pub(crate) fn as_nlas_peer(&self) -> WgPeer {
         let mut attrs = vec![WgPeerAttrs::PublicKey(self.public_key.as_array())];
         if let Some(keepalive) = self.persistent_keepalive_interval {
             attrs.push(WgPeerAttrs::PersistentKeepalive(keepalive));
@@ -324,7 +324,7 @@ impl Host {
 
 #[cfg(target_os = "linux")]
 impl Host {
-    pub fn append_nlas(&mut self, nlas: &[WgDeviceAttrs]) {
+    pub(crate) fn append_nlas(&mut self, nlas: &[WgDeviceAttrs]) {
         for nla in nlas {
             match nla {
                 WgDeviceAttrs::PrivateKey(value) => self.private_key = Some(Key::new(*value)),
@@ -342,7 +342,7 @@ impl Host {
     }
 
     #[must_use]
-    pub fn as_nlas(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
+    pub(crate) fn as_nlas(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
         let mut nlas = vec![
             WgDeviceAttrs::IfName(ifname.into()),
             WgDeviceAttrs::ListenPort(self.listen_port),
@@ -354,8 +354,11 @@ impl Host {
             nlas.push(WgDeviceAttrs::Fwmark(*fwmark));
         }
         nlas.push(WgDeviceAttrs::Flags(WGDEVICE_F_REPLACE_PEERS));
-        let peers = self.peers.values().map(Peer::as_nlas_peer).collect();
-        nlas.push(WgDeviceAttrs::Peers(peers));
+
+        // IMPORTANT: To avoid buffer overflow, do not add peers here.
+        // let peers = self.peers.values().map(Peer::as_nlas_peer).collect();
+        // nlas.push(WgDeviceAttrs::Peers(peers));
+
         nlas
     }
 }
