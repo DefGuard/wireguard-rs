@@ -5,16 +5,16 @@ use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     process::Command,
 };
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use std::{io::Write, process::Stdio};
 
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
 use crate::bsd::get_gateway;
 #[cfg(target_os = "linux")]
 use crate::netlink;
 use crate::{check_command_output_status, IpVersion, Peer, WireguardInterfaceError};
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
     // Build the resolvconf command
     debug!("Setting up DNS");
@@ -84,7 +84,7 @@ pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceErro
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
     info!("Removing DNS configuration for interface {ifname}");
     let args = ["-d", ifname, "-f"];
@@ -182,7 +182,7 @@ pub(crate) fn add_peer_routing(
 }
 
 /// Helper function to add routing.
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,

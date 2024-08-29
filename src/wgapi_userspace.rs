@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::utils::clear_dns;
 use crate::{
     check_command_output_status,
@@ -140,7 +140,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         {
             configure_dns(dns)
         }
-        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
         {
             configure_dns(&self.ifname, dns)
         }

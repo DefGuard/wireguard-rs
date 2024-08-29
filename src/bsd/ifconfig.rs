@@ -20,15 +20,22 @@ const ND6_INFINITE_LIFETIME: u32 = u32::MAX;
 // SIOCIFDESTROY
 ioctl_write_ptr!(destroy_clone_if, b'i', 121, IfReq);
 // SIOCIFCREATE2
+// FIXME: not on NetBSD
 ioctl_readwrite!(create_clone_if, b'i', 124, IfReq);
 // SIOCGIFMTU
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
 ioctl_readwrite!(get_if_mtu, b'i', 51, IfMtu);
+#[cfg(target_os = "netbsd")]
+ioctl_readwrite!(get_if_mtu, b'i', 126, IfMtu);
 // SIOCSIFMTU
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
 ioctl_write_ptr!(set_if_mtu, b'i', 52, IfMtu);
+#[cfg(target_os = "netbsd")]
+ioctl_write_ptr!(set_if_mtu, b'i', 127, IfMtu);
 // SIOCAIFADDR
 #[cfg(target_os = "freebsd")]
 ioctl_write_ptr!(add_addr_if, b'i', 43, InAliasReq);
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "netbsd"))]
 ioctl_write_ptr!(add_addr_if, b'i', 26, InAliasReq);
 // SIOCDIFADDR
 ioctl_write_ptr!(del_addr_if, b'i', 25, IfReq);
@@ -37,6 +44,8 @@ ioctl_write_ptr!(del_addr_if, b'i', 25, IfReq);
 ioctl_write_ptr!(add_addr_if_in6, b'i', 27, In6AliasReq);
 #[cfg(target_os = "macos")]
 ioctl_write_ptr!(add_addr_if_in6, b'i', 26, In6AliasReq);
+#[cfg(target_os = "netbsd")]
+ioctl_write_ptr!(add_addr_if_in6, b'i', 107, In6AliasReq);
 // SIOCDIFADDR_IN6
 ioctl_write_ptr!(del_addr_if_in6, b'i', 25, IfReq6);
 // SIOCSIFFLAGS

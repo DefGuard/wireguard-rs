@@ -4,7 +4,6 @@ use std::{
     os::fd::{AsFd, AsRawFd},
 };
 
-use libc::getpid;
 use nix::{
     errno::Errno,
     sys::socket::{socket, AddressFamily, SockFlag, SockType},
@@ -28,12 +27,15 @@ enum MessageType {
     Redirect,
     Miss,
     Lock,
-    OldAdd, // not defined in FreeBSD
-    OldDel, // not defined in FreeBSD
-    Resolve,
+    OldAdd,  // not defined on FreeBSD
+    OldDel,  // not defined on FreeBSD
+    Resolve, // commented out on NetBSD
 }
 
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
 const RTM_VERSION: u8 = 5;
+#[cfg(target_os = "netbsd")]
+const RTM_VERSION: u8 = 4;
 
 /// Route message flags.
 const RTF_UP: i32 = 0x1;
@@ -43,7 +45,7 @@ const RTF_GATEWAY: i32 = 0x2;
 // const RTF_DYNAMIC: i32 = 0x10;
 // const RTF_MODIFIED: i32 = 0x20;
 // const RTF_DONE: i32 = 0x40;
-// const RTF_DELCLONE: i32 = 0x80;
+// const RTF_DELCLONE: i32 = 0x80; // RTF_MASK on NetBSD
 // const RTF_CLONING: i32 = 0x100;
 // const RTF_XRESOLVE: i32 = 0x200;
 // const RTF_LLINFO: i32 = 0x400;
@@ -99,6 +101,23 @@ struct RtMetrics {
     rmx_filler: [u32; 4],
 }
 
+/// NetBSD version of `struct rt_metrics` from <net/route.h>
+#[cfg(target_os = "netbsd")]
+#[derive(Default)]
+#[repr(C)]
+struct RtMetrics {
+    rmx_locks: u64,
+    rmx_mtu: u64,
+    rmx_hopcount: u64,
+    rmx_recvpipe: u64,
+    rmx_sendpipe: u64,
+    rmx_ssthresh: u64,
+    rmx_rtt: u64,
+    rmx_rttvar: u64,
+    rmx_expire: i64,
+    rmx_pksent: i64,
+}
+
 /// `struct rt_msghdr` from <net/route.h>
 #[repr(C)]
 struct RtMsgHdr {
@@ -115,7 +134,7 @@ struct RtMsgHdr {
     rtm_errno: i32,
     #[cfg(target_os = "freebsd")]
     rtm_fmask: i32,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "netbsd"))]
     rtm_use: i32,
     rtm_inits: u32,
     rtm_rmx: RtMetrics,
@@ -133,12 +152,12 @@ impl RtMsgHdr {
             _rtm_spare1: 0,
             rtm_flags: flags,
             rtm_addrs: addrs,
-            rtm_pid: unsafe { getpid() },
+            rtm_pid: 0, //unsafe { libc::getpid() },
             rtm_seq: 1,
             rtm_errno: 0,
             #[cfg(target_os = "freebsd")]
             rtm_fmask: 0,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "netbsd"))]
             rtm_use: 0,
             rtm_inits: 0,
             rtm_rmx: RtMetrics::default(),

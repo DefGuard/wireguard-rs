@@ -50,7 +50,7 @@
 //! # Ok::<(), WireguardInterfaceError>(())
 //! ```
 
-#[cfg(any(target_os = "freebsd", target_os = "macos"))]
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 pub mod bsd;
 pub mod error;
 pub mod host;
