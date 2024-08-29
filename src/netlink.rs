@@ -467,6 +467,53 @@ fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
     Ok(None)
 }
 
+/// Get default route for a given address family.
+pub(crate) fn get_gateway(address_family: AddressFamily) -> NetlinkResult<Option<IpAddr>> {
+    let header = RouteHeader {
+        address_family,
+        table: RouteHeader::RT_TABLE_MAIN,
+        // protocol: RouteProtocol::Boot, // doesn't filter
+        // scope: RouteScope::Universe,   // doesn't filter
+        ..Default::default()
+    };
+    let mut message = RouteMessage::default();
+    message.header = header;
+    let responses = netlink_request(
+        RouteNetlinkMessage::GetRoute(message),
+        NLM_F_REQUEST | NLM_F_DUMP,
+        NETLINK_ROUTE,
+    )?;
+
+    for nlmsg in responses {
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(message),
+            ..
+        } = nlmsg
+        {
+            // Because messages can't be properly filtered, find the first `Gateway`.
+            if let RouteNetlinkMessage::NewRoute(RouteMessage { attributes, .. }) = message {
+                for nla in attributes {
+                    match nla {
+                        RouteAttribute::Gateway(address) => {
+                            debug!("Found gateway {address:?}");
+                            match address {
+                                RouteAddress::Inet(ipv4) => return Ok(Some(IpAddr::V4(ipv4))),
+                                RouteAddress::Inet6(ipv6) => return Ok(Some(IpAddr::V6(ipv6))),
+                                _ => (),
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        } else {
+            debug!("unknown nlmsg response")
+        }
+    }
+
+    Ok(None)
+}
+
 /// Add a route for an interface.
 pub(crate) fn add_route(
     ifname: &str,
@@ -474,20 +521,20 @@ pub(crate) fn add_route(
     table: Option<u32>,
 ) -> NetlinkResult<()> {
     let mut message = RouteMessage::default();
-    let mut route_msg_header = RouteHeader {
+    let mut header = RouteHeader {
         table: RouteHeader::RT_TABLE_MAIN,
         scope: RouteScope::Link,
         kind: RouteType::Unicast,
         protocol: RouteProtocol::Boot,
         ..Default::default()
     };
-    route_msg_header.address_family = address.address_family();
-    route_msg_header.destination_prefix_length = address.cidr;
+    header.address_family = address.address_family();
+    header.destination_prefix_length = address.cidr;
     let route_address = match address.ip {
         IpAddr::V4(ipv4) => RouteAddress::Inet(ipv4),
         IpAddr::V6(ipv6) => RouteAddress::Inet6(ipv6),
     };
-    message.header = route_msg_header;
+    message.header = header;
     if let Some(interface_index) = get_interface_index(ifname)? {
         message
             .attributes
@@ -809,5 +856,12 @@ mod tests {
 
         // With many peers, this takes a long time.
         delete_interface(IF_NAME).unwrap();
+    }
+
+    #[ignore]
+    #[test]
+    fn docker_gateway() {
+        let gateway = get_gateway(AddressFamily::Inet).unwrap();
+        assert!(gateway.is_some());
     }
 }

@@ -96,6 +96,13 @@ pub use wgapi_userspace::WireguardApiUserspace;
 pub use wgapi_windows::WireguardApiWindows;
 pub use wireguard_interface::WireguardInterfaceApi;
 
+// Internet Protocol (IP) address variant.
+#[derive(Clone, Copy)]
+pub enum IpVersion {
+    IPv4,
+    IPv6,
+}
+
 /// Host WireGuard interface configuration
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InterfaceConfiguration {

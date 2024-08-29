@@ -1,5 +1,6 @@
 mod ifconfig;
 mod nvlist;
+mod route;
 mod sockaddr;
 mod timespec;
 mod wgio;
@@ -13,11 +14,13 @@ use nix::{
     errno::Errno,
     sys::socket::{socket, AddressFamily, SockFlag, SockType},
 };
+use sockaddr::{SockAddrIn, SockAddrIn6};
 use thiserror::Error;
 
 use self::{
     ifconfig::{IfMtu, IfReq, IfReq6, IfReqFlags, In6AliasReq, InAliasReq},
     nvlist::NvList,
+    route::RtMessage,
     sockaddr::{pack_sockaddr, unpack_sockaddr},
     timespec::{pack_timespec, unpack_timespec},
     wgio::{WgReadIo, WgWriteIo},
@@ -25,7 +28,7 @@ use self::{
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
-    Key, WireguardInterfaceError,
+    IpVersion, Key, WireguardInterfaceError,
 };
 
 // nvlist key names
@@ -73,6 +76,8 @@ pub enum IoError {
     ReadIo(Errno),
     #[error("Write error {0}")]
     WriteIo(Errno),
+    #[error("Not enough bytes to unpack")]
+    Unpack,
 }
 
 impl From<IoError> for WireguardInterfaceError {
@@ -344,4 +349,18 @@ pub fn get_mtu(if_name: &str) -> Result<u32, IoError> {
 pub fn set_mtu(if_name: &str, mtu: u32) -> Result<(), IoError> {
     let mut ifmtu = IfMtu::new(if_name);
     ifmtu.set_mtu(mtu)
+}
+
+/// Get (default) gateway for a given IP address version.
+pub fn get_gateway(ip_version: IpVersion) -> Result<Option<IpAddr>, IoError> {
+    match ip_version {
+        IpVersion::IPv4 => {
+            let rtmsg = RtMessage::<SockAddrIn>::new();
+            rtmsg.default_route()
+        }
+        IpVersion::IPv6 => {
+            let rtmsg = RtMessage::<SockAddrIn6>::new();
+            rtmsg.default_route()
+        }
+    }
 }

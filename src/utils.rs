@@ -1,6 +1,3 @@
-#[cfg(target_os = "linux")]
-use crate::netlink;
-use crate::{check_command_output_status, Peer, WireguardInterfaceError};
 #[cfg(target_os = "macos")]
 use std::io::{BufRead, BufReader, Cursor, Error as IoError};
 use std::{
@@ -10,6 +7,12 @@ use std::{
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::{io::Write, process::Stdio};
+
+#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+use crate::bsd::get_gateway;
+#[cfg(target_os = "linux")]
+use crate::netlink;
+use crate::{check_command_output_status, IpVersion, Peer, WireguardInterfaceError};
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
@@ -116,7 +119,7 @@ pub(crate) fn add_peer_routing(
         }
     }
 
-    // If there is default route skip adding other routings.
+    // If there is default route skip adding other routes.
     if let Some(default_route) = default_route {
         debug!("Found default route: {default_route:?}");
         let is_ipv6 = default_route.ip.is_ipv6();
@@ -207,17 +210,9 @@ pub(crate) fn add_peer_routing(
     if let Some(default_route) = default_route {
         debug!("Found default route: {default_route:?}");
         let is_ipv6 = default_route.ip.is_ipv6();
-        let (proto, route1, route2) = if is_ipv6 {
-            ("-inet6", "::/1", "8000::/1")
-        } else {
-            ("-inet", "0.0.0.0/1", "128.0.0.0/1")
-        };
+        let proto = if is_ipv6 { "-inet6" } else { "-inet" };
         // Add table rules
-        let args = ["-q", "-n", "add", proto, route1, "-interface", ifname];
-        debug!("Executing command route with args: {args:?}");
-        let output = Command::new("route").args(args).output()?;
-        check_command_output_status(output)?;
-        let args = ["-q", "-n", "add", proto, route2, "-interface", ifname];
+        let args = ["-q", "-n", "add", proto, "default", "-interface", ifname];
         debug!("Executing command route with args: {args:?}");
         let output = Command::new("route").args(args).output()?;
         check_command_output_status(output)?;
@@ -235,26 +230,37 @@ pub(crate) fn add_peer_routing(
                 .output();
 
             let endpoint_ip = endpoint.ip().to_string();
-            let args = if gateway.is_empty() {
-                // Prevent routing loop as in wg-quick
-                debug!("Default gateway not found.");
-                let address = if endpoint.is_ipv4() {
-                    "127.0.0.1"
-                } else {
-                    "::1"
-                };
-                [
-                    "-q",
-                    "-n",
-                    "add",
-                    proto,
-                    &endpoint_ip,
-                    address,
-                    "-blackhole",
-                ]
-            } else {
-                debug!("Found default gateway: {gateway}");
-                ["-q", "-n", "add", proto, &endpoint_ip, "-gateway", &gateway]
+            let args = match gateway {
+                None => {
+                    // Prevent routing loop as in wg-quick
+                    debug!("Default gateway not found.");
+                    let address = if endpoint.is_ipv4() {
+                        "127.0.0.1"
+                    } else {
+                        "::1"
+                    };
+                    [
+                        "-q",
+                        "-n",
+                        "add",
+                        proto,
+                        &endpoint_ip,
+                        address,
+                        "-blackhole",
+                    ]
+                }
+                Some(address) => {
+                    debug!("Found default gateway: {address}");
+                    [
+                        "-q",
+                        "-n",
+                        "add",
+                        proto,
+                        &endpoint_ip,
+                        "-gateway",
+                        &address.to_string(),
+                    ]
+                }
             };
             debug!("Executing command route with args: {args:?}");
             let output = Command::new("route").args(args).output()?;
@@ -262,7 +268,7 @@ pub(crate) fn add_peer_routing(
         }
     } else {
         for allowed_ip in unique_allowed_ips {
-            debug!("Processing allowed IP: {}", allowed_ip);
+            debug!("Processing allowed IP: {allowed_ip}");
             let is_ipv6 = allowed_ip.ip.is_ipv6();
             let proto = if is_ipv6 { "-inet6" } else { "-inet" };
             let args = [
@@ -291,44 +297,6 @@ pub(crate) fn add_peer_routing(
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
     Ok(())
-}
-
-#[derive(Copy, Clone)]
-pub enum IpVersion {
-    IPv4,
-    IPv6,
-}
-
-/// Get IP gateway.
-///
-/// Helper function to find default IP v4 or v6 gateway on FreeBSD and macOS systems.
-/// Same as in wg-quick find default gateway info using `netstat -nr -f inet` or `inet6`
-/// based on allowed IP version.
-/// Needed to add proper routing for 0.0.0.0/0, ::/0.
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
-pub(crate) fn get_gateway(ip_version: IpVersion) -> Result<String, WireguardInterfaceError> {
-    let command_args = match ip_version {
-        IpVersion::IPv4 => &["-nr", "-f", "inet"],
-        IpVersion::IPv6 => &["-nr", "-f", "inet6"],
-    };
-
-    let output = Command::new("netstat").args(command_args).output()?;
-
-    let output_str = String::from_utf8_lossy(&output.stdout);
-
-    for line in output_str.lines() {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() > 1 && fields[0] == "default" && !fields[1].starts_with("link#") {
-            return Ok(fields[1].to_string());
-        }
-    }
-
-    Ok(String::new())
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn get_gateway(_ip_version: IpVersion) -> Result<String, WireguardInterfaceError> {
-    Ok(String::new())
 }
 
 /// Clean fwmark rules while removing interface same as in wg-quick

@@ -207,27 +207,29 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     ///
     /// For `0.0.0.0/0` or `::/0` allowed IP, it runs belowed additional commands in order:
     /// - `ip <ip_version> route add 0.0.0.0/0 dev <ifname> table <fwmark>`
-    /// `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.
-    /// `<ifname>` - Interface name.
+    ///   `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.
+    ///   `<ifname>` - Interface name.
     /// - `ip <ip_version> rule add not fwmark <fwmark> table <fwmark>`.
     /// - `ip <ip_version> rule add table main suppress_prefixlength 0`.
     /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.
     /// - `iptables-restore -n`. For `0.0.0.0/0` only.
     /// - `iptables6-restore -n`. For `::/0` only.
+    ///
     /// Based on IP type `<ip_version>` will be equal to `-4` or `-6`.
     ///
     ///
     /// # macOS, FreeBSD:
     /// For every allowed IP, it runs:
     /// - `route -q -n add <inet> allowed_ip -interface if_name`
-    /// `ifname` - interface name while creating api
-    /// `allowed_ip`- one of [Peer](crate::Peer) allowed ip
+    ///   `ifname` - interface name while creating api
+    ///   `allowed_ip`- one of [Peer](crate::Peer) allowed ip
+    ///
     /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other routings.
     /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.
     /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.
     /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`
-    /// `<endpoint>` - Add routing for every unique Peer endpoint.
-    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
+    ///   `<endpoint>` - Add routing for every unique Peer endpoint.
+    ///   `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)
     }
