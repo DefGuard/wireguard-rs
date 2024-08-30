@@ -6,11 +6,15 @@ use std::{
 
 use nix::{
     errno::Errno,
-    sys::socket::{socket, AddressFamily, SockFlag, SockType},
+    sys::socket::{shutdown, socket, AddressFamily, Shutdown, SockFlag, SockType},
     unistd::{read, write},
 };
 
-use super::{cast_bytes, cast_ref, sockaddr::unpack_sockaddr, IoError};
+use super::{
+    cast_bytes, cast_ref,
+    sockaddr::{unpack_sockaddr, SocketFromRaw},
+    IoError,
+};
 
 // Routing data types are not defined in libc crate, so define then here.
 
@@ -52,11 +56,15 @@ const RTF_GATEWAY: i32 = 0x2;
 // const RTF_LLDATA: i32 = 0x400;
 const RTF_STATIC: i32 = 0x800;
 // const RTF_BLACKHOLE: i32 = 0x1000;
+// const RTF_LOCAL: i32 = 0x200000;
+// const RTF_BROADCAST: i32 = 0x400000;
+// const RTF_MULTICAST: i32 = 0x800000;
+// const RTF_IFSCOPE: i32 = 0x1000000;
 
 /// Bitmask values for rtm_addrs.
 const RTA_DST: i32 = 0x1;
 const RTA_GATEWAY: i32 = 0x2;
-// const RTA_NETMASK: i32 = 0x4;
+const RTA_NETMASK: i32 = 0x4;
 // const RTA_GENMASK: i32 = 0x8;
 // const RTA_IFP: i32 = 0x10;
 // const RTA_IFA: i32 = 0x20;
@@ -142,12 +150,18 @@ struct RtMsgHdr {
 
 impl RtMsgHdr {
     #[must_use]
-    fn new(message_length: u16, message_type: MessageType, flags: i32, addrs: i32) -> Self {
+    fn new(
+        message_length: u16,
+        message_type: MessageType,
+        if_index: u16,
+        flags: i32,
+        addrs: i32,
+    ) -> Self {
         Self {
             rtm_msglen: message_length,
             rtm_version: RTM_VERSION,
             rtm_type: message_type as u8,
-            rtm_index: 0, // interface index if RTF_IFSCOPE
+            rtm_index: if_index,
             #[cfg(target_os = "freebsd")]
             _rtm_spare1: 0,
             rtm_flags: flags,
@@ -171,12 +185,56 @@ pub(super) struct RtMessage<Payload> {
     payload: Payload,
 }
 
+#[derive(Debug)]
+#[repr(C)]
+pub(super) struct DestAddrMask<S> {
+    dest: S,
+    gateway: S, // mendatory on FreeBSD - if missing, EINVAL is returned
+    netmask: S,
+}
+
+/// Get an address for a given interface. First address is returned.
+fn if_addr<S: SocketFromRaw>(if_name: &str) -> Option<S> {
+    let mut addrs = std::mem::MaybeUninit::<*mut libc::ifaddrs>::uninit();
+    let errno = unsafe { libc::getifaddrs(addrs.as_mut_ptr()) };
+    if errno == 0 {
+        let addrs = unsafe { addrs.assume_init() };
+        let mut addr = addrs;
+        while !addr.is_null() {
+            let name = unsafe { std::ffi::CStr::from_ptr((*addr).ifa_name) };
+            if name.to_str().unwrap() == if_name {
+                if let Some(sockaddr) = unsafe { S::from_raw((*addr).ifa_addr) } {
+                    return Some(sockaddr);
+                }
+            }
+            addr = unsafe { (*addr).ifa_next };
+        }
+        unsafe { libc::freeifaddrs(addrs) };
+    } else {
+        eprintln!("getifaddrs returned {errno}");
+    }
+
+    None
+}
+
+impl<S: Default + SocketFromRaw> DestAddrMask<S> {
+    #[must_use]
+    pub(super) fn new(dest: S, netmask: S, if_name: &str) -> Self {
+        Self {
+            dest,
+            gateway: if_addr(if_name).unwrap_or_default(),
+            netmask,
+        }
+    }
+}
+
 impl<Payload: Default> RtMessage<Payload> {
     #[must_use]
-    pub(super) fn new() -> Self {
+    pub(super) fn new_for_gateway() -> Self {
         let header = RtMsgHdr::new(
             size_of::<Self>() as u16,
             MessageType::Get,
+            0,
             RTF_UP | RTF_GATEWAY | RTF_STATIC,
             RTA_DST,
         );
@@ -186,8 +244,48 @@ impl<Payload: Default> RtMessage<Payload> {
             payload: Payload::default(),
         }
     }
+}
 
-    pub(super) fn default_route(&self) -> Result<Option<IpAddr>, IoError> {
+impl<Payload> RtMessage<Payload> {
+    #[must_use]
+    pub(super) fn new_for_add(if_index: u16, payload: Payload) -> Self {
+        let header = RtMsgHdr::new(
+            size_of::<Self>() as u16,
+            MessageType::Add,
+            if_index,
+            RTF_UP | RTF_STATIC,
+            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
+        );
+
+        Self { header, payload }
+    }
+
+    #[must_use]
+    pub(super) fn new_for_delete(if_index: u16, payload: Payload) -> Self {
+        let header = RtMsgHdr::new(
+            size_of::<Self>() as u16,
+            MessageType::Delete,
+            if_index,
+            RTF_UP | RTF_STATIC,
+            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
+        );
+
+        Self { header, payload }
+    }
+
+    pub(super) fn execute(&self) -> Result<(), IoError> {
+        let socket = socket(AddressFamily::Route, SockType::Raw, SockFlag::empty(), None)
+            .map_err(IoError::WriteIo)?;
+        // Don't want to read back our messages.
+        shutdown(socket.as_raw_fd(), Shutdown::Read).map_err(IoError::WriteIo)?;
+        let buf = unsafe { cast_bytes(self) };
+        match write(socket.as_fd(), buf) {
+            Ok(_) | Err(Errno::ESRCH) => Ok(()), // not in table
+            Err(err) => Err(IoError::WriteIo(err)),
+        }
+    }
+
+    pub(super) fn get_gateway(&self) -> Result<Option<IpAddr>, IoError> {
         let socket = socket(AddressFamily::Route, SockType::Raw, SockFlag::empty(), None)
             .map_err(IoError::WriteIo)?;
         let buf = unsafe { cast_bytes(self) };

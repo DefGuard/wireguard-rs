@@ -6,7 +6,7 @@ mod timespec;
 mod wgio;
 
 use std::{
-    collections::HashMap, mem::size_of, net::IpAddr, os::fd::OwnedFd, ptr::from_ref,
+    collections::HashMap, ffi::CString, mem::size_of, net::IpAddr, os::fd::OwnedFd, ptr::from_ref,
     slice::from_raw_parts,
 };
 
@@ -14,6 +14,7 @@ use nix::{
     errno::Errno,
     sys::socket::{socket, AddressFamily, SockFlag, SockType},
 };
+use route::DestAddrMask;
 use sockaddr::{SockAddrIn, SockAddrIn6};
 use thiserror::Error;
 
@@ -76,6 +77,8 @@ pub enum IoError {
     ReadIo(Errno),
     #[error("Write error {0}")]
     WriteIo(Errno),
+    #[error("Network interface does not exist")]
+    NetworkInterface,
     #[error("Not enough bytes to unpack")]
     Unpack,
 }
@@ -355,12 +358,66 @@ pub fn set_mtu(if_name: &str, mtu: u32) -> Result<(), IoError> {
 pub fn get_gateway(ip_version: IpVersion) -> Result<Option<IpAddr>, IoError> {
     match ip_version {
         IpVersion::IPv4 => {
-            let rtmsg = RtMessage::<SockAddrIn>::new();
-            rtmsg.default_route()
+            let rtmsg = RtMessage::<SockAddrIn>::new_for_gateway();
+            rtmsg.get_gateway()
         }
         IpVersion::IPv6 => {
-            let rtmsg = RtMessage::<SockAddrIn6>::new();
-            rtmsg.default_route()
+            let rtmsg = RtMessage::<SockAddrIn6>::new_for_gateway();
+            rtmsg.get_gateway()
         }
     }
+}
+
+/// Add a route to the routing table for a named network interface.
+///
+/// TODO: IPv6 support.
+pub fn add_route(dest: IpAddrMask, if_name: &str) -> Result<(), IoError> {
+    let name = CString::new(if_name).unwrap();
+    let if_index = unsafe { libc::if_nametoindex(name.as_ptr()) as u16 };
+    eprintln!("add route: iface {if_name} index {if_index}");
+    if if_index == 0 {
+        return Err(IoError::NetworkInterface);
+    }
+    match (dest.ip, dest.mask()) {
+        (IpAddr::V4(ip), IpAddr::V4(mask)) => {
+            let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), if_name);
+            eprintln!("Payload {payload:?}");
+            let rtmsg = RtMessage::new_for_add(if_index, payload);
+            return rtmsg.execute();
+        }
+        (IpAddr::V6(ip), IpAddr::V6(mask)) => {
+            let payload = DestAddrMask::<SockAddrIn6>::new(ip.into(), mask.into(), if_name);
+            eprintln!("Payload {payload:?}");
+            let rtmsg = RtMessage::new_for_add(if_index, payload);
+            return rtmsg.execute();
+        }
+        _ => eprintln!("Unsupported address for add route"),
+    }
+    Ok(())
+}
+
+/// Add a route from the routing table for a named network interface.
+pub fn delete_route(dest: IpAddrMask, if_name: &str) -> Result<(), IoError> {
+    let name = CString::new(if_name).unwrap();
+    let if_index = unsafe { libc::if_nametoindex(name.as_ptr()) as u16 };
+    eprintln!("delete route: iface {if_name} index {if_index}");
+    if if_index == 0 {
+        return Err(IoError::NetworkInterface);
+    }
+    match (dest.ip, dest.mask()) {
+        (IpAddr::V4(ip), IpAddr::V4(mask)) => {
+            let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), if_name);
+            eprintln!("Payload {payload:?}");
+            let rtmsg = RtMessage::new_for_delete(if_index, payload);
+            return rtmsg.execute();
+        }
+        (IpAddr::V6(ip), IpAddr::V6(mask)) => {
+            let payload = DestAddrMask::<SockAddrIn6>::new(ip.into(), mask.into(), if_name);
+            eprintln!("Payload {payload:?}");
+            let rtmsg = RtMessage::new_for_delete(if_index, payload);
+            return rtmsg.execute();
+        }
+        _ => eprintln!("Unsupported address for add route"),
+    }
+    Ok(())
 }
