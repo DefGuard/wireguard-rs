@@ -12,7 +12,7 @@ use nix::{
 
 use super::{
     cast_bytes, cast_ref,
-    sockaddr::{unpack_sockaddr, SocketFromRaw},
+    sockaddr::{unpack_sockaddr, SockAddrDl, SocketFromRaw},
     IoError,
 };
 
@@ -27,13 +27,13 @@ enum MessageType {
     Delete,
     Change,
     Get,
-    Losing,
-    Redirect,
-    Miss,
-    Lock,
-    OldAdd,  // not defined on FreeBSD
-    OldDel,  // not defined on FreeBSD
-    Resolve, // commented out on NetBSD
+    // Losing,
+    // Redirect,
+    // Miss,
+    // Lock,
+    // OldAdd,  // not defined on FreeBSD
+    // OldDel,  // not defined on FreeBSD
+    // Resolve, // commented out on NetBSD
 }
 
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
@@ -50,7 +50,7 @@ const RTF_GATEWAY: i32 = 0x2;
 // const RTF_MODIFIED: i32 = 0x20;
 // const RTF_DONE: i32 = 0x40;
 // const RTF_DELCLONE: i32 = 0x80; // RTF_MASK on NetBSD
-// const RTF_CLONING: i32 = 0x100;
+const RTF_CLONING: i32 = 0x100;
 // const RTF_XRESOLVE: i32 = 0x200;
 // const RTF_LLINFO: i32 = 0x400;
 // const RTF_LLDATA: i32 = 0x400;
@@ -60,14 +60,20 @@ const RTF_STATIC: i32 = 0x800;
 // const RTF_BROADCAST: i32 = 0x400000;
 // const RTF_MULTICAST: i32 = 0x800000;
 // const RTF_IFSCOPE: i32 = 0x1000000;
+// const RTF_CONDEMNED: i32 = 0x2000000;
+// const RTF_IFREF: i32 = 0x4000000;
+// const RTF_PROXY: i32 = 0x8000000;
+// const RTF_ROUTER: i32 = 0x10000000;
+// const RTF_DEAD: i32 = 0x20000000;
+// const RTF_GLOBAL: i32 = 0x40000000;
 
 /// Bitmask values for rtm_addrs.
 const RTA_DST: i32 = 0x1;
 const RTA_GATEWAY: i32 = 0x2;
 const RTA_NETMASK: i32 = 0x4;
-// const RTA_GENMASK: i32 = 0x8;
-// const RTA_IFP: i32 = 0x10;
-// const RTA_IFA: i32 = 0x20;
+const RTA_GENMASK: i32 = 0x8;
+const RTA_IFP: i32 = 0x10;
+const RTA_IFA: i32 = 0x20;
 // const RTA_AUTHOR: i32 = 0x40;
 // const RTA_BRD: i32 = 0x80;
 
@@ -166,7 +172,7 @@ impl RtMsgHdr {
             _rtm_spare1: 0,
             rtm_flags: flags,
             rtm_addrs: addrs,
-            rtm_pid: 0, //unsafe { libc::getpid() },
+            rtm_pid: unsafe { libc::getpid() },
             rtm_seq: 1,
             rtm_errno: 0,
             #[cfg(target_os = "freebsd")]
@@ -185,11 +191,26 @@ pub(super) struct RtMessage<Payload> {
     payload: Payload,
 }
 
+#[derive(Default)]
+#[repr(C)]
+pub(super) struct GatewayAddr<S> {
+    dest: S,
+    ifa: S, // default gateway links will have IP address here
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub(super) struct DestAddrMask<S> {
     dest: S,
     gateway: S, // mendatory on FreeBSD - if missing, EINVAL is returned
+    netmask: S,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub(super) struct GatewayLink<S> {
+    dest: S,
+    gateway: SockAddrDl, // mendatory on FreeBSD - if missing, EINVAL is returned
     netmask: S,
 }
 
@@ -211,10 +232,21 @@ fn if_addr<S: SocketFromRaw>(if_name: &str) -> Option<S> {
         }
         unsafe { libc::freeifaddrs(addrs) };
     } else {
-        eprintln!("getifaddrs returned {errno}");
+        debug!("getifaddrs returned {errno}");
     }
 
     None
+}
+
+impl<S: Default + SocketFromRaw> GatewayLink<S> {
+    #[must_use]
+    pub(super) fn new(dest: S, netmask: S, link: SockAddrDl) -> Self {
+        Self {
+            dest,
+            gateway: link,
+            netmask,
+        }
+    }
 }
 
 impl<S: Default + SocketFromRaw> DestAddrMask<S> {
@@ -236,7 +268,7 @@ impl<Payload: Default> RtMessage<Payload> {
             MessageType::Get,
             0,
             RTF_UP | RTF_GATEWAY | RTF_STATIC,
-            RTA_DST,
+            RTA_DST | RTA_IFA,
         );
 
         Self {
@@ -248,12 +280,25 @@ impl<Payload: Default> RtMessage<Payload> {
 
 impl<Payload> RtMessage<Payload> {
     #[must_use]
+    pub(super) fn new_for_gateway_link(if_index: u16, payload: Payload) -> Self {
+        let header = RtMsgHdr::new(
+            size_of::<Self>() as u16,
+            MessageType::Add,
+            if_index,
+            RTF_UP | RTF_STATIC | RTF_CLONING,
+            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
+        );
+
+        Self { header, payload }
+    }
+
+    #[must_use]
     pub(super) fn new_for_add(if_index: u16, payload: Payload) -> Self {
         let header = RtMsgHdr::new(
             size_of::<Self>() as u16,
             MessageType::Add,
             if_index,
-            RTF_UP | RTF_STATIC,
+            RTF_UP | RTF_STATIC | RTF_CLONING,
             RTA_DST | RTA_GATEWAY | RTA_NETMASK,
         );
 
@@ -266,7 +311,7 @@ impl<Payload> RtMessage<Payload> {
             size_of::<Self>() as u16,
             MessageType::Delete,
             if_index,
-            RTF_UP | RTF_STATIC,
+            RTF_UP | RTF_STATIC | RTF_CLONING,
             RTA_DST | RTA_GATEWAY | RTA_NETMASK,
         );
 
@@ -306,38 +351,31 @@ impl<Payload> RtMessage<Payload> {
         let mut offset = size_of::<RtMsgHdr>();
         if header.rtm_addrs & RTA_DST != 0 {
             let len = (&buf[offset..])[0] as usize;
-            // let dst = unpack_sockaddr(&buf[offset..]);
-            // eprintln!("{dst:?}");
             offset += if len > 0 { len } else { 4 };
         }
         if header.rtm_addrs & RTA_GATEWAY != 0 {
-            // let len = (&buf[offset..])[0] as usize;
-            return Ok(unpack_sockaddr(&buf[offset..]).map(|addr| addr.ip()));
-            // offset += if len > 0 { len } else { 4 };
+            let addr = unpack_sockaddr(&buf[offset..]);
+            if let Some(addr) = addr {
+                return Ok(Some(addr.ip()));
+            }
+            let len = (&buf[offset..])[0] as usize;
+            offset += if len > 0 { len } else { 4 };
         }
-        // if header.rtm_addrs & RTA_NETMASK != 0 {
-        //     let len = (&buf[offset..])[0] as usize;
-        //     let mask = unpack_sockaddr(&buf[offset..]);
-        //     eprintln!("{mask:?}");
-        //     offset += if len > 0 { len } else { 4 };
-        // }
-        // if header.rtm_addrs & RTA_GENMASK != 0 {
-        //     let len = (&buf[offset..])[0] as usize;
-        //     let mask = unpack_sockaddr(&buf[offset..]);
-        //     eprintln!("{mask:?}");
-        // offset += if len > 0 { len } else { 4 };
-        // }
-        // if header.rtm_addrs & RTA_IFP != 0 {
-        //     let len = (&buf[offset..])[0] as usize;
-        //     let ifp = unsafe { cast_ref::<sockaddr_dl>(&buf[offset..]) };
-        //     eprintln!("{ifp:?}");
-        //     offset += if len > 0 { len } else { 4 };
-        // }
-        // if header.rtm_addrs & RTA_IFA != 0 {
-        //     let len = (&buf[offset..])[0] as usize;
-        //     let ifa = unpack_sockaddr(&buf[offset..]);
-        //     eprintln!("{ifa:?}");
-        // }
+        if header.rtm_addrs & RTA_NETMASK != 0 {
+            let len = (&buf[offset..])[0] as usize;
+            offset += if len > 0 { len } else { 4 };
+        }
+        if header.rtm_addrs & RTA_GENMASK != 0 {
+            let len = (&buf[offset..])[0] as usize;
+            offset += if len > 0 { len } else { 4 };
+        }
+        if header.rtm_addrs & RTA_IFP != 0 {
+            let len = (&buf[offset..])[0] as usize;
+            offset += if len > 0 { len } else { 4 };
+        }
+        if header.rtm_addrs & RTA_IFA != 0 {
+            return Ok(unpack_sockaddr(&buf[offset..]).map(|addr| addr.ip()));
+        }
 
         Ok(None)
     }

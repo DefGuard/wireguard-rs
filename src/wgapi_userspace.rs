@@ -8,6 +8,10 @@ use std::{
     time::Duration,
 };
 
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use crate::bsd;
+#[cfg(target_os = "linux")]
+use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::utils::clear_dns;
 use crate::{
@@ -149,26 +153,11 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Assign IP address to network interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
-        let address_string = address.ip.to_string();
+        #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+        bsd::assign_address(&self.ifname, address)?;
+        #[cfg(target_os = "linux")]
+        netlink::address_interface(&self.ifname, address)?;
 
-        let output = if cfg!(target_os = "macos") {
-            match address.ip {
-                IpAddr::V4(_) => {
-                    Command::new("ifconfig")
-                        // On macOS ipv4, interface is point-to-point and requires a pair of addresses
-                        .args([&self.ifname, "inet", &address_string, &address_string])
-                        .output()?
-                }
-                IpAddr::V6(_) => Command::new("ifconfig")
-                    .args([&self.ifname, "inet6", &address_string])
-                    .output()?,
-            }
-        } else {
-            Command::new("ifconfig")
-                .args([&self.ifname, &address_string])
-                .output()?
-        };
-        check_command_output_status(output)?;
         Ok(())
     }
 
@@ -190,7 +179,13 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         let host = config.try_into()?;
         self.write_host(&host)?;
 
-        // TODO: set maximum transfer unit (MTU)
+        // Set maximum transfer unit (MTU).
+        if let Some(mtu) = config.mtu {
+            #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+            bsd::set_mtu(&self.ifname, mtu)?;
+            #[cfg(target_os = "linux")]
+            netlink::set_mtu(&self.ifname, mtu)?;
+        }
 
         Ok(())
     }
@@ -231,7 +226,8 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     ///   `<endpoint>` - Add routing for every unique Peer endpoint.
     ///   `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        add_peer_routing(peers, &self.ifname)
+        add_peer_routing(peers, &self.ifname)?;
+        Ok(())
     }
 
     /// Remove WireGuard network interface.

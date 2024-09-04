@@ -34,8 +34,7 @@ use thiserror::Error;
 use crate::{
     host::{Host, Peer},
     net::IpAddrMask,
-    utils::IpVersion,
-    Key, WireguardInterfaceError,
+    IpVersion, Key, WireguardInterfaceError,
 };
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;

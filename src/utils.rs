@@ -1,18 +1,19 @@
+#[cfg(target_os = "linux")]
+use std::collections::HashSet;
 #[cfg(target_os = "macos")]
 use std::io::{BufRead, BufReader, Cursor, Error as IoError};
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use std::{io::Write, process::Stdio};
 use std::{
-    collections::HashSet,
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     process::Command,
 };
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::{io::Write, process::Stdio};
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
-use crate::bsd::get_gateway;
+use crate::bsd::add_route;
 #[cfg(target_os = "linux")]
-use crate::netlink;
-use crate::{check_command_output_status, IpVersion, Peer, WireguardInterfaceError};
+use crate::{check_command_output_status, netlink, IpVersion};
+use crate::{Peer, WireguardInterfaceError};
 
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
@@ -188,101 +189,18 @@ pub(crate) fn add_peer_routing(
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
     debug!("Adding peer routing for interface: {ifname}");
-    let mut unique_allowed_ips = HashSet::new();
-    let mut endpoints = HashSet::new();
-    let mut default_route = None;
-
-    // TODO: find a better way to handle default routes.
     for peer in peers {
-        if let Some(endpoint) = peer.endpoint {
-            endpoints.insert(endpoint);
-        }
         for addr in &peer.allowed_ips {
-            // Handle default route
-            if addr.ip.is_unspecified() {
-                default_route = Some(addr);
-                break;
+            let mut new_addr = addr.clone();
+            // FIXME: currently it is impossible to add another default route, so use the hack from wg-quick for Darwin.
+            if addr.ip.is_unspecified() && addr.cidr == 0 {
+                new_addr.cidr = 1;
             }
-            unique_allowed_ips.insert(addr);
-        }
-    }
-
-    if let Some(default_route) = default_route {
-        debug!("Found default route: {default_route:?}");
-        let is_ipv6 = default_route.ip.is_ipv6();
-        let proto = if is_ipv6 { "-inet6" } else { "-inet" };
-        // Add table rules
-        let args = ["-q", "-n", "add", proto, "default", "-interface", ifname];
-        debug!("Executing command route with args: {args:?}");
-        let output = Command::new("route").args(args).output()?;
-        check_command_output_status(output)?;
-        // route endpoints
-        for endpoint in &endpoints {
-            let (ip_version, proto) = if endpoint.is_ipv4() {
-                (IpVersion::IPv4, "-inet")
-            } else {
-                (IpVersion::IPv6, "-inet6")
-            };
-            let gateway = get_gateway(ip_version)?;
-            // Precautionary `route delete` don't handle result because it may not exist.
-            let _ = Command::new("route")
-                .args(["-q", "-n", "delete", proto, &endpoint.ip().to_string()])
-                .output();
-
-            let endpoint_ip = endpoint.ip().to_string();
-            let args = match gateway {
-                None => {
-                    // Prevent routing loop as in wg-quick
-                    debug!("Default gateway not found.");
-                    let address = if endpoint.is_ipv4() {
-                        "127.0.0.1"
-                    } else {
-                        "::1"
-                    };
-                    [
-                        "-q",
-                        "-n",
-                        "add",
-                        proto,
-                        &endpoint_ip,
-                        address,
-                        "-blackhole",
-                    ]
-                }
-                Some(address) => {
-                    debug!("Found default gateway: {address}");
-                    [
-                        "-q",
-                        "-n",
-                        "add",
-                        proto,
-                        &endpoint_ip,
-                        "-gateway",
-                        &address.to_string(),
-                    ]
-                }
-            };
-            debug!("Executing command route with args: {args:?}");
-            let output = Command::new("route").args(args).output()?;
-            check_command_output_status(output)?;
-        }
-    } else {
-        for allowed_ip in unique_allowed_ips {
-            debug!("Processing allowed IP: {allowed_ip}");
-            let is_ipv6 = allowed_ip.ip.is_ipv6();
-            let proto = if is_ipv6 { "-inet6" } else { "-inet" };
-            let args = [
-                "-q",
-                "-n",
-                "add",
-                proto,
-                &allowed_ip.to_string(),
-                "-interface",
-                ifname,
-            ];
-            debug!("Executing command route with args: {args:?}");
-            let output = Command::new("route").args(args).output()?;
-            check_command_output_status(output)?;
+            // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
+            match add_route(&new_addr, ifname) {
+                Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
+                Err(err) => error!("Failed to add route to {addr} for interface {ifname}: {err}"),
+            }
         }
     }
 

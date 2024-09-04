@@ -1,7 +1,8 @@
 //! Convert binary `sockaddr_in` or `sockaddr_in6` (see netinet/in.h) to `SocketAddr`.
 use std::{
-    mem::size_of,
+    mem::{size_of, zeroed},
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    ptr::{copy, from_mut},
 };
 
 use super::{cast_bytes, cast_ref};
@@ -9,6 +10,7 @@ use super::{cast_bytes, cast_ref};
 // Note: these values differ across different platforms.
 const AF_INET: u8 = libc::AF_INET as u8;
 const AF_INET6: u8 = libc::AF_INET6 as u8;
+const AF_LINK: u8 = libc::AF_LINK as u8;
 const SA_IN_SIZE: u8 = size_of::<SockAddrIn>() as u8;
 const SA_IN6_SIZE: u8 = size_of::<SockAddrIn6>() as u8;
 
@@ -18,7 +20,7 @@ pub(super) trait SocketFromRaw {
         Self: Sized;
 }
 
-// netinet/in.h
+/// `struct sockaddr_in` from `netinet/in.h`
 #[derive(Debug)]
 #[repr(C)]
 pub(super) struct SockAddrIn {
@@ -33,12 +35,12 @@ impl SocketFromRaw for SockAddrIn {
     /// Construct `SockAddrIn` from `libc::sockaddr`.
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
         if addr.is_null() || (*addr).sa_family != AF_INET {
-            return None;
+            None
         } else {
-            let mut sockaddr: Self = std::mem::zeroed();
-            std::ptr::copy(
-                addr as *const u8,
-                &mut sockaddr as *mut Self as *mut u8,
+            let mut sockaddr: Self = zeroed();
+            copy(
+                addr.cast::<u8>(),
+                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
                 (*addr).sa_len as usize,
             );
             Some(sockaddr)
@@ -91,7 +93,7 @@ impl From<Ipv4Addr> for SockAddrIn {
     }
 }
 
-// `struct sockaddr_in6` from `netinet6/in6.h`
+/// `struct sockaddr_in6` from `netinet6/in6.h`
 #[derive(Debug)]
 #[repr(C)]
 pub(super) struct SockAddrIn6 {
@@ -125,10 +127,10 @@ impl SocketFromRaw for SockAddrIn6 {
         if addr.is_null() || (*addr).sa_family != AF_INET6 {
             None
         } else {
-            let mut sockaddr: Self = std::mem::zeroed();
-            std::ptr::copy(
-                addr as *const u8,
-                &mut sockaddr as *mut Self as *mut u8,
+            let mut sockaddr: Self = zeroed();
+            copy(
+                addr.cast::<u8>(),
+                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
                 (*addr).sa_len as usize,
             );
             Some(sockaddr)
@@ -222,6 +224,36 @@ pub(super) fn unpack_sockaddr(buf: &[u8]) -> Option<SocketAddr> {
             }
         }
         _ => None,
+    }
+}
+
+/// `struct sockaddr_dl` from `net/if_dl.h`
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub(super) struct SockAddrDl {
+    len: u8,
+    family: u8,
+    index: u16,
+    r#type: u8,
+    nlen: u8,
+    alen: u8,
+    slen: u8,
+    data: [u8; 12],
+}
+
+impl SockAddrDl {
+    #[must_use]
+    pub(super) fn new(index: u16) -> Self {
+        Self {
+            len: size_of::<Self>() as u8,
+            family: AF_LINK,
+            index,
+            r#type: 0,
+            nlen: 0,
+            alen: 0,
+            slen: 0,
+            data: [0u8; 12],
+        }
     }
 }
 
