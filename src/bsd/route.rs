@@ -198,7 +198,6 @@ pub(super) struct GatewayAddr<S> {
     ifa: S, // default gateway links will have IP address here
 }
 
-#[derive(Debug)]
 #[repr(C)]
 pub(super) struct DestAddrMask<S> {
     dest: S,
@@ -206,7 +205,6 @@ pub(super) struct DestAddrMask<S> {
     netmask: S,
 }
 
-#[derive(Debug)]
 #[repr(C)]
 pub(super) struct GatewayLink<S> {
     dest: S,

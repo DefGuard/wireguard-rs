@@ -21,7 +21,6 @@ pub(super) trait SocketFromRaw {
 }
 
 /// `struct sockaddr_in` from `netinet/in.h`
-#[derive(Debug)]
 #[repr(C)]
 pub(super) struct SockAddrIn {
     len: u8,
@@ -94,7 +93,6 @@ impl From<Ipv4Addr> for SockAddrIn {
 }
 
 /// `struct sockaddr_in6` from `netinet6/in6.h`
-#[derive(Debug)]
 #[repr(C)]
 pub(super) struct SockAddrIn6 {
     len: u8,
@@ -228,7 +226,7 @@ pub(super) fn unpack_sockaddr(buf: &[u8]) -> Option<SocketAddr> {
 }
 
 /// `struct sockaddr_dl` from `net/if_dl.h`
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[repr(C)]
 pub(super) struct SockAddrDl {
     len: u8,
