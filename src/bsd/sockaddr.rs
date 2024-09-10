@@ -1,18 +1,26 @@
 //! Convert binary `sockaddr_in` or `sockaddr_in6` (see netinet/in.h) to `SocketAddr`.
 use std::{
-    mem::size_of,
+    mem::{size_of, zeroed},
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    ptr::{copy, from_mut},
 };
-
-// Note: these values differ across different platforms.
-use libc::{AF_INET, AF_INET6};
 
 use super::{cast_bytes, cast_ref};
 
-const SA_IN_SIZE: usize = size_of::<SockAddrIn>();
-const SA_IN6_SIZE: usize = size_of::<SockAddrIn6>();
+// Note: these values differ across different platforms.
+const AF_INET: u8 = libc::AF_INET as u8;
+const AF_INET6: u8 = libc::AF_INET6 as u8;
+const AF_LINK: u8 = libc::AF_LINK as u8;
+const SA_IN_SIZE: u8 = size_of::<SockAddrIn>() as u8;
+const SA_IN6_SIZE: u8 = size_of::<SockAddrIn6>() as u8;
 
-// netinet/in.h
+pub(super) trait SocketFromRaw {
+    unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+/// `struct sockaddr_in` from `netinet/in.h`
 #[repr(C)]
 pub(super) struct SockAddrIn {
     len: u8,
@@ -22,11 +30,28 @@ pub(super) struct SockAddrIn {
     zero: [u8; 8],
 }
 
+impl SocketFromRaw for SockAddrIn {
+    /// Construct `SockAddrIn` from `libc::sockaddr`.
+    unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
+        if addr.is_null() || (*addr).sa_family != AF_INET {
+            None
+        } else {
+            let mut sockaddr: Self = zeroed();
+            copy(
+                addr.cast::<u8>(),
+                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
+                (*addr).sa_len as usize,
+            );
+            Some(sockaddr)
+        }
+    }
+}
+
 impl Default for SockAddrIn {
     fn default() -> Self {
         Self {
-            len: SA_IN_SIZE as u8,
-            family: AF_INET as u8,
+            len: SA_IN_SIZE,
+            family: AF_INET,
             port: 0,
             addr: [0u8; 4],
             zero: [0u8; 8],
@@ -46,8 +71,8 @@ impl From<&SockAddrIn> for SocketAddr {
 impl From<&SocketAddrV4> for SockAddrIn {
     fn from(sa: &SocketAddrV4) -> Self {
         Self {
-            len: SA_IN_SIZE as u8,
-            family: AF_INET as u8,
+            len: SA_IN_SIZE,
+            family: AF_INET,
             port: sa.port().to_be(),
             addr: sa.ip().octets(),
             zero: [0u8; 8],
@@ -58,8 +83,8 @@ impl From<&SocketAddrV4> for SockAddrIn {
 impl From<Ipv4Addr> for SockAddrIn {
     fn from(ip: Ipv4Addr) -> Self {
         Self {
-            len: SA_IN_SIZE as u8,
-            family: AF_INET as u8,
+            len: SA_IN_SIZE,
+            family: AF_INET,
             port: 0,
             addr: ip.octets(),
             zero: [0u8; 8],
@@ -67,7 +92,7 @@ impl From<Ipv4Addr> for SockAddrIn {
     }
 }
 
-// `struct sockaddr_in6` from `netinet6/in6.h`
+/// `struct sockaddr_in6` from `netinet6/in6.h`
 #[repr(C)]
 pub(super) struct SockAddrIn6 {
     len: u8,
@@ -94,11 +119,28 @@ impl SockAddrIn6 {
     }
 }
 
+impl SocketFromRaw for SockAddrIn6 {
+    /// Construct `SockAddrIn6` from `libc::sockaddr`.
+    unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
+        if addr.is_null() || (*addr).sa_family != AF_INET6 {
+            None
+        } else {
+            let mut sockaddr: Self = zeroed();
+            copy(
+                addr.cast::<u8>(),
+                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
+                (*addr).sa_len as usize,
+            );
+            Some(sockaddr)
+        }
+    }
+}
+
 impl Default for SockAddrIn6 {
     fn default() -> Self {
         Self {
-            len: SA_IN6_SIZE as u8,
-            family: AF_INET6 as u8,
+            len: SA_IN6_SIZE,
+            family: AF_INET6,
             port: 0,
             flowinfo: 0,
             addr: [0u8; 16],
@@ -121,8 +163,8 @@ impl From<&SockAddrIn6> for SocketAddr {
 impl From<&SocketAddrV6> for SockAddrIn6 {
     fn from(sa: &SocketAddrV6) -> Self {
         Self {
-            len: SA_IN6_SIZE as u8,
-            family: AF_INET6 as u8,
+            len: SA_IN6_SIZE,
+            family: AF_INET6,
             port: sa.port().to_be(),
             flowinfo: sa.flowinfo().to_be(),
             addr: sa.ip().octets(),
@@ -134,8 +176,8 @@ impl From<&SocketAddrV6> for SockAddrIn6 {
 impl From<Ipv6Addr> for SockAddrIn6 {
     fn from(ip: Ipv6Addr) -> Self {
         Self {
-            len: SA_IN6_SIZE as u8,
-            family: AF_INET6 as u8,
+            len: SA_IN6_SIZE,
+            family: AF_INET6,
             port: 0,
             flowinfo: 0,
             addr: ip.octets(),
@@ -160,28 +202,56 @@ pub(super) fn pack_sockaddr(sockaddr: &SocketAddr) -> Vec<u8> {
 }
 
 pub(super) fn unpack_sockaddr(buf: &[u8]) -> Option<SocketAddr> {
-    match buf.len() {
-        SA_IN_SIZE => {
+    match buf.first() {
+        Some(&SA_IN_SIZE) => {
             let sockaddr_in = unsafe { cast_ref::<SockAddrIn>(buf) };
             // sanity checks
-            if sockaddr_in.len == SA_IN_SIZE as u8 && sockaddr_in.family == AF_INET as u8 {
+            if sockaddr_in.family == AF_INET {
                 Some(sockaddr_in.into())
             } else {
                 None
             }
         }
-
-        SA_IN6_SIZE => {
+        Some(&SA_IN6_SIZE) => {
             let sockaddr_in6 = unsafe { cast_ref::<SockAddrIn6>(buf) };
             // sanity checks
-            if sockaddr_in6.len == SA_IN6_SIZE as u8 && sockaddr_in6.family == AF_INET6 as u8 {
+            if sockaddr_in6.family == AF_INET6 {
                 Some(sockaddr_in6.into())
             } else {
                 None
             }
         }
-
         _ => None,
+    }
+}
+
+/// `struct sockaddr_dl` from `net/if_dl.h`
+#[derive(Clone)]
+#[repr(C)]
+pub(super) struct SockAddrDl {
+    len: u8,
+    family: u8,
+    index: u16,
+    r#type: u8,
+    nlen: u8,
+    alen: u8,
+    slen: u8,
+    data: [u8; 12],
+}
+
+impl SockAddrDl {
+    #[must_use]
+    pub(super) fn new(index: u16) -> Self {
+        Self {
+            len: size_of::<Self>() as u8,
+            family: AF_LINK,
+            index,
+            r#type: 0,
+            nlen: 0,
+            alen: 0,
+            slen: 0,
+            data: [0u8; 12],
+        }
     }
 }
 
@@ -219,34 +289,8 @@ mod tests {
         assert_eq!(
             buf,
             [
-                28,
-                AF_INET6 as u8,
-                28,
-                133,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                255,
-                255,
-                192,
-                168,
-                12,
-                34,
-                0,
-                0,
-                0,
-                0,
+                28, AF_INET6, 28, 133, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 192,
+                168, 12, 34, 0, 0, 0, 0,
             ]
         );
     }
@@ -254,34 +298,8 @@ mod tests {
     #[test]
     fn unpack_ip6() {
         let buf = [
-            28,
-            AF_INET6 as u8,
-            28,
-            133,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            255,
-            255,
-            192,
-            168,
-            12,
-            34,
-            0,
-            0,
-            0,
-            0,
+            28, AF_INET6, 28, 133, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 192, 168,
+            12, 34, 0, 0, 0, 0,
         ];
         let addr = unpack_sockaddr(&buf).unwrap();
         assert_eq!(addr.port(), 7301);

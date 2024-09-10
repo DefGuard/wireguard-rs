@@ -8,7 +8,11 @@ use std::{
     time::Duration,
 };
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use crate::bsd;
+#[cfg(target_os = "linux")]
+use crate::netlink;
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::utils::clear_dns;
 use crate::{
     check_command_output_status,
@@ -140,7 +144,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         {
             configure_dns(dns)
         }
-        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
         {
             configure_dns(&self.ifname, dns)
         }
@@ -149,26 +153,11 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     /// Assign IP address to network interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
-        let address_string = address.ip.to_string();
+        #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+        bsd::assign_address(&self.ifname, address)?;
+        #[cfg(target_os = "linux")]
+        netlink::address_interface(&self.ifname, address)?;
 
-        let output = if cfg!(target_os = "macos") {
-            match address.ip {
-                IpAddr::V4(_) => {
-                    Command::new("ifconfig")
-                        // On macOS ipv4, interface is point-to-point and requires a pair of addresses
-                        .args([&self.ifname, "inet", &address_string, &address_string])
-                        .output()?
-                }
-                IpAddr::V6(_) => Command::new("ifconfig")
-                    .args([&self.ifname, "inet6", &address_string])
-                    .output()?,
-            }
-        } else {
-            Command::new("ifconfig")
-                .args([&self.ifname, &address_string])
-                .output()?
-        };
-        check_command_output_status(output)?;
         Ok(())
     }
 
@@ -190,7 +179,13 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         let host = config.try_into()?;
         self.write_host(&host)?;
 
-        // TODO: set maximum transfer unit (MTU)
+        // Set maximum transfer unit (MTU).
+        if let Some(mtu) = config.mtu {
+            #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+            bsd::set_mtu(&self.ifname, mtu)?;
+            #[cfg(target_os = "linux")]
+            netlink::set_mtu(&self.ifname, mtu)?;
+        }
 
         Ok(())
     }
@@ -207,29 +202,32 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     ///
     /// For `0.0.0.0/0` or `::/0` allowed IP, it runs belowed additional commands in order:
     /// - `ip <ip_version> route add 0.0.0.0/0 dev <ifname> table <fwmark>`
-    /// `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.
-    /// `<ifname>` - Interface name.
+    ///   `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.
+    ///   `<ifname>` - Interface name.
     /// - `ip <ip_version> rule add not fwmark <fwmark> table <fwmark>`.
     /// - `ip <ip_version> rule add table main suppress_prefixlength 0`.
     /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.
     /// - `iptables-restore -n`. For `0.0.0.0/0` only.
     /// - `iptables6-restore -n`. For `::/0` only.
+    ///
     /// Based on IP type `<ip_version>` will be equal to `-4` or `-6`.
     ///
     ///
     /// # macOS, FreeBSD:
     /// For every allowed IP, it runs:
     /// - `route -q -n add <inet> allowed_ip -interface if_name`
-    /// `ifname` - interface name while creating api
-    /// `allowed_ip`- one of [Peer](crate::Peer) allowed ip
+    ///   `ifname` - interface name while creating api
+    ///   `allowed_ip`- one of [Peer](crate::Peer) allowed ip
+    ///
     /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other routings.
     /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.
     /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.
     /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`
-    /// `<endpoint>` - Add routing for every unique Peer endpoint.
-    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
+    ///   `<endpoint>` - Add routing for every unique Peer endpoint.
+    ///   `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        add_peer_routing(peers, &self.ifname)
+        add_peer_routing(peers, &self.ifname)?;
+        Ok(())
     }
 
     /// Remove WireGuard network interface.

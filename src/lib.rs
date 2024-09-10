@@ -50,7 +50,7 @@
 //! # Ok::<(), WireguardInterfaceError>(())
 //! ```
 
-#[cfg(any(target_os = "freebsd", target_os = "macos"))]
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 pub mod bsd;
 pub mod error;
 pub mod host;
@@ -95,6 +95,13 @@ pub use wgapi_userspace::WireguardApiUserspace;
 #[cfg(target_os = "windows")]
 pub use wgapi_windows::WireguardApiWindows;
 pub use wireguard_interface::WireguardInterfaceApi;
+
+// Internet Protocol (IP) address variant.
+#[derive(Clone, Copy)]
+pub enum IpVersion {
+    IPv4,
+    IPv6,
+}
 
 /// Host WireGuard interface configuration
 #[derive(Clone, Serialize, Deserialize)]
