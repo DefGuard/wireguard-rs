@@ -144,6 +144,7 @@ impl TryFrom<&InterfaceConfiguration> for Host {
 }
 
 /// Utility function which checks external command output status.
+#[cfg(not(target_os = "windows"))]
 fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
     if !output.status.success() {
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");

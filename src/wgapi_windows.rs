@@ -2,12 +2,18 @@ use std::{
     env,
     fs::File,
     io::{self, BufRead, BufReader, Cursor, Write},
-    net::{IpAddr, SocketAddr},
+    mem::MaybeUninit,
+    net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6},
     process::Command,
     str::FromStr,
     thread::sleep,
     time::{Duration, SystemTime},
 };
+
+use windows::Win32::NetworkManagement::IpHelper::{
+    if_nametoindex, CreateIpForwardEntry2, InitializeIpForwardEntry, MIB_IPFORWARD_ROW2,
+};
+use windows_core::PCSTR;
 
 use crate::{
     error::WireguardInterfaceError,
@@ -16,6 +22,50 @@ use crate::{
     net::IpAddrMask,
     InterfaceConfiguration, WireguardInterfaceApi,
 };
+
+fn interface_index(if_name: &str) -> u32 {
+    unsafe { if_nametoindex(PCSTR(if_name.as_ptr())) }
+}
+
+fn forward_entry(dest: &IpAddrMask, if_index: u32) -> MIB_IPFORWARD_ROW2 {
+    let mut row = MaybeUninit::<MIB_IPFORWARD_ROW2>::uninit();
+    unsafe { InitializeIpForwardEntry(row.as_mut_ptr()) };
+    let mut row = unsafe { row.assume_init() };
+
+    let prefix = &mut row.DestinationPrefix;
+    prefix.PrefixLength = dest.cidr;
+    match dest.ip {
+        IpAddr::V4(ip) => {
+            prefix.Prefix.Ipv4 = SocketAddrV4::new(ip, 0).into();
+        }
+        IpAddr::V6(ip) => {
+            prefix.Prefix.Ipv6 = SocketAddrV6::new(ip, 0, 0, 0).into();
+        }
+    }
+
+    row.InterfaceIndex = if_index;
+    row.Metric = 0;
+
+    row
+}
+
+fn add_route(dest: &IpAddrMask, if_index: u32) {
+    const DUPLICATE_ERR: u32 = 0x80071392;
+    let entry = forward_entry(dest, if_index);
+
+    // SAFETY: Windows shouldn't store the reference anywhere, it's just a way to pass lots of arguments at once. And no other thread sees this variable.
+    let Err(err) = unsafe { CreateIpForwardEntry2(&entry) }.ok() else {
+        debug!("Created new route");
+        return;
+    };
+
+    // We expect set_routes to call add_route with the same routes always making this error expected
+    if err.code().0 as u32 == DUPLICATE_ERR {
+        return;
+    }
+
+    warn!("Failed to add route: {err}");
+}
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
 #[derive(Clone)]
@@ -178,7 +228,14 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         Ok(())
     }
 
-    fn configure_peer_routing(&self, _peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+    fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        debug!("Adding peer routing for interface: {}", self.ifname);
+        let if_index = interface_index(&self.ifname);
+        for peer in peers {
+            for addr in &peer.allowed_ips {
+                add_route(addr, if_index);
+            }
+        }
         Ok(())
     }
 
@@ -284,5 +341,19 @@ impl WireguardInterfaceApi for WireguardApiWindows {
             self.ifname
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[ignored]
+    #[test]
+    fn add_route() {
+        let if_index = interface_index("wg0");
+        eprintln("if_index {if_index}");
+        let ip = "10.10.10.0/24".parse::<IpAddrMask>().unwrap();
+        add_route(&ip, if_index);
     }
 }

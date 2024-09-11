@@ -40,6 +40,22 @@ netlink-packet-utils = "0.5"
 netlink-packet-wireguard = "0.2"
 netlink-sys = "0.8"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-core = { version = "0.58" }
+windows = { version = "0.58", features = [
+    # For DNS control and route control
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+
+    "Win32_Security",                 # For named pipe IPC
+    "Win32_System_GroupPolicy",       # For NRPT when GPO is used
+    "Win32_System_SystemInformation", # For uptime
+    "Win32_System_SystemServices",
+    "Win32_System_Pipes",
+] }
+
 [profile.release]
 lto = "thin"
 strip = "symbols"
