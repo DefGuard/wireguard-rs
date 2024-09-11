@@ -10,7 +10,7 @@ use std::{
 };
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
-use crate::bsd::add_route;
+use crate::bsd::add_gateway;
 #[cfg(target_os = "linux")]
 use crate::{check_command_output_status, netlink, IpVersion};
 use crate::{Peer, WireguardInterfaceError};
@@ -197,7 +197,7 @@ pub(crate) fn add_peer_routing(
                 new_addr.cidr = 1;
             }
             // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
-            match add_route(&new_addr, ifname) {
+            match add_gateway(&new_addr, ifname) {
                 Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
                 Err(err) => error!("Failed to add route to {addr} for interface {ifname}: {err}"),
             }
@@ -205,15 +205,6 @@ pub(crate) fn add_peer_routing(
     }
 
     info!("Peers routing added successfully");
-    Ok(())
-}
-
-/// Helper function to add routing.
-#[cfg(target_os = "windows")]
-pub(crate) fn add_peer_routing(
-    peers: &[Peer],
-    ifname: &str,
-) -> Result<(), WireguardInterfaceError> {
     Ok(())
 }
 
