@@ -130,7 +130,11 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     ///
     /// - Linux
     /// - FreeBSD
-    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+    fn configure_dns(
+        &self,
+        dns: &[IpAddr],
+        search_domains: &[&str],
+    ) -> Result<(), WireguardInterfaceError> {
         if dns.is_empty() {
             warn!("Received empty DNS server list. Skipping DNS configuration...");
             return Ok(());
@@ -146,7 +150,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         }
         #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
         {
-            configure_dns(&self.ifname, dns)
+            configure_dns(&self.ifname, dns, search_domains)
         }
     }
 

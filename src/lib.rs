@@ -74,16 +74,9 @@ mod wireguard_interface;
 #[macro_use]
 extern crate log;
 
-use serde::{Deserialize, Serialize};
 use std::{fmt, process::Output};
 
-use self::{
-    error::WireguardInterfaceError,
-    host::{Host, Peer},
-    key::Key,
-    net::IpAddrMask,
-};
-
+use serde::{Deserialize, Serialize};
 // public re-exports
 pub use wgapi::WGApi;
 #[cfg(target_os = "freebsd")]
@@ -95,6 +88,13 @@ pub use wgapi_userspace::WireguardApiUserspace;
 #[cfg(target_os = "windows")]
 pub use wgapi_windows::WireguardApiWindows;
 pub use wireguard_interface::WireguardInterfaceApi;
+
+use self::{
+    error::WireguardInterfaceError,
+    host::{Host, Peer},
+    key::Key,
+    net::IpAddrMask,
+};
 
 // Internet Protocol (IP) address variant.
 #[derive(Clone, Copy)]
