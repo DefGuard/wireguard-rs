@@ -146,7 +146,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
         {
-            configure_dns(dns)
+            configure_dns(dns, search_domains)
         }
         #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
         {
@@ -246,7 +246,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         fs::remove_file(self.socket_path())?;
         #[cfg(target_os = "macos")]
         {
-            configure_dns(&[])?;
+            configure_dns(&[], &[])?;
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {

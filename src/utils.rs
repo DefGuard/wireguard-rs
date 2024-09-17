@@ -92,6 +92,15 @@ pub(crate) fn configure_dns(
         } else {
             cmd.args(dns.iter().map(ToString::to_string));
         }
+
+        let status = cmd.status()?;
+        if !status.success() {
+            warn!("Command `networksetup` failed while setting DNS servers for {service}");
+        }
+
+        // Set search domains, if empty, clear all search domains.
+        debug!("Setting search domains for {service}");
+        let mut cmd = Command::new("networksetup");
         cmd.arg("-setsearchdomains").arg(&service);
         if search_domains.is_empty() {
             // This clears all search domains.
