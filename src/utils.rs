@@ -16,11 +16,20 @@ use crate::{check_command_output_status, netlink, IpVersion};
 use crate::{Peer, WireguardInterfaceError};
 
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+pub(crate) fn configure_dns(
+    ifname: &str,
+    dns: &[IpAddr],
+    search_domains: &[&str],
+) -> Result<(), WireguardInterfaceError> {
     // Build the resolvconf command
     debug!("Setting up DNS");
     let mut cmd = Command::new("resolvconf");
-    let args = ["-a", ifname, "-m", "0", "-x"];
+    let mut args = vec!["-a", ifname, "-m", "0"];
+    // Set the exclusive flag if no search domains are provided,
+    // making the DNS servers a preferred route for any domain
+    if search_domains.is_empty() {
+        args.push("-x");
+    }
     debug!("Executing command resolvconf with args: {args:?}");
     cmd.args(args);
 
@@ -30,6 +39,10 @@ pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), Wireguar
             for entry in dns {
                 debug!("Adding nameserver entry: {entry}");
                 writeln!(stdin, "nameserver {entry}")?;
+            }
+            for domain in search_domains {
+                debug!("Adding search domain entry: {domain}");
+                writeln!(stdin, "search {domain}")?;
             }
         }
 
@@ -65,7 +78,10 @@ fn network_services() -> Result<Vec<String>, IoError> {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+pub(crate) fn configure_dns(
+    dns: &[IpAddr],
+    search_domains: &[&str],
+) -> Result<(), WireguardInterfaceError> {
     for service in network_services()? {
         debug!("Setting DNS entries for {service}");
         let mut cmd = Command::new("networksetup");
@@ -77,8 +93,23 @@ pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceErro
             cmd.args(dns.iter().map(ToString::to_string));
         }
 
+        let status = cmd.status()?;
+        if !status.success() {
+            warn!("Command `networksetup` failed while setting DNS servers for {service}");
+        }
+
+        // Set search domains, if empty, clear all search domains.
+        debug!("Setting search domains for {service}");
+        let mut cmd = Command::new("networksetup");
+        cmd.arg("-setsearchdomains").arg(&service);
+        if search_domains.is_empty() {
+            // This clears all search domains.
+            cmd.arg("Empty");
+        } else {
+            cmd.args(search_domains.iter());
+        }
         if !cmd.status()?.success() {
-            warn!("Command `networksetup` failed for {service}");
+            warn!("Command `networksetup` failed while setting search domains for {service}");
         }
     }
 

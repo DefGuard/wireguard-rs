@@ -82,8 +82,9 @@ impl WireguardInterfaceApi for WGApi {
         &self,
         config: &InterfaceConfiguration,
         dns: &[IpAddr],
+        search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
-        self.0.configure_interface(config, dns)
+        self.0.configure_interface(config, dns, search_domains)
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
@@ -94,8 +95,12 @@ impl WireguardInterfaceApi for WGApi {
         self.0.configure_peer(peer)
     }
 
-    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
-        self.0.configure_dns(dns)
+    fn configure_dns(
+        &self,
+        dns: &[IpAddr],
+        search_domains: &[&str],
+    ) -> Result<(), WireguardInterfaceError> {
+        self.0.configure_dns(dns, search_domains)
     }
 
     fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {

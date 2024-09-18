@@ -125,7 +125,11 @@ impl WireguardInterfaceApi for WireguardApiLinux {
     /// It executes the `resolvconf` command with appropriate arguments to update DNS
     /// configurations for the specified Wireguard interface. The DNS entries are filtered
     /// for nameservers and search domains before being piped to the `resolvconf` command.
-    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+    fn configure_dns(
+        &self,
+        dns: &[IpAddr],
+        search_domains: &[&str],
+    ) -> Result<(), WireguardInterfaceError> {
         if dns.is_empty() {
             warn!("Received empty DNS server list. Skipping DNS configuration...");
             return Ok(());
@@ -134,7 +138,7 @@ impl WireguardInterfaceApi for WireguardApiLinux {
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname
         );
-        configure_dns(&self.ifname, dns)?;
+        configure_dns(&self.ifname, dns, search_domains)?;
         Ok(())
     }
 }
