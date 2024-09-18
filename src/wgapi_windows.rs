@@ -89,7 +89,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                             .join(",")
                     )
                 } else {
-                    ""
+                    "".to_string()
                 }
             );
             wireguard_configuration.push_str(dns_addresses.as_str());
