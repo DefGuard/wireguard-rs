@@ -219,18 +219,49 @@ pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use crate::net::IpAddrMask;
+
     debug!("Adding peer routing for interface: {ifname}");
     for peer in peers {
         for addr in &peer.allowed_ips {
-            let mut new_addr = addr.clone();
             // FIXME: currently it is impossible to add another default route, so use the hack from wg-quick for Darwin.
             if addr.ip.is_unspecified() && addr.cidr == 0 {
-                new_addr.cidr = 1;
-            }
-            // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
-            match add_gateway(&new_addr, ifname) {
-                Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
-                Err(err) => error!("Failed to add route to {addr} for interface {ifname}: {err}"),
+                let default1;
+                let default2;
+                if addr.ip.is_ipv4() {
+                    // 0.0.0.0/1
+                    default1 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1);
+                    // 128.0.0.0/1
+                    default2 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)), 1);
+                } else {
+                    // ::/1
+                    default1 = IpAddrMask::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 1);
+                    // 8000::/1
+                    default2 =
+                        IpAddrMask::new(IpAddr::V6(Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0)), 1);
+                }
+                match add_gateway(&default1, ifname) {
+                    Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
+                    Err(err) => {
+                        error!("Failed to add route to {default1} for interface {ifname}: {err}");
+                    }
+                }
+                match add_gateway(&default2, ifname) {
+                    Ok(()) => debug!("Route to {default2} has been added for interface {ifname}"),
+                    Err(err) => {
+                        error!("Failed to add route to {default2} for interface {ifname}: {err}");
+                    }
+                }
+            } else {
+                // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
+                match add_gateway(&addr, ifname) {
+                    Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
+                    Err(err) => {
+                        error!("Failed to add route to {addr} for interface {ifname}: {err}");
+                    }
+                }
             }
         }
     }
