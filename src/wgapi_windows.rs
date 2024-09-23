@@ -114,15 +114,17 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                 wireguard_configuration.push_str(format!("\nEndpoint = {}", endpoint).as_str());
             }
 
-            let allowed_ips = format!(
-                "\nAllowedIPs = {}",
-                peer.allowed_ips
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<String>>()
-                    .join(",")
-            );
-            wireguard_configuration.push_str(allowed_ips.as_str());
+            if !peer.allowed_ips.is_empty() {
+                let allowed_ips = format!(
+                    "\nAllowedIPs = {}",
+                    peer.allowed_ips
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",")
+                );
+                wireguard_configuration.push_str(allowed_ips.as_str());
+            }
         }
 
         file.write_all(wireguard_configuration.as_bytes())?;
