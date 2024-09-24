@@ -130,7 +130,11 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
     ///
     /// - Linux
     /// - FreeBSD
-    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+    fn configure_dns(
+        &self,
+        dns: &[IpAddr],
+        search_domains: &[&str],
+    ) -> Result<(), WireguardInterfaceError> {
         if dns.is_empty() {
             warn!("Received empty DNS server list. Skipping DNS configuration...");
             return Ok(());
@@ -142,11 +146,11 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
         {
-            configure_dns(dns)
+            configure_dns(dns, search_domains)
         }
         #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
         {
-            configure_dns(&self.ifname, dns)
+            configure_dns(&self.ifname, dns, search_domains)
         }
     }
 
@@ -242,7 +246,7 @@ impl WireguardInterfaceApi for WireguardApiUserspace {
         fs::remove_file(self.socket_path())?;
         #[cfg(target_os = "macos")]
         {
-            configure_dns(&[])?;
+            configure_dns(&[], &[])?;
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {

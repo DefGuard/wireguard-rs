@@ -1,5 +1,5 @@
 use std::{
-    mem::size_of,
+    mem::{size_of, MaybeUninit},
     net::IpAddr,
     os::fd::{AsFd, AsRawFd},
 };
@@ -214,7 +214,7 @@ pub(super) struct GatewayLink<S> {
 
 /// Get an address for a given interface. First address is returned.
 fn if_addr<S: SocketFromRaw>(if_name: &str) -> Option<S> {
-    let mut addrs = std::mem::MaybeUninit::<*mut libc::ifaddrs>::uninit();
+    let mut addrs = MaybeUninit::<*mut libc::ifaddrs>::uninit();
     let errno = unsafe { libc::getifaddrs(addrs.as_mut_ptr()) };
     if errno == 0 {
         let addrs = unsafe { addrs.assume_init() };
@@ -277,19 +277,6 @@ impl<Payload: Default> RtMessage<Payload> {
 }
 
 impl<Payload> RtMessage<Payload> {
-    #[must_use]
-    pub(super) fn new_for_gateway_link(if_index: u16, payload: Payload) -> Self {
-        let header = RtMsgHdr::new(
-            size_of::<Self>() as u16,
-            MessageType::Add,
-            if_index,
-            RTF_UP | RTF_STATIC | RTF_CLONING,
-            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
-        );
-
-        Self { header, payload }
-    }
-
     #[must_use]
     pub(super) fn new_for_add(if_index: u16, payload: Payload) -> Self {
         let header = RtMsgHdr::new(

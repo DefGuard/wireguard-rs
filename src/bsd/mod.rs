@@ -368,7 +368,7 @@ pub fn get_gateway(ip_version: IpVersion) -> Result<Option<IpAddr>, IoError> {
     }
 }
 
-/// Add link layaer address gateway.
+/// Add link layer address gateway.
 pub fn add_gateway(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
     let name = CString::new(if_name).unwrap();
     let if_index = unsafe { libc::if_nametoindex(name.as_ptr()) as u16 };
@@ -379,13 +379,13 @@ pub fn add_gateway(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
             let link = SockAddrDl::new(if_index);
             let payload = GatewayLink::<SockAddrIn>::new(ip.into(), mask.into(), link);
-            let rtmsg = RtMessage::new_for_gateway_link(if_index, payload);
+            let rtmsg = RtMessage::new_for_add(if_index, payload);
             return rtmsg.execute();
         }
         (IpAddr::V6(ip), IpAddr::V6(mask)) => {
             let link = SockAddrDl::new(if_index);
             let payload = GatewayLink::<SockAddrIn6>::new(ip.into(), mask.into(), link);
-            let rtmsg = RtMessage::new_for_gateway_link(if_index, payload);
+            let rtmsg = RtMessage::new_for_add(if_index, payload);
             return rtmsg.execute();
         }
         _ => error!("Unsupported address for add route"),

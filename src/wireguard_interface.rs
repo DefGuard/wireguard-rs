@@ -1,5 +1,6 @@
-use crate::{error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
 use std::net::IpAddr;
+
+use crate::{error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
 
 /// API for managing a WireGuard interface.
 ///
@@ -28,6 +29,7 @@ pub trait WireguardInterfaceApi {
         &self,
         config: &InterfaceConfiguration,
         dns: &[IpAddr],
+        search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError>;
 
     /// Removes the WireGuard interface being managed.
@@ -48,19 +50,27 @@ pub trait WireguardInterfaceApi {
 
     /// Sets the DNS configuration for the WireGuard interface.
     ///
-    /// This function takes a vector of DNS server addresses (`dns`) and configures the
-    /// WireGuard interface to use these DNS servers. It is equivalent to specifying the
+    /// This function takes a slice of DNS server addresses (`dns`) and search domains (`search_domains`) and configures the
+    /// WireGuard interface to use them. If the search domain vector is empty it sets the "exclusive" flag making the DNS servers a
+    /// preferred route for any domain. This method is equivalent to specifying the
     /// DNS section in a WireGuard configuration file and using `wg-quick` to apply the
     /// configuration.
     ///
     /// # Arguments
     ///
-    /// * `dns` - A vector of [`IpAddr`](std::net::IpAddr) representing the DNS server addresses to be set for
+    /// * `dns` - A slice of [`IpAddr`](std::net::IpAddr) representing the DNS server addresses to be set for
     ///   the WireGuard interface.
+    ///   
+    /// * `search_domains` - A slice of [`&str`](std::str) representing the search domains to be set for
+    ///  the WireGuard interface.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` if the DNS configuration is successfully set, or an
     /// `Err(WireguardInterfaceError)` if there is an error during the configuration process.
-    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError>;
+    fn configure_dns(
+        &self,
+        dns: &[IpAddr],
+        search_domains: &[&str],
+    ) -> Result<(), WireguardInterfaceError>;
 }

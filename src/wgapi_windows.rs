@@ -94,6 +94,7 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         &self,
         config: &InterfaceConfiguration,
         dns: &[IpAddr],
+        search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
         info!(
             "Configuring interface {} with config: {config:?}",
@@ -116,12 +117,30 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         );
 
         if !dns.is_empty() {
+            // Format:
+            // DNS = <IP>,<IP>
+            // If search domains are present:
+            // DNS = <IP>,<IP>,<domain>,<domain>
             let dns_addresses = format!(
-                "\nDNS = {}",
+                "\nDNS = {}{}",
+                // DNS addresses part
                 dns.iter()
                     .map(|v| v.to_string())
                     .collect::<Vec<String>>()
-                    .join(",")
+                    .join(","),
+                // Search domains part, optional
+                if !search_domains.is_empty() {
+                    format!(
+                        ",{}",
+                        search_domains
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<String>>()
+                            .join(",")
+                    )
+                } else {
+                    "".to_string()
+                }
             );
             wireguard_configuration.push_str(dns_addresses.as_str());
         }
@@ -145,15 +164,17 @@ impl WireguardInterfaceApi for WireguardApiWindows {
                 wireguard_configuration.push_str(format!("\nEndpoint = {}", endpoint).as_str());
             }
 
-            let allowed_ips = format!(
-                "\nAllowedIPs = {}",
-                peer.allowed_ips
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<String>>()
-                    .join(",")
-            );
-            wireguard_configuration.push_str(allowed_ips.as_str());
+            if !peer.allowed_ips.is_empty() {
+                let allowed_ips = format!(
+                    "\nAllowedIPs = {}",
+                    peer.allowed_ips
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",")
+                );
+                wireguard_configuration.push_str(allowed_ips.as_str());
+            }
         }
 
         file.write_all(wireguard_configuration.as_bytes())?;
@@ -335,7 +356,11 @@ impl WireguardInterfaceApi for WireguardApiWindows {
         Ok(host)
     }
 
-    fn configure_dns(&self, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+    fn configure_dns(
+        &self,
+        dns: &[IpAddr],
+        search_domains: &[&str],
+    ) -> Result<(), WireguardInterfaceError> {
         info!(
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname

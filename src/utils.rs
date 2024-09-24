@@ -10,17 +10,26 @@ use std::{
 };
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
-use crate::bsd::add_route;
+use crate::bsd::add_gateway;
 #[cfg(target_os = "linux")]
 use crate::{check_command_output_status, netlink, IpVersion};
 use crate::{Peer, WireguardInterfaceError};
 
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+pub(crate) fn configure_dns(
+    ifname: &str,
+    dns: &[IpAddr],
+    search_domains: &[&str],
+) -> Result<(), WireguardInterfaceError> {
     // Build the resolvconf command
     debug!("Setting up DNS");
     let mut cmd = Command::new("resolvconf");
-    let args = ["-a", ifname, "-m", "0", "-x"];
+    let mut args = vec!["-a", ifname, "-m", "0"];
+    // Set the exclusive flag if no search domains are provided,
+    // making the DNS servers a preferred route for any domain
+    if search_domains.is_empty() {
+        args.push("-x");
+    }
     debug!("Executing command resolvconf with args: {args:?}");
     cmd.args(args);
 
@@ -30,6 +39,10 @@ pub(crate) fn configure_dns(ifname: &str, dns: &[IpAddr]) -> Result<(), Wireguar
             for entry in dns {
                 debug!("Adding nameserver entry: {entry}");
                 writeln!(stdin, "nameserver {entry}")?;
+            }
+            for domain in search_domains {
+                debug!("Adding search domain entry: {domain}");
+                writeln!(stdin, "search {domain}")?;
             }
         }
 
@@ -65,7 +78,10 @@ fn network_services() -> Result<Vec<String>, IoError> {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceError> {
+pub(crate) fn configure_dns(
+    dns: &[IpAddr],
+    search_domains: &[&str],
+) -> Result<(), WireguardInterfaceError> {
     for service in network_services()? {
         debug!("Setting DNS entries for {service}");
         let mut cmd = Command::new("networksetup");
@@ -77,8 +93,23 @@ pub(crate) fn configure_dns(dns: &[IpAddr]) -> Result<(), WireguardInterfaceErro
             cmd.args(dns.iter().map(ToString::to_string));
         }
 
+        let status = cmd.status()?;
+        if !status.success() {
+            warn!("Command `networksetup` failed while setting DNS servers for {service}");
+        }
+
+        // Set search domains, if empty, clear all search domains.
+        debug!("Setting search domains for {service}");
+        let mut cmd = Command::new("networksetup");
+        cmd.arg("-setsearchdomains").arg(&service);
+        if search_domains.is_empty() {
+            // This clears all search domains.
+            cmd.arg("Empty");
+        } else {
+            cmd.args(search_domains.iter());
+        }
         if !cmd.status()?.success() {
-            warn!("Command `networksetup` failed for {service}");
+            warn!("Command `networksetup` failed while setting search domains for {service}");
         }
     }
 
@@ -188,32 +219,54 @@ pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use crate::net::IpAddrMask;
+
     debug!("Adding peer routing for interface: {ifname}");
     for peer in peers {
         for addr in &peer.allowed_ips {
-            let mut new_addr = addr.clone();
             // FIXME: currently it is impossible to add another default route, so use the hack from wg-quick for Darwin.
             if addr.ip.is_unspecified() && addr.cidr == 0 {
-                new_addr.cidr = 1;
-            }
-            // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
-            match add_route(&new_addr, ifname) {
-                Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
-                Err(err) => error!("Failed to add route to {addr} for interface {ifname}: {err}"),
+                let default1;
+                let default2;
+                if addr.ip.is_ipv4() {
+                    // 0.0.0.0/1
+                    default1 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1);
+                    // 128.0.0.0/1
+                    default2 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)), 1);
+                } else {
+                    // ::/1
+                    default1 = IpAddrMask::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 1);
+                    // 8000::/1
+                    default2 =
+                        IpAddrMask::new(IpAddr::V6(Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0)), 1);
+                }
+                match add_gateway(&default1, ifname) {
+                    Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
+                    Err(err) => {
+                        error!("Failed to add route to {default1} for interface {ifname}: {err}");
+                    }
+                }
+                match add_gateway(&default2, ifname) {
+                    Ok(()) => debug!("Route to {default2} has been added for interface {ifname}"),
+                    Err(err) => {
+                        error!("Failed to add route to {default2} for interface {ifname}: {err}");
+                    }
+                }
+            } else {
+                // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
+                match add_gateway(&addr, ifname) {
+                    Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
+                    Err(err) => {
+                        error!("Failed to add route to {addr} for interface {ifname}: {err}");
+                    }
+                }
             }
         }
     }
 
     info!("Peers routing added successfully");
-    Ok(())
-}
-
-/// Helper function to add routing.
-#[cfg(target_os = "windows")]
-pub(crate) fn add_peer_routing(
-    peers: &[Peer],
-    ifname: &str,
-) -> Result<(), WireguardInterfaceError> {
     Ok(())
 }
 

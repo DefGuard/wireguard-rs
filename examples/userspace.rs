@@ -1,11 +1,12 @@
-use defguard_wireguard_rs::{host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration};
-#[cfg(target_os = "macos")]
-use defguard_wireguard_rs::{WireguardApiUserspace, WireguardInterfaceApi};
 use std::{
     io::{stdin, stdout, Read, Write},
     net::SocketAddr,
     str::FromStr,
 };
+
+use defguard_wireguard_rs::{host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration};
+#[cfg(target_os = "macos")]
+use defguard_wireguard_rs::{WireguardApiUserspace, WireguardInterfaceApi};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn pause() {
