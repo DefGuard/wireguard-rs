@@ -60,9 +60,9 @@ pub trait WireguardInterfaceApi {
     ///
     /// * `dns` - A slice of [`IpAddr`](std::net::IpAddr) representing the DNS server addresses to be set for
     ///   the WireGuard interface.
-    ///   
+    ///
     /// * `search_domains` - A slice of [`&str`](std::str) representing the search domains to be set for
-    ///  the WireGuard interface.
+    ///   the WireGuard interface.
     ///
     /// # Returns
     ///

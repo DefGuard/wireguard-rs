@@ -44,7 +44,7 @@ const RTM_VERSION: u8 = 4;
 /// Route message flags.
 const RTF_UP: i32 = 0x1;
 const RTF_GATEWAY: i32 = 0x2;
-// const RTF_HOST: i32 = 0x4;
+const RTF_HOST: i32 = 0x4;
 // const RTF_REJECT: i32 = 0x8;
 // const RTF_DYNAMIC: i32 = 0x10;
 // const RTF_MODIFIED: i32 = 0x20;
@@ -249,7 +249,16 @@ impl<S: Default + SocketFromRaw> GatewayLink<S> {
 
 impl<S: Default + SocketFromRaw> DestAddrMask<S> {
     #[must_use]
-    pub(super) fn new(dest: S, netmask: S, if_name: &str) -> Self {
+    pub(super) fn new(dest: S, netmask: S, gateway: S) -> Self {
+        Self {
+            dest,
+            gateway,
+            netmask,
+        }
+    }
+
+    #[must_use]
+    pub(super) fn new_for_interface(dest: S, netmask: S, if_name: &str) -> Self {
         Self {
             dest,
             gateway: if_addr(if_name).unwrap_or_default(),
@@ -277,6 +286,33 @@ impl<Payload: Default> RtMessage<Payload> {
 }
 
 impl<Payload> RtMessage<Payload> {
+    #[must_use]
+    pub(super) fn new_for_add_gateway(if_index: u16, payload: Payload) -> Self {
+        let header = RtMsgHdr::new(
+            size_of::<Self>() as u16,
+            MessageType::Add,
+            if_index,
+            RTF_UP | RTF_STATIC | RTF_HOST | RTF_GATEWAY,
+            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
+        );
+
+        Self { header, payload }
+    }
+
+    // TODO: check if gateway field and flag are needed.
+    #[must_use]
+    pub(super) fn new_for_delete_gateway(if_index: u16, payload: Payload) -> Self {
+        let header = RtMsgHdr::new(
+            size_of::<Self>() as u16,
+            MessageType::Delete,
+            if_index,
+            RTF_UP | RTF_STATIC | RTF_HOST | RTF_GATEWAY,
+            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
+        );
+
+        Self { header, payload }
+    }
+
     #[must_use]
     pub(super) fn new_for_add(if_index: u16, payload: Payload) -> Self {
         let header = RtMsgHdr::new(

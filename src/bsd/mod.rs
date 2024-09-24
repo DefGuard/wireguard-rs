@@ -368,8 +368,48 @@ pub fn get_gateway(ip_version: IpVersion) -> Result<Option<IpAddr>, IoError> {
     }
 }
 
+/// Add routing gateway.
+pub fn add_gateway_host(dest: &IpAddrMask, gateway: IpAddr) -> Result<(), IoError> {
+    match (dest.ip, dest.mask(), gateway) {
+        (IpAddr::V4(ip), IpAddr::V4(mask), IpAddr::V4(gw)) => {
+            let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), gw.into());
+            let rtmsg = RtMessage::new_for_add_gateway(0, payload);
+            return rtmsg.execute();
+        }
+        (IpAddr::V6(ip), IpAddr::V6(mask), IpAddr::V6(gw)) => {
+            let payload = DestAddrMask::<SockAddrIn6>::new(ip.into(), mask.into(), gw.into());
+            let rtmsg = RtMessage::new_for_add_gateway(0, payload);
+            return rtmsg.execute();
+        }
+        _ => error!("Unsupported address for add route"),
+    }
+
+    Ok(())
+}
+
+/// Add routing gateway.
+pub fn delete_gateway_host(dest: &IpAddrMask) -> Result<(), IoError> {
+    match (dest.ip, dest.mask()) {
+        (IpAddr::V4(ip), IpAddr::V4(mask)) => {
+            let payload =
+                DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), Default::default());
+            let rtmsg = RtMessage::new_for_delete_gateway(0, payload);
+            return rtmsg.execute();
+        }
+        (IpAddr::V6(ip), IpAddr::V6(mask)) => {
+            let payload =
+                DestAddrMask::<SockAddrIn6>::new(ip.into(), mask.into(), Default::default());
+            let rtmsg = RtMessage::new_for_delete_gateway(0, payload);
+            return rtmsg.execute();
+        }
+        _ => error!("Unsupported address for add route"),
+    }
+
+    Ok(())
+}
+
 /// Add link layer address gateway.
-pub fn add_gateway(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
+pub fn add_linked_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
     let name = CString::new(if_name).unwrap();
     let if_index = unsafe { libc::if_nametoindex(name.as_ptr()) as u16 };
     if if_index == 0 {
@@ -403,12 +443,14 @@ pub fn add_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
     }
     match (dest.ip, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
-            let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), if_name);
+            let payload =
+                DestAddrMask::<SockAddrIn>::new_for_interface(ip.into(), mask.into(), if_name);
             let rtmsg = RtMessage::new_for_add(if_index, payload);
             return rtmsg.execute();
         }
         (IpAddr::V6(ip), IpAddr::V6(mask)) => {
-            let payload = DestAddrMask::<SockAddrIn6>::new(ip.into(), mask.into(), if_name);
+            let payload =
+                DestAddrMask::<SockAddrIn6>::new_for_interface(ip.into(), mask.into(), if_name);
             let rtmsg = RtMessage::new_for_add(if_index, payload);
             return rtmsg.execute();
         }
@@ -427,12 +469,14 @@ pub fn delete_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
     }
     match (dest.ip, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
-            let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), if_name);
+            let payload =
+                DestAddrMask::<SockAddrIn>::new_for_interface(ip.into(), mask.into(), if_name);
             let rtmsg = RtMessage::new_for_delete(if_index, payload);
             return rtmsg.execute();
         }
         (IpAddr::V6(ip), IpAddr::V6(mask)) => {
-            let payload = DestAddrMask::<SockAddrIn6>::new(ip.into(), mask.into(), if_name);
+            let payload =
+                DestAddrMask::<SockAddrIn6>::new_for_interface(ip.into(), mask.into(), if_name);
             let rtmsg = RtMessage::new_for_delete(if_index, payload);
             return rtmsg.execute();
         }
