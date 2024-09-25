@@ -11,7 +11,7 @@
 //!
 //! ```no_run
 //! use x25519_dalek::{EphemeralSecret, PublicKey};
-//! use defguard_wireguard_rs::{InterfaceConfiguration, WGApi, WireguardInterfaceApi, host::Peer};
+//! use defguard_wireguard_rs::{InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, host::Peer};
 //! # use defguard_wireguard_rs::error::WireguardInterfaceError;
 //!
 //! // Create new API struct for interface
@@ -20,7 +20,7 @@
 //! } else {
 //!     "utun3".into()
 //! };
-//! let wgapi = WGApi::new(ifname.clone(), false)?;
+//! let wgapi = WGApi::<Userspace>::new(ifname.clone())?;
 //!
 //! // Create host interfaces
 //! wgapi.create_interface()?;
