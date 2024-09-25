@@ -261,25 +261,38 @@ pub(crate) fn add_peer_routing(
                         error!("Failed to add route to {default2} for interface {ifname}: {err}");
                     }
                 }
-                if let Some(gateway) = gateway {
-                    if let Some(endpoint) = peer.endpoint {
-                        let endpoint_ip = endpoint.ip();
-                        let cidr = if endpoint_ip.is_ipv4() { 32 } else { 128 };
-                        let host = IpAddrMask::new(endpoint_ip, cidr);
+                if let Some(endpoint) = peer.endpoint {
+                    let host = IpAddrMask::host(endpoint.ip());
+                    if let Some(gateway) = gateway {
                         // Try to silently remove route to host as it may already exist.
                         let _ = delete_gateway_host(&host);
-                        match add_gateway_host(&host, gateway) {
-                            Ok(()) => debug!(
-                                "Route to {endpoint_ip} has been added for gateway {gateway}"
-                            ),
+                        match add_gateway_host(&host, gateway, false) {
+                            Ok(()) => {
+                                debug!("Route to {host} has been added for gateway {gateway}");
+                            }
                             Err(err) => {
-                                error!("Failed to add route to {endpoint_ip} for gateway {gateway}: {err}");
+                                error!(
+                                    "Failed to add route to {host} for gateway {gateway}: {err}"
+                                );
+                            }
+                        }
+                    } else {
+                        // Equivalent to `route -n add -inet[6] <endpoint> <localhost> -blackhole`
+                        let localhost = if endpoint.is_ipv4() {
+                            IpAddr::V4(Ipv4Addr::LOCALHOST)
+                        } else {
+                            IpAddr::V6(Ipv6Addr::LOCALHOST)
+                        };
+                        match add_gateway_host(&host, localhost, true) {
+                            Ok(()) => debug!("Blackhole route to {host} has been added"),
+                            Err(err) => {
+                                error!("Failed to add blackhole route to {host}: {err}");
                             }
                         }
                     }
                 }
             } else {
-                // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
+                // Equivalent to `route -n add -inet[6] <allowed_ip> -interface <ifname>`.
                 match add_linked_route(addr, ifname) {
                     Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
                     Err(err) => {
