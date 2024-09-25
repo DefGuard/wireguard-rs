@@ -11,6 +11,8 @@ use std::{
     process::Command,
 };
 
+#[cfg(target_os = "freebsd")]
+use crate::check_command_output_status;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::{
     bsd::{add_gateway_host, add_linked_route, get_gateway},
