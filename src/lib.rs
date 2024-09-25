@@ -78,15 +78,7 @@ use std::{fmt, process::Output};
 
 use serde::{Deserialize, Serialize};
 // public re-exports
-pub use wgapi::WGApi;
-#[cfg(target_os = "freebsd")]
-pub use wgapi_freebsd::WireguardApiFreebsd;
-#[cfg(target_os = "linux")]
-pub use wgapi_linux::WireguardApiLinux;
-#[cfg(target_family = "unix")]
-pub use wgapi_userspace::WireguardApiUserspace;
-#[cfg(target_os = "windows")]
-pub use wgapi_windows::WireguardApiWindows;
+pub use wgapi::{Kernel, Userspace, WGApi};
 pub use wireguard_interface::WireguardInterfaceApi;
 
 use self::{

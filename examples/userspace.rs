@@ -6,7 +6,7 @@ use std::{
 
 use defguard_wireguard_rs::{host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration};
 #[cfg(target_os = "macos")]
-use defguard_wireguard_rs::{WireguardApiUserspace, WireguardInterfaceApi};
+use defguard_wireguard_rs::{Userspace, WGApi, WireguardInterfaceApi};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn pause() {
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         "utun3".into()
     };
-    let api = WireguardApiUserspace::new(ifname.clone())?;
+    let api = WGApi::<Userspace>::new(ifname.clone())?;
 
     // create interface
     api.create_interface()?;

@@ -1,6 +1,7 @@
 use std::{
     fs,
     io::{self, BufRead, BufReader, Read, Write},
+    marker::PhantomData,
     net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
     process::Command,
@@ -18,7 +19,9 @@ use crate::{
     check_command_output_status,
     error::WireguardInterfaceError,
     utils::{add_peer_routing, configure_dns},
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    wgapi::{Userspace, WGApi},
+    wireguard_interface::WireguardInterfaceApi,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
 };
 
 const USERSPACE_EXECUTABLE: &str = "wireguard-go";
@@ -27,12 +30,7 @@ const USERSPACE_EXECUTABLE: &str = "wireguard-go";
 ///
 /// We assume that `wireguard-go` executable is managed externally and available in `PATH`.
 /// Currently works on Unix platforms.
-#[derive(Clone)]
-pub struct WireguardApiUserspace {
-    ifname: String,
-}
-
-impl WireguardApiUserspace {
+impl WGApi<Userspace> {
     /// Create new instance of `WireguardApiUserspace`.
     ///
     /// # Errors
@@ -44,7 +42,10 @@ impl WireguardApiUserspace {
             WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
         })?;
 
-        Ok(WireguardApiUserspace { ifname })
+        Ok(WGApi {
+            ifname,
+            _api: PhantomData,
+        })
     }
 
     fn socket_path(&self) -> String {
@@ -105,7 +106,7 @@ impl WireguardApiUserspace {
     }
 }
 
-impl WireguardInterfaceApi for WireguardApiUserspace {
+impl WireguardInterfaceApi for WGApi<Userspace> {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating userspace interface {}", self.ifname);
         let output = Command::new(USERSPACE_EXECUTABLE)
@@ -310,9 +311,9 @@ mod tests {
     #[test]
     fn test_parse_errno() {
         let buf = Cursor::new(b"errno=0\n");
-        assert_eq!(WireguardApiUserspace::parse_errno(buf), 0);
+        assert_eq!(WGApi::<Userspace>::parse_errno(buf), 0);
 
         let buf = Cursor::new(b"errno=12345\n");
-        assert_eq!(WireguardApiUserspace::parse_errno(buf), 12345);
+        assert_eq!(WGApi::<Userspace>::parse_errno(buf), 12345);
     }
 }

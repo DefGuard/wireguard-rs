@@ -3,6 +3,7 @@ use std::{net::IpAddr, str::FromStr};
 use crate::{
     bsd,
     utils::{add_peer_routing, clear_dns, configure_dns},
+    wgapi::{Kernel, WGApi},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
@@ -10,18 +11,7 @@ use crate::{
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
 ///
 /// Requires FreeBSD version 13+.
-#[derive(Clone)]
-pub struct WireguardApiFreebsd {
-    ifname: String,
-}
-
-impl WireguardApiFreebsd {
-    pub fn new(ifname: String) -> Self {
-        WireguardApiFreebsd { ifname }
-    }
-}
-
-impl WireguardInterfaceApi for WireguardApiFreebsd {
+impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Creates a WireGuard network interface.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating interface {}", &self.ifname);
@@ -37,16 +27,16 @@ impl WireguardInterfaceApi for WireguardApiFreebsd {
 
     /// Add peer addresses to network routing table.
     ///
-    /// For every allowed IP, it runs:  
-    /// - `route -q -n add <inet> allowed_ip -interface if_name`   
-    /// `ifname` - interface name while creating api  
+    /// For every allowed IP, it runs:
+    /// - `route -q -n add <inet> allowed_ip -interface if_name`
+    /// `ifname` - interface name while creating api
     /// `allowed_ip`- one of [Peer](crate::Peer) allowed ip
     /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other using:
-    /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.   
-    /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.   
-    /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`  
-    /// `<endpoint>` - Add routing for every unique Peer endpoint.   
-    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.    
+    /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.
+    /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.
+    /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`
+    /// `<endpoint>` - Add routing for every unique Peer endpoint.
+    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
     /// ## Note:
     /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {

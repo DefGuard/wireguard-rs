@@ -11,6 +11,8 @@ use std::{
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
 use crate::bsd::add_gateway;
+#[cfg(target_os = "freebsd")]
+use crate::check_command_output_status;
 #[cfg(target_os = "linux")]
 use crate::{check_command_output_status, netlink, IpVersion};
 use crate::{Peer, WireguardInterfaceError};
