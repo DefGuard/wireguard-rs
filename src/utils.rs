@@ -2,6 +2,8 @@
 use std::collections::HashSet;
 #[cfg(target_os = "macos")]
 use std::io::{BufRead, BufReader, Cursor, Error as IoError};
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use std::net::{Ipv4Addr, Ipv6Addr};
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use std::{io::Write, process::Stdio};
 use std::{
@@ -9,8 +11,14 @@ use std::{
     process::Command,
 };
 
-#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
-use crate::bsd::add_gateway;
+#[cfg(target_os = "freebsd")]
+use crate::check_command_output_status;
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use crate::{
+    bsd::{add_gateway_host, add_linked_route, get_gateway},
+    net::IpAddrMask,
+    IpVersion,
+};
 #[cfg(target_os = "linux")]
 use crate::{check_command_output_status, netlink, IpVersion};
 use crate::{Peer, WireguardInterfaceError};
@@ -219,9 +227,7 @@ pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    use std::net::{Ipv4Addr, Ipv6Addr};
-
-    use crate::net::IpAddrMask;
+    use crate::bsd::delete_gateway_host;
 
     debug!("Adding peer routing for interface: {ifname}");
     for peer in peers {
@@ -230,33 +236,66 @@ pub(crate) fn add_peer_routing(
             if addr.ip.is_unspecified() && addr.cidr == 0 {
                 let default1;
                 let default2;
+                let gateway;
                 if addr.ip.is_ipv4() {
                     // 0.0.0.0/1
                     default1 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1);
                     // 128.0.0.0/1
                     default2 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)), 1);
+                    gateway = get_gateway(IpVersion::IPv4).unwrap();
                 } else {
                     // ::/1
                     default1 = IpAddrMask::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 1);
                     // 8000::/1
                     default2 =
                         IpAddrMask::new(IpAddr::V6(Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0)), 1);
+                    gateway = get_gateway(IpVersion::IPv6).unwrap();
                 }
-                match add_gateway(&default1, ifname) {
+                match add_linked_route(&default1, ifname) {
                     Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
                     Err(err) => {
                         error!("Failed to add route to {default1} for interface {ifname}: {err}");
                     }
                 }
-                match add_gateway(&default2, ifname) {
+                match add_linked_route(&default2, ifname) {
                     Ok(()) => debug!("Route to {default2} has been added for interface {ifname}"),
                     Err(err) => {
                         error!("Failed to add route to {default2} for interface {ifname}: {err}");
                     }
                 }
+                if let Some(endpoint) = peer.endpoint {
+                    let host = IpAddrMask::host(endpoint.ip());
+                    if let Some(gateway) = gateway {
+                        // Try to silently remove route to host as it may already exist.
+                        let _ = delete_gateway_host(&host);
+                        match add_gateway_host(&host, gateway, false) {
+                            Ok(()) => {
+                                debug!("Route to {host} has been added for gateway {gateway}");
+                            }
+                            Err(err) => {
+                                error!(
+                                    "Failed to add route to {host} for gateway {gateway}: {err}"
+                                );
+                            }
+                        }
+                    } else {
+                        // Equivalent to `route -n add -inet[6] <endpoint> <localhost> -blackhole`
+                        let localhost = if endpoint.is_ipv4() {
+                            IpAddr::V4(Ipv4Addr::LOCALHOST)
+                        } else {
+                            IpAddr::V6(Ipv6Addr::LOCALHOST)
+                        };
+                        match add_gateway_host(&host, localhost, true) {
+                            Ok(()) => debug!("Blackhole route to {host} has been added"),
+                            Err(err) => {
+                                error!("Failed to add blackhole route to {host}: {err}");
+                            }
+                        }
+                    }
+                }
             } else {
-                // Equivalent to `route -qn add -inet[6] <allowed_ip> -interface <ifname>`.
-                match add_gateway(&addr, ifname) {
+                // Equivalent to `route -n add -inet[6] <allowed_ip> -interface <ifname>`.
+                match add_linked_route(addr, ifname) {
                     Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
                     Err(err) => {
                         error!("Failed to add route to {addr} for interface {ifname}: {err}");

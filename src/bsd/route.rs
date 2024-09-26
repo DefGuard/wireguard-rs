@@ -44,7 +44,7 @@ const RTM_VERSION: u8 = 4;
 /// Route message flags.
 const RTF_UP: i32 = 0x1;
 const RTF_GATEWAY: i32 = 0x2;
-// const RTF_HOST: i32 = 0x4;
+const RTF_HOST: i32 = 0x4;
 // const RTF_REJECT: i32 = 0x8;
 // const RTF_DYNAMIC: i32 = 0x10;
 // const RTF_MODIFIED: i32 = 0x20;
@@ -55,7 +55,7 @@ const RTF_CLONING: i32 = 0x100;
 // const RTF_LLINFO: i32 = 0x400;
 // const RTF_LLDATA: i32 = 0x400;
 const RTF_STATIC: i32 = 0x800;
-// const RTF_BLACKHOLE: i32 = 0x1000;
+const RTF_BLACKHOLE: i32 = 0x1000;
 // const RTF_LOCAL: i32 = 0x200000;
 // const RTF_BROADCAST: i32 = 0x400000;
 // const RTF_MULTICAST: i32 = 0x800000;
@@ -249,7 +249,16 @@ impl<S: Default + SocketFromRaw> GatewayLink<S> {
 
 impl<S: Default + SocketFromRaw> DestAddrMask<S> {
     #[must_use]
-    pub(super) fn new(dest: S, netmask: S, if_name: &str) -> Self {
+    pub(super) fn new(dest: S, netmask: S, gateway: S) -> Self {
+        Self {
+            dest,
+            gateway,
+            netmask,
+        }
+    }
+
+    #[must_use]
+    pub(super) fn new_for_interface(dest: S, netmask: S, if_name: &str) -> Self {
         Self {
             dest,
             gateway: if_addr(if_name).unwrap_or_default(),
@@ -277,6 +286,40 @@ impl<Payload: Default> RtMessage<Payload> {
 }
 
 impl<Payload> RtMessage<Payload> {
+    #[must_use]
+    pub(super) fn new_for_add_gateway(payload: Payload, is_host: bool, is_blackhole: bool) -> Self {
+        let mut flags = RTF_UP | RTF_STATIC | RTF_GATEWAY;
+        if is_host {
+            flags |= RTF_HOST;
+        }
+        if is_blackhole {
+            flags |= RTF_BLACKHOLE;
+        }
+        let header = RtMsgHdr::new(
+            size_of::<Self>() as u16,
+            MessageType::Add,
+            0,
+            flags,
+            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
+        );
+
+        Self { header, payload }
+    }
+
+    // TODO: check if gateway field and flags are needed.
+    #[must_use]
+    pub(super) fn new_for_delete_gateway(payload: Payload) -> Self {
+        let header = RtMsgHdr::new(
+            size_of::<Self>() as u16,
+            MessageType::Delete,
+            0,
+            RTF_UP | RTF_STATIC | RTF_HOST | RTF_GATEWAY,
+            RTA_DST | RTA_GATEWAY | RTA_NETMASK,
+        );
+
+        Self { header, payload }
+    }
+
     #[must_use]
     pub(super) fn new_for_add(if_index: u16, payload: Payload) -> Self {
         let header = RtMsgHdr::new(
