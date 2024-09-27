@@ -28,6 +28,15 @@ impl IpAddrMask {
         Self { ip, cidr }
     }
 
+    #[must_use]
+    pub fn host(ip: IpAddr) -> Self {
+        let cidr = match ip {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        Self { ip, cidr }
+    }
+
     /// Returns broadcast address as `IpAddr`.
     /// Note: IPv6 does not really use broadcast.
     #[must_use]
@@ -74,6 +83,16 @@ impl IpAddrMask {
                 };
                 IpAddr::V6(Ipv6Addr::from(mask))
             }
+        }
+    }
+
+    /// Returns `true` if the address defines a host, `false` if it is a network.
+    #[must_use]
+    pub fn is_host(&self) -> bool {
+        if self.ip.is_ipv4() {
+            self.cidr == 32
+        } else {
+            self.cidr == 128
         }
     }
 
