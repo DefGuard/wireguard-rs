@@ -14,22 +14,12 @@ use crate::{
     host::{Host, Peer},
     key::Key,
     net::IpAddrMask,
+    wgapi::{Kernel, WGApi},
     InterfaceConfiguration, WireguardInterfaceApi,
 };
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
-#[derive(Clone)]
-pub struct WireguardApiWindows {
-    ifname: String,
-}
-
-impl WireguardApiWindows {
-    pub fn new(ifname: String) -> Self {
-        Self { ifname }
-    }
-}
-
-impl WireguardInterfaceApi for WireguardApiWindows {
+impl WireguardInterfaceApi for WGApi<Kernel> {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Opening/creating interface {}", self.ifname);
         Ok(())

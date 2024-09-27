@@ -3,6 +3,7 @@ use std::{net::IpAddr, str::FromStr};
 use crate::{
     netlink,
     utils::{add_peer_routing, clean_fwmark_rules, clear_dns, configure_dns},
+    wgapi::{Kernel, WGApi},
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError,
 };
@@ -11,19 +12,7 @@ use crate::{
 ///
 /// Communicates with kernel module using `Netlink` IPC protocol.
 /// Requires Linux kernel version 5.6+.
-#[derive(Clone)]
-pub struct WireguardApiLinux {
-    ifname: String,
-}
-
-impl WireguardApiLinux {
-    #[must_use]
-    pub fn new(ifname: String) -> Self {
-        WireguardApiLinux { ifname }
-    }
-}
-
-impl WireguardInterfaceApi for WireguardApiLinux {
+impl WireguardInterfaceApi for WGApi<Kernel> {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         info!("Creating interface {}", self.ifname);
         netlink::create_interface(&self.ifname)?;

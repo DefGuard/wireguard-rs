@@ -11,7 +11,7 @@
 //!
 //! ```no_run
 //! use x25519_dalek::{EphemeralSecret, PublicKey};
-//! use defguard_wireguard_rs::{InterfaceConfiguration, WGApi, WireguardInterfaceApi, host::Peer};
+//! use defguard_wireguard_rs::{InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, host::Peer};
 //! # use defguard_wireguard_rs::error::WireguardInterfaceError;
 //!
 //! // Create new API struct for interface
@@ -20,7 +20,7 @@
 //! } else {
 //!     "utun3".into()
 //! };
-//! let wgapi = WGApi::new(ifname.clone(), false)?;
+//! let wgapi = WGApi::<Userspace>::new(ifname.clone())?;
 //!
 //! // Create host interfaces
 //! wgapi.create_interface()?;
@@ -78,15 +78,7 @@ use std::{fmt, process::Output};
 
 use serde::{Deserialize, Serialize};
 // public re-exports
-pub use wgapi::WGApi;
-#[cfg(target_os = "freebsd")]
-pub use wgapi_freebsd::WireguardApiFreebsd;
-#[cfg(target_os = "linux")]
-pub use wgapi_linux::WireguardApiLinux;
-#[cfg(target_family = "unix")]
-pub use wgapi_userspace::WireguardApiUserspace;
-#[cfg(target_os = "windows")]
-pub use wgapi_windows::WireguardApiWindows;
+pub use wgapi::{Kernel, Userspace, WGApi};
 pub use wireguard_interface::WireguardInterfaceApi;
 
 use self::{

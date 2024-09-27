@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
 use defguard_wireguard_rs::{
-    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, WGApi, WireguardInterfaceApi,
+    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Kernel, Userspace, WGApi,
+    WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
@@ -12,7 +13,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         "utun3".into()
     };
-    let wgapi = WGApi::new(ifname.clone(), false)?;
+
+    #[cfg(not(target_os = "macos"))]
+    let wgapi = WGApi::<Kernel>::new(ifname.clone())?;
+    #[cfg(target_os = "macos")]
+    let wgapi = WGApi::<Userspace>::new(ifname.clone())?;
 
     // create host interface
     wgapi.create_interface()?;
