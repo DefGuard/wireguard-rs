@@ -1,12 +1,11 @@
 use std::str::FromStr;
 
 use defguard_wireguard_rs::{
-    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Kernel, WGApi,
+    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Kernel, Userspace, WGApi,
     WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-#[cfg(not(target_os = "macos"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create new api object for interface management
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
@@ -14,7 +13,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         "utun3".into()
     };
+
+    #[cfg(not(target_os = "macos"))]
     let wgapi = WGApi::<Kernel>::new(ifname.clone())?;
+    #[cfg(target_os = "macos")]
+    let wgapi = WGApi::<Userspace>::new(ifname.clone())?;
 
     // create host interface
     wgapi.create_interface()?;
@@ -86,6 +89,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-#[cfg(target_os = "macos")]
-fn main() {}
