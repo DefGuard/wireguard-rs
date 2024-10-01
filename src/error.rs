@@ -18,8 +18,8 @@ pub enum WireguardInterfaceError {
     ExecutableNotFound(String),
     #[error("Unix socket error: {0}")]
     UnixSockerError(String),
-    #[error("Peer configuration error")]
-    PeerConfigurationError,
+    #[error("Peer configuration error: {0}")]
+    PeerConfigurationError(String),
     #[error("Interface data read error: {0}")]
     ReadInterfaceError(String),
     #[error("Netlink error: {0}")]

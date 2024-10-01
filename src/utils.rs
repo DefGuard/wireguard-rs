@@ -341,7 +341,11 @@ pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceEr
 
 /// Resolves domain name to [`SocketAddr`].
 pub fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError> {
-    let error = || WireguardInterfaceError::PeerConfigurationError;
+    let error = || {
+        WireguardInterfaceError::PeerConfigurationError(format!(
+            "Failed to resolve address: {addr}"
+        ))
+    };
     addr.to_socket_addrs()
         .map_err(|_| error())?
         .next()
