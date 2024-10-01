@@ -30,8 +30,8 @@ pub enum WireguardInterfaceError {
     UserspaceNotSupported,
     #[error("Kernel support is not available on this platform")]
     KernelNotSupported,
-    #[error("DNS error")]
-    DnsError,
+    #[error("DNS error: {0}")]
+    DnsError(String),
     #[error("Service installation failed: `{message}`")]
     ServiceInstallationFailed {
         err: std::io::Error,

@@ -41,26 +41,34 @@ pub(crate) fn configure_dns(
     debug!("Executing command resolvconf with args: {args:?}");
     cmd.args(args);
 
-    // Execute resolvconf command and pipe filtered DNS entries
-    if let Ok(mut child) = cmd.stdin(Stdio::piped()).spawn() {
-        if let Some(mut stdin) = child.stdin.take() {
-            for entry in dns {
-                debug!("Adding nameserver entry: {entry}");
-                writeln!(stdin, "nameserver {entry}")?;
+    match cmd.stdin(Stdio::piped()).spawn() {
+        Ok(mut child) => {
+            if let Some(mut stdin) = child.stdin.take() {
+                for entry in dns {
+                    debug!("Adding nameserver entry: {entry}");
+                    writeln!(stdin, "nameserver {entry}")?;
+                }
+                for domain in search_domains {
+                    debug!("Adding search domain entry: {domain}");
+                    writeln!(stdin, "search {domain}")?;
+                }
             }
-            for domain in search_domains {
-                debug!("Adding search domain entry: {domain}");
-                writeln!(stdin, "search {domain}")?;
+
+            let status = child.wait().expect("Failed to wait for command");
+            if status.success() {
+                Ok(())
+            } else {
+                let msg = format!("Failed to execute resolvconf command while setting DNS servers and search domains: {status}");
+                error!("{msg}");
+                Err(WireguardInterfaceError::DnsError(msg))
             }
         }
-
-        let status = child.wait().expect("Failed to wait for command");
-        if status.success() {
-            return Ok(());
+        Err(e) => {
+            let msg = format!("Failed to execute resolvconf command while setting DNS servers and search domains: {e}");
+            error!("{msg}");
+            Err(WireguardInterfaceError::DnsError(msg))
         }
     }
-
-    Err(WireguardInterfaceError::DnsError)
 }
 
 #[cfg(target_os = "macos")]
@@ -75,13 +83,16 @@ fn network_services() -> Result<Vec<String>, IoError> {
         // Get all lines from stdout without asterisk (*).
         // An asterisk (*) denotes that a network service is disabled.
         let lines = buf
-            .lines()
+            .liines()
             .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
             .collect();
 
         Ok(lines)
     } else {
-        Err(IoError::other("command failed"))
+        Err(IoError::other(format!(
+            "network setup command failed: {}",
+            output.status
+        )))
     }
 }
 
@@ -103,7 +114,11 @@ pub(crate) fn configure_dns(
 
         let status = cmd.status()?;
         if !status.success() {
-            warn!("Command `networksetup` failed while setting DNS servers for {service}");
+            let msg = format!(
+                "Command `networksetup` failed while setting DNS servers for {service}: {status}"
+            );
+            error!(msg);
+            return Err(WireguardInterfaceError::DnsError(msg));
         }
 
         // Set search domains, if empty, clear all search domains.
@@ -116,8 +131,12 @@ pub(crate) fn configure_dns(
         } else {
             cmd.args(search_domains.iter());
         }
-        if !cmd.status()?.success() {
-            warn!("Command `networksetup` failed while setting search domains for {service}");
+
+        let status = cmd.status()?;
+        if !status.success() {
+            let msg = format!("Command `networksetup` failed while setting search domains for {service}: {status}");
+            error!(msg);
+            return Err(WireguardInterfaceError::DnsError(msg));
         }
     }
 
