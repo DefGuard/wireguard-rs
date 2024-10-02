@@ -83,7 +83,7 @@ fn network_services() -> Result<Vec<String>, IoError> {
         // Get all lines from stdout without asterisk (*).
         // An asterisk (*) denotes that a network service is disabled.
         let lines = buf
-            .liines()
+            .lines()
             .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
             .collect();
 
