@@ -363,11 +363,7 @@ pub fn get_gateway(ip_version: IpVersion) -> Result<Option<IpAddr>, IoError> {
 }
 
 /// Add routing gateway.
-pub fn add_gateway_host(
-    dest: &IpAddrMask,
-    gateway: IpAddr,
-    is_blackhole: bool,
-) -> Result<(), IoError> {
+pub fn add_gateway(dest: &IpAddrMask, gateway: IpAddr, is_blackhole: bool) -> Result<(), IoError> {
     match (dest.ip, dest.mask(), gateway) {
         (IpAddr::V4(ip), IpAddr::V4(mask), IpAddr::V4(gw)) => {
             let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), gw.into());
@@ -386,18 +382,18 @@ pub fn add_gateway_host(
 }
 
 /// Add routing gateway.
-pub fn delete_gateway_host(dest: &IpAddrMask) -> Result<(), IoError> {
+pub fn delete_gateway(dest: &IpAddrMask) -> Result<(), IoError> {
     match (dest.ip, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
             let payload =
                 DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), SockAddrIn::default());
-            let rtmsg = RtMessage::new_for_delete_gateway(payload);
+            let rtmsg = RtMessage::new_for_delete_gateway(payload, dest.is_host());
             return rtmsg.execute();
         }
         (IpAddr::V6(ip), IpAddr::V6(mask)) => {
             let payload =
                 DestAddrMask::<SockAddrIn6>::new(ip.into(), mask.into(), SockAddrIn6::default());
-            let rtmsg = RtMessage::new_for_delete_gateway(payload);
+            let rtmsg = RtMessage::new_for_delete_gateway(payload, dest.is_host());
             return rtmsg.execute();
         }
         _ => error!("Unsupported address for add route"),

@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum WireguardInterfaceError {
     #[error("Interface setup error: {0}")]
     Interface(String),
