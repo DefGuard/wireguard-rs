@@ -58,15 +58,11 @@ pub(crate) fn configure_dns(
             if status.success() {
                 Ok(())
             } else {
-                let msg = format!("Failed to execute resolvconf command while setting DNS servers and search domains: {status}");
-                error!("{msg}");
-                Err(WireguardInterfaceError::DnsError(msg))
+                Err(WireguardInterfaceError::DnsError(format!("Failed to execute resolvconf command while setting DNS servers and search domains: {status}")))
             }
         }
         Err(e) => {
-            let msg = format!("Failed to execute resolvconf command while setting DNS servers and search domains: {e}");
-            error!("{msg}");
-            Err(WireguardInterfaceError::DnsError(msg))
+            Err(WireguardInterfaceError::DnsError(format!("Failed to execute resolvconf command while setting DNS servers and search domains: {e}")))
         }
     }
 }
@@ -114,11 +110,9 @@ pub(crate) fn configure_dns(
 
         let status = cmd.status()?;
         if !status.success() {
-            let msg = format!(
+            return Err(WireguardInterfaceError::DnsError(format!(
                 "Command `networksetup` failed while setting DNS servers for {service}: {status}"
-            );
-            error!("{msg}");
-            return Err(WireguardInterfaceError::DnsError(msg));
+            )));
         }
 
         // Set search domains, if empty, clear all search domains.
@@ -134,9 +128,7 @@ pub(crate) fn configure_dns(
 
         let status = cmd.status()?;
         if !status.success() {
-            let msg = format!("Command `networksetup` failed while setting search domains for {service}: {status}");
-            error!("{msg}");
-            return Err(WireguardInterfaceError::DnsError(msg));
+            return Err(WireguardInterfaceError::DnsError(format!("Command `networksetup` failed while setting search domains for {service}: {status}")));
         }
     }
 
