@@ -9,17 +9,16 @@ use std::{
     time::Duration,
 };
 
-#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
-use crate::bsd;
 #[cfg(target_os = "linux")]
 use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::utils::clear_dns;
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use crate::{bsd, utils::resolve};
 use crate::{
-    bsd::delete_gateway,
     check_command_output_status,
     error::WireguardInterfaceError,
-    utils::{add_peer_routing, configure_dns, resolve},
+    utils::{add_peer_routing, configure_dns},
     wgapi::{Userspace, WGApi},
     wireguard_interface::WireguardInterfaceApi,
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
@@ -236,10 +235,11 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         Ok(())
     }
 
+    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
     fn remove_endpoint_routing(&self, endpoint: &str) -> Result<(), WireguardInterfaceError> {
         let endpoint_addr = resolve(endpoint)?;
         let host = IpAddrMask::host(endpoint_addr.ip());
-        match delete_gateway(&host) {
+        match bsd::delete_gateway(&host) {
             Ok(()) => debug!("Removed routing to {host}"),
             Err(err) => debug!("Failed to remove routing to {host}: {err}"),
         }
