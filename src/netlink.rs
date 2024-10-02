@@ -198,7 +198,7 @@ where
         let mut offset = 0;
         loop {
             let response = NetlinkMessage::<I>::deserialize(&recv_buf[offset..])?;
-            debug!("Read netlink response from socket: {response:?}");
+            trace!("Read netlink response from socket: {response:?}");
             match response.payload {
                 // We've parsed all parts of the response and can leave the loop.
                 NetlinkPayload::Error(msg) if msg.code.is_none() => return Ok(responses),

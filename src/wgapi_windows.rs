@@ -36,7 +36,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         dns: &[IpAddr],
         search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
@@ -50,6 +50,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         debug!("Creating WireGuard configuration file {file_name} in: {file_path}");
 
         let mut file = File::create(&file_name)?;
+
+        debug!("WireGuard configuration file {file_name} created in {file_path}. Preparing configuration...");
 
         let mut wireguard_configuration = format!(
             "[Interface]\nPrivateKey = {}\nAddress = {}\n",
@@ -117,10 +119,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             }
         }
 
+        debug!(
+            "WireGuard configuration prepared: {wireguard_configuration}, writing to the file at {file_path}..."
+        );
         file.write_all(wireguard_configuration.as_bytes())?;
         info!("WireGuard configuration written to file: {file_path}",);
 
         // Check for existing service and remove it
+        debug!(
+            "Checking for existing wireguard service for interface {}",
+            self.ifname
+        );
         let output = Command::new("wg")
             .arg("show")
             .arg(&self.ifname)
@@ -129,6 +138,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 error!("Failed to read interface data. Error: {err}");
                 WireguardInterfaceError::ReadInterfaceError(err.to_string())
             })?;
+        debug!("Wireguard service check output: {output:?}",);
 
         // Service already exists
         if output.status.success() {
@@ -186,6 +196,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // TODO: set maximum transfer unit (MTU)
 
+        info!(
+            "Interface {} configured successfully with config: {config:?}",
+            self.ifname
+        );
         Ok(())
     }
 

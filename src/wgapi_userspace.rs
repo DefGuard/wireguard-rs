@@ -17,6 +17,7 @@ use crate::netlink;
 use crate::utils::clear_dns;
 use crate::{
     check_command_output_status,
+    dependencies::check_external_dependencies,
     error::WireguardInterfaceError,
     utils::{add_peer_routing, configure_dns},
     wgapi::{Userspace, WGApi},
@@ -36,12 +37,7 @@ impl WGApi<Userspace> {
     /// # Errors
     /// Will return `WireguardInterfaceError` if `wireguard-go` can't be found.
     pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
-        // check that `wireguard-go` is available
-        Command::new(USERSPACE_EXECUTABLE).arg("--version").output().map_err(|err| {
-            error!("Failed to create userspace API. {USERSPACE_EXECUTABLE} executable not found in PATH. Error: {err}");
-            WireguardInterfaceError::ExecutableNotFound(USERSPACE_EXECUTABLE.into())
-        })?;
-
+        check_external_dependencies()?;
         Ok(WGApi {
             ifname,
             _api: PhantomData,
@@ -54,26 +50,35 @@ impl WGApi<Userspace> {
 
     /// Create UNIX socket to communicate with `wireguard-go`.
     fn socket(&self) -> io::Result<UnixStream> {
+        debug!("Creating socket for interface {}", self.ifname);
         let path = self.socket_path();
         let socket = UnixStream::connect(path)?;
         socket.set_read_timeout(Some(Duration::new(3, 0)))?;
+        debug!("Socket created for interface {}", self.ifname);
         Ok(socket)
     }
 
     // FIXME: currently other errors are ignored and result in 0 being returned.
     fn parse_errno(buf: impl Read) -> u32 {
+        debug!("Parsing errno from buffer");
         let reader = BufReader::new(buf);
         for line_result in reader.lines() {
             let line = match line_result {
                 Ok(line) => line,
                 Err(err) => {
-                    error!("Error parsing buffer line: {err}");
+                    error!("Error parsing errno buffer line: {err}, continuing with next line...");
                     continue;
                 }
             };
             if let Some((keyword, value)) = line.split_once('=') {
                 if keyword == "errno" {
-                    return value.parse().unwrap_or_default();
+                    match value.parse() {
+                        Ok(errno) => return errno,
+                        Err(err) => {
+                            error!("Failed to parse errno: {err}, using default value 0");
+                            return 0;
+                        }
+                    }
                 }
             }
         }
@@ -108,11 +113,12 @@ impl WGApi<Userspace> {
 
 impl WireguardInterfaceApi for WGApi<Userspace> {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
-        info!("Creating userspace interface {}", self.ifname);
+        debug!("Creating userspace interface {}", self.ifname);
         let output = Command::new(USERSPACE_EXECUTABLE)
             .arg(&self.ifname)
             .output()?;
         check_command_output_status(output)?;
+        info!("Userspace interface {} created successfully", self.ifname);
         Ok(())
     }
 
@@ -140,19 +146,24 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             warn!("Received empty DNS server list. Skipping DNS configuration...");
             return Ok(());
         }
-        info!(
+        debug!(
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname
         );
         // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
         {
-            configure_dns(dns, search_domains)
+            configure_dns(dns, search_domains)?;
         }
         #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
         {
-            configure_dns(&self.ifname, dns, search_domains)
+            configure_dns(&self.ifname, dns, search_domains)?;
         }
+        info!(
+            "DNS configured for interface {}, using address: {dns:?}",
+            self.ifname
+        );
+        Ok(())
     }
 
     /// Assign IP address to network interface.
@@ -162,6 +173,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         bsd::assign_address(&self.ifname, address)?;
         #[cfg(target_os = "linux")]
         netlink::address_interface(&self.ifname, address)?;
+        info!("Address {address} assigned to interface {}", self.ifname);
 
         Ok(())
     }
@@ -171,7 +183,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         &self,
         config: &InterfaceConfiguration,
     ) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
@@ -181,16 +193,29 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         self.assign_address(&address)?;
 
         // configure interface
+        debug!("Setting host configuration for interface {}", self.ifname);
         let host = config.try_into()?;
         self.write_host(&host)?;
+        debug!("Host configuration set for interface {}.", self.ifname);
+        trace!("Host configuration: {host:?}");
 
         // Set maximum transfer unit (MTU).
         if let Some(mtu) = config.mtu {
+            debug!("Setting MTU of {mtu} for interface {}", self.ifname);
             #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
             bsd::set_mtu(&self.ifname, mtu)?;
             #[cfg(target_os = "linux")]
             netlink::set_mtu(&self.ifname, mtu)?;
+            debug!(
+                "MTU of {mtu} set for interface {}, value: {mtu}",
+                self.ifname
+            );
         }
+
+        info!(
+            "Interface {} configured successfully with config: {config:?}",
+            self.ifname
+        );
 
         Ok(())
     }
@@ -237,14 +262,18 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
 
     /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
-        info!("Removing interface {}", self.ifname);
+        debug!("Removing interface {}", self.ifname);
         // `wireguard-go` should by design shut down if the socket is removed
+        debug!("Shutting down socket for interface {}", self.ifname);
         let socket = self.socket()?;
         socket.shutdown(Shutdown::Both).map_err(|err| {
-            error!("Failed to shutdown socket: {err}");
-            WireguardInterfaceError::UnixSockerError(err.to_string())
+            WireguardInterfaceError::UnixSockerError(format!(
+                "Failed to shutdown socket for interface {}: {err}",
+                self.ifname
+            ))
         })?;
         fs::remove_file(self.socket_path())?;
+        debug!("Socket shutdown for interface {}", self.ifname);
         #[cfg(target_os = "macos")]
         {
             configure_dns(&[], &[])?;
@@ -254,11 +283,12 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             clear_dns(&self.ifname)?;
         }
 
+        info!("Interface {} removed successfully", self.ifname);
         Ok(())
     }
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
-        info!("Configuring peer {peer:?} on interface {}", self.ifname);
+        debug!("Configuring peer {peer:?} on interface {}", self.ifname);
         let mut socket = self.socket()?;
         socket.write_all(b"set=1\n")?;
         socket.write_all(peer.as_uapi_update().as_bytes())?;
@@ -266,6 +296,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         let errno = Self::parse_errno(socket);
 
         if errno == 0 {
+            info!("Peer {peer:?} configured on interface {}", self.ifname);
             Ok(())
         } else {
             Err(WireguardInterfaceError::PeerConfigurationError(format!(
@@ -276,7 +307,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
     }
 
     fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Removing peer with public key {peer_pubkey} from interface {}",
             self.ifname
         );
@@ -290,6 +321,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         let errno = Self::parse_errno(socket);
 
         if errno == 0 {
+            info!(
+                "Peer with public key {peer_pubkey} removed from interface {}",
+                self.ifname
+            );
             Ok(())
         } else {
             Err(WireguardInterfaceError::PeerConfigurationError(format!(
@@ -302,11 +337,15 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
         match self.read_host() {
-            Ok(host) => Ok(host),
-            Err(err) => {
-                error!("Failed to read interface {} data: {err}", self.ifname);
-                Err(WireguardInterfaceError::ReadInterfaceError(err.to_string()))
+            Ok(host) => {
+                debug!("Host info read for interface {}", self.ifname);
+                trace!("Host info: {host:?}");
+                Ok(host)
             }
+            Err(err) => Err(WireguardInterfaceError::ReadInterfaceError(format!(
+                "Failed to read interface {} data, error: {err}",
+                self.ifname
+            ))),
         }
     }
 }
