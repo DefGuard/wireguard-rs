@@ -117,7 +117,7 @@ pub(crate) fn configure_dns(
             let msg = format!(
                 "Command `networksetup` failed while setting DNS servers for {service}: {status}"
             );
-            error!(msg);
+            error!("{msg}");
             return Err(WireguardInterfaceError::DnsError(msg));
         }
 
@@ -135,7 +135,7 @@ pub(crate) fn configure_dns(
         let status = cmd.status()?;
         if !status.success() {
             let msg = format!("Command `networksetup` failed while setting search domains for {service}: {status}");
-            error!(msg);
+            error!("{msg}");
             return Err(WireguardInterfaceError::DnsError(msg));
         }
     }
