@@ -11,7 +11,7 @@ const COMMANDS: [(&str, &str); 3] = [
 
 // There is no Windows command to check the version of WireGuard.
 // The "/" argument (or any other non-existent argument) normally returns a help message popup. However when invoked
-// by means of rust's std::process::Command, it only results in an Ok(()) output (or an Err if the command is not found),
+// by means of rust's std::process::Command, it only results in an `Ok` output (or an `Err` if the command is not found),
 // allowing us to check if the command is available.
 #[cfg(target_os = "windows")]
 const COMMANDS: [(&str, &str); 1] = [("wireguard", "/")];
