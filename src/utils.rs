@@ -218,23 +218,14 @@ pub(crate) fn add_peer_routing(
         netlink::add_main_table_rule(default_route, 0)?;
         debug!("Rule added successfully");
 
-        if is_ipv6 {
-            debug!("Reloading ip6tables");
-            let output = Command::new("ip6tables-restore").arg("-n").output()?;
-            check_command_output_status(output)?;
-            debug!("ip6tables reloaded successfully");
-        } else {
+        if !is_ipv6 {
             debug!("Setting systemctl net.ipv4.conf.all.src_valid_mark=1");
             let output = Command::new("sysctl")
                 .args(["-q", "net.ipv4.conf.all.src_valid_mark=1"])
                 .output()?;
             check_command_output_status(output)?;
-
-            debug!("Reloading iptables");
-            let output = Command::new("iptables-restore").arg("-n").output()?;
-            check_command_output_status(output)?;
-            debug!("iptables reloaded successfully");
-        }
+            debug!("sysctl command executed successfully");
+        } 
     } else {
         for allowed_ip in unique_allowed_ips {
             debug!("Adding a route for allowed ip: {allowed_ip}");

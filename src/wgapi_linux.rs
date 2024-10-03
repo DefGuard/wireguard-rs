@@ -97,8 +97,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// - `ip <ip_version> rule add not fwmark <fwmark> table <fwmark>`.
     /// - `ip <ip_version> rule add table main suppress_prefixlength 0`.
     /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.
-    /// - `iptables-restore -n`. For `0.0.0.0/0` only.
-    /// - `iptables6-restore -n`. For `::/0` only.
     /// Based on ip type `<ip_version>` will be equal to `-4` or `-6`.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;

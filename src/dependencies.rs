@@ -3,14 +3,16 @@ use std::process::Command;
 use crate::error::WireguardInterfaceError;
 
 #[cfg(target_os = "linux")]
-const COMMANDS: [(&str, &str); 5] = [
+const COMMANDS: [(&str, &str); 3] = [
     ("resolvconf", "--version"),
     ("ip", "help"),
-    ("iptables-restore", "--version"),
-    ("ip6tables-restore", "--version"),
     ("sysctl", "--version"),
 ];
 
+// There is no Windows command to check the version of WireGuard.
+// The "/" argument (or any other non-existent argument) normally returns a help message popup. However when invoked
+// by means of rust's std::process::Command, it only results in an Ok(()) output (or an Err if the command is not found),
+// allowing us to check if the command is available.
 #[cfg(target_os = "windows")]
 const COMMANDS: [(&str, &str); 1] = [("wireguard", "/")];
 
