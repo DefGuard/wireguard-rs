@@ -15,7 +15,7 @@ use std::{
 use crate::check_command_output_status;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::{
-    bsd::{add_gateway_host, add_linked_route, get_gateway},
+    bsd::{add_gateway, add_linked_route, get_gateway},
     net::IpAddrMask,
     IpVersion,
 };
@@ -238,7 +238,7 @@ pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    use crate::bsd::delete_gateway_host;
+    use crate::bsd::delete_gateway;
 
     debug!("Adding peer routing for interface: {ifname}");
     for peer in peers {
@@ -253,14 +253,14 @@ pub(crate) fn add_peer_routing(
                     default1 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1);
                     // 128.0.0.0/1
                     default2 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)), 1);
-                    gateway = get_gateway(IpVersion::IPv4).unwrap();
+                    gateway = get_gateway(IpVersion::IPv4);
                 } else {
                     // ::/1
                     default1 = IpAddrMask::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 1);
                     // 8000::/1
                     default2 =
                         IpAddrMask::new(IpAddr::V6(Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0)), 1);
-                    gateway = get_gateway(IpVersion::IPv6).unwrap();
+                    gateway = get_gateway(IpVersion::IPv6);
                 }
                 match add_linked_route(&default1, ifname) {
                     Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
@@ -276,10 +276,10 @@ pub(crate) fn add_peer_routing(
                 }
                 if let Some(endpoint) = peer.endpoint {
                     let host = IpAddrMask::host(endpoint.ip());
-                    if let Some(gateway) = gateway {
+                    if let Ok(Some(gateway)) = gateway {
                         // Try to silently remove route to host as it may already exist.
-                        let _ = delete_gateway_host(&host);
-                        match add_gateway_host(&host, gateway, false) {
+                        let _ = delete_gateway(&host);
+                        match add_gateway(&host, gateway, false) {
                             Ok(()) => {
                                 debug!("Route to {host} has been added for gateway {gateway}");
                             }
@@ -296,7 +296,7 @@ pub(crate) fn add_peer_routing(
                         } else {
                             IpAddr::V6(Ipv6Addr::LOCALHOST)
                         };
-                        match add_gateway_host(&host, localhost, true) {
+                        match add_gateway(&host, localhost, true) {
                             Ok(()) => debug!("Blackhole route to {host} has been added"),
                             Err(err) => {
                                 error!("Failed to add blackhole route to {host}: {err}");
@@ -332,7 +332,7 @@ pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceEr
 }
 
 /// Resolves domain name to [`SocketAddr`].
-pub fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError> {
+pub(crate) fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError> {
     let error = || {
         WireguardInterfaceError::PeerConfigurationError(format!(
             "Failed to resolve address: {addr}"

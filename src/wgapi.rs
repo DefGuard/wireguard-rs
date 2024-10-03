@@ -17,7 +17,6 @@ pub struct WGApi<API = Kernel> {
 
 impl WGApi {
     /// Create new instance of `WGApi`.
-    #[must_use]
     pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
         Ok(WGApi {
             ifname,

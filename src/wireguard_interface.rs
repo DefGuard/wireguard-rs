@@ -17,6 +17,12 @@ pub trait WireguardInterfaceApi {
     /// address.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError>;
 
+    /// Remove routing to the given endpoint.
+    /// This is needed for proper routing table cleanup.
+    fn remove_endpoint_routing(&self, _endpoint: &str) -> Result<(), WireguardInterfaceError> {
+        Ok(())
+    }
+
     /// Updates configuration of an existing WireGuard interface.
     #[cfg(not(target_os = "windows"))]
     fn configure_interface(

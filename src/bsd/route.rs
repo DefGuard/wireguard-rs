@@ -308,12 +308,16 @@ impl<Payload> RtMessage<Payload> {
 
     // TODO: check if gateway field and flags are needed.
     #[must_use]
-    pub(super) fn new_for_delete_gateway(payload: Payload) -> Self {
+    pub(super) fn new_for_delete_gateway(payload: Payload, is_host: bool) -> Self {
+        let mut flags = RTF_UP | RTF_STATIC | RTF_GATEWAY;
+        if is_host {
+            flags |= RTF_HOST;
+        }
         let header = RtMsgHdr::new(
             size_of::<Self>() as u16,
             MessageType::Delete,
             0,
-            RTF_UP | RTF_STATIC | RTF_HOST | RTF_GATEWAY,
+            flags,
             RTA_DST | RTA_GATEWAY | RTA_NETMASK,
         );
 
