@@ -12,7 +12,7 @@ const COMMANDS: [(&str, &str); 5] = [
 ];
 
 #[cfg(target_os = "windows")]
-const COMMANDS: [(&str, &str); 1] = [("wireguard", "--version")];
+const COMMANDS: [(&str, &str); 1] = [("wireguard", "/")];
 
 #[cfg(target_os = "macos")]
 const COMMANDS: [(&str, &str); 2] = [("wireguard-go", "--version"), ("networksetup", "-version")];

@@ -142,11 +142,13 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Service already exists
         if output.status.success() {
+            debug!("Service already exists, removing it first");
             Command::new("wireguard")
                 .arg("/uninstalltunnelservice")
                 .arg(&self.ifname)
                 .output()?;
 
+            debug!("Waiting for service to be removed");
             let mut counter = 1;
             loop {
                 // Occasionally the tunnel is still available even though wg show cannot find it, causing /installtunnelservice to fail
@@ -169,8 +171,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
                 counter = counter + 1;
             }
+            debug!("Finished waiting for service to be removed, the service is considered to be removed, proceeding further");
         }
 
+        debug!("Installing the new service for interface {}", self.ifname);
         let service_installation_output = Command::new("wireguard")
             .arg("/installtunnelservice")
             .arg(file_path)
@@ -181,7 +185,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 WireguardInterfaceError::ServiceInstallationFailed { err, message }
             })?;
 
-        info!("Service installation output: {service_installation_output:?}",);
+        debug!("Done installing the new service. Service installation output: {service_installation_output:?}",);
 
         if !service_installation_output.status.success() {
             let message = format!(
@@ -208,7 +212,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
-        info!("Removing interface {}", self.ifname);
+        debug!("Removing interface {}", self.ifname);
 
         Command::new("wireguard")
             .arg("/uninstalltunnelservice")
@@ -219,6 +223,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 WireguardInterfaceError::CommandExecutionFailed(err)
             })?;
 
+        info!("Interface {} removed successfully", self.ifname);
         Ok(())
     }
 
