@@ -275,11 +275,15 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         socket.write_all(b"set=1\n")?;
         socket.write_all(peer.as_uapi_update().as_bytes())?;
         socket.write_all(b"\n")?;
+        let errno = Self::parse_errno(socket);
 
-        if Self::parse_errno(socket) == 0 {
+        if errno == 0 {
             Ok(())
         } else {
-            Err(WireguardInterfaceError::PeerConfigurationError)
+            Err(WireguardInterfaceError::PeerConfigurationError(format!(
+                "Failed to configure peer {peer:?} on interface {}, errno: {errno}",
+                self.ifname
+            )))
         }
     }
 
@@ -295,10 +299,15 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         )?;
         socket.write_all(b"\n")?;
 
-        if Self::parse_errno(socket) == 0 {
+        let errno = Self::parse_errno(socket);
+
+        if errno == 0 {
             Ok(())
         } else {
-            Err(WireguardInterfaceError::PeerConfigurationError)
+            Err(WireguardInterfaceError::PeerConfigurationError(format!(
+                "Failed to remove peer with public key {peer_pubkey} from interface {}, errno: {errno}",
+                self.ifname
+            )))
         }
     }
 
