@@ -225,7 +225,7 @@ pub(crate) fn add_peer_routing(
                 .output()?;
             check_command_output_status(output)?;
             debug!("sysctl command executed successfully");
-        } 
+        }
     } else {
         for allowed_ip in unique_allowed_ips {
             debug!("Adding a route for allowed ip: {allowed_ip}");
