@@ -83,21 +83,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         Ok(())
     }
 
-    /// On a Linux system, the `sysctl` command is required to work if using `0.0.0.0/0` or `::/0`.
-    /// For every allowed IP, it runs:
-    /// `ip <ip_version> route add <allowed_ip> dev <ifname>`
-    /// `<ifname>` - interface name while creating api
-    /// `<ip_version>` - `-4` or `-6` based on allowed ip type
-    /// `<allowed_ip>`- one of [Peer](crate::Peer) allowed ip
-    ///
-    /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other routings.:
-    /// - `ip <ip_version> route add 0.0.0.0/0 dev <ifname> table <fwmark>`
-    /// `<fwmark>` - fwmark attribute of [Host](crate::Host) or 51820 default if value is `None`.
-    /// `<ifname>` - Interface name.
-    /// - `ip <ip_version> rule add not fwmark <fwmark> table <fwmark>`.
-    /// - `ip <ip_version> rule add table main suppress_prefixlength 0`.
-    /// - `sysctl -q net.ipv4.conf.all.src_valid_mark=1` - runs only for `0.0.0.0/0`.
-    /// Based on ip type `<ip_version>` will be equal to `-4` or `-6`.
+    /// Configures peer routing. Internally uses netlink to set up routing rules for each peer.
+    /// If allowed IPs contain a default route, instead of adding a route for every peer, the following changes are made:
+    /// - A new default route is added
+    /// - The current default route is suppressed by modifying the main routing table rule with `suppress_prefixlen 0`, this makes
+    ///     it so that the whole main routing table rules are still applied except for the default route rules (so the new default route is used instead)
+    /// - A rule pushing all traffic through the WireGuard interface is added with the exception of traffic marked with 51820 (default) fwmark which
+    ///    is used for the WireGuard traffic itself (so it doesn't get stuck in a loop)
+    /// 
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;
         Ok(())

@@ -8,6 +8,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::{io::Write, process::Stdio};
 use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs},
+    fs::OpenOptions,
     process::Command,
 };
 
@@ -181,13 +182,17 @@ pub(crate) fn add_peer_routing(
 
     // If there is default route skip adding other routes.
     if let Some(default_route) = default_route {
-        debug!("Found default route: {default_route:?}");
+        debug!("Found default route in AllowedIPs: {default_route:?}");
         let is_ipv6 = default_route.ip.is_ipv6();
         let proto = if is_ipv6 { "-6" } else { "-4" };
+        debug!("Using the following IP version: {proto}");
 
+        debug!("Getting current host configuration for interface {ifname}");
         let mut host = netlink::get_host(ifname)?;
+        debug!("Host configuration read for interface {ifname}");
         trace!("Current host: {host:?}");
 
+        debug!("Choosing fwmark for marking Wireguard traffic");
         let fwmark = match host.fwmark {
             Some(fwmark) if fwmark != 0 => fwmark,
             Some(_) | None => {
@@ -207,24 +212,26 @@ pub(crate) fn add_peer_routing(
                 table
             }
         };
-        debug!("Using fwmark: {fwmark}");
-        // Add table rules
-        debug!("Adding route for allowed IP: {default_route}");
-        netlink::add_route(ifname, default_route, Some(fwmark))?;
-        netlink::add_rule(default_route, fwmark)?;
-        debug!("Route added successfully");
+        debug!("Using the following fwmark for marking Wireguard traffic: {fwmark}");
 
-        debug!("Adding rule for main table");
+        // Add routes and table rules
+        debug!("Adding default route: {default_route}");
+        netlink::add_route(ifname, default_route, Some(fwmark))?;
+        debug!("Default route added successfully");
+        debug!("Adding fwmark rule for the wireguard interface to prevent routing loops");
+        netlink::add_fwmark_rule(default_route, fwmark)?;
+        debug!("Fwmark rule added successfully");
+
+        debug!("Adding rule for main table to suppress current default gateway");
         netlink::add_main_table_rule(default_route, 0)?;
-        debug!("Rule added successfully");
+        debug!("Main table rule added successfully");
 
         if !is_ipv6 {
-            debug!("Setting systemctl net.ipv4.conf.all.src_valid_mark=1");
-            let output = Command::new("sysctl")
-                .args(["-q", "net.ipv4.conf.all.src_valid_mark=1"])
-                .output()?;
-            check_command_output_status(output)?;
-            debug!("sysctl command executed successfully");
+            debug!("Setting net.ipv4.conf.all.src_valid_mark=1 by writing to /proc/sys/net/ipv4/conf/all/src_valid_mark");
+            OpenOptions::new()
+                .write(true)
+                .open("/proc/sys/net/ipv4/conf/all/src_valid_mark")?.write_all(b"1")?;
+            debug!("net.ipv4.conf.all.src_valid_mark=1 set successfully");
         }
     } else {
         for allowed_ip in unique_allowed_ips {
