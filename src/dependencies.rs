@@ -3,10 +3,9 @@ use std::process::Command;
 use crate::error::WireguardInterfaceError;
 
 #[cfg(target_os = "linux")]
-const COMMANDS: [(&str, &str); 3] = [
+const COMMANDS: [(&str, &str); 2] = [
     ("resolvconf", "--version"),
     ("ip", "help"),
-    ("sysctl", "--version"),
 ];
 
 // There is no Windows command to check the version of WireGuard.
