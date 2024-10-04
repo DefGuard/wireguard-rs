@@ -90,7 +90,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     ///     it so that the whole main routing table rules are still applied except for the default route rules (so the new default route is used instead)
     /// - A rule pushing all traffic through the WireGuard interface is added with the exception of traffic marked with 51820 (default) fwmark which
     ///    is used for the WireGuard traffic itself (so it doesn't get stuck in a loop)
-    /// 
+    ///
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;
         Ok(())

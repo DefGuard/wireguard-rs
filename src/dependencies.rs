@@ -3,10 +3,7 @@ use std::process::Command;
 use crate::error::WireguardInterfaceError;
 
 #[cfg(target_os = "linux")]
-const COMMANDS: [(&str, &str); 2] = [
-    ("resolvconf", "--version"),
-    ("ip", "help"),
-];
+const COMMANDS: [(&str, &str); 2] = [("resolvconf", "--version"), ("ip", "help")];
 
 // There is no Windows command to check the version of WireGuard.
 // The "/" argument (or any other non-existent argument) normally returns a help message popup. However when invoked
@@ -18,7 +15,7 @@ const COMMANDS: [(&str, &str); 1] = [("wireguard", "/")];
 #[cfg(target_os = "macos")]
 const COMMANDS: [(&str, &str); 2] = [("wireguard-go", "--version"), ("networksetup", "-version")];
 
-#[cfg(any(target_os = "freebsd", target_os="netbsd"))]
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
 const COMMANDS: [(&str, &str); 1] = [("resolvconf", "--version")];
 
 /// Check if the commands/executables required for interface management are available.

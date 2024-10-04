@@ -4,13 +4,13 @@ use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Cursor, Error as IoError};
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use std::net::{Ipv4Addr, Ipv6Addr};
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::{io::Write, process::Stdio};
 use std::{
-    net::{IpAddr, SocketAddr, ToSocketAddrs},
     fs::OpenOptions,
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
     process::Command,
 };
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use std::{io::Write, process::Stdio};
 
 #[cfg(target_os = "freebsd")]
 use crate::check_command_output_status;
@@ -230,7 +230,8 @@ pub(crate) fn add_peer_routing(
             debug!("Setting net.ipv4.conf.all.src_valid_mark=1");
             OpenOptions::new()
                 .write(true)
-                .open("/proc/sys/net/ipv4/conf/all/src_valid_mark")?.write_all(b"1")?;
+                .open("/proc/sys/net/ipv4/conf/all/src_valid_mark")?
+                .write_all(b"1")?;
             debug!("net.ipv4.conf.all.src_valid_mark=1 set successfully");
         }
     } else {
