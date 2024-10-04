@@ -18,8 +18,8 @@ const COMMANDS: [(&str, &str); 1] = [("wireguard", "/")];
 #[cfg(target_os = "macos")]
 const COMMANDS: [(&str, &str); 2] = [("wireguard-go", "--version"), ("networksetup", "-version")];
 
-#[cfg(target_os = "freebsd")]
-const COMMANDS: [(&str, &str); 0] = [];
+#[cfg(any(target_os = "freebsd", target_os="netbsd"))]
+const COMMANDS: [(&str, &str); 1] = [("resolvconf", "--version")];
 
 /// Check if the commands/executables required for interface management are available.
 pub(crate) fn check_external_dependencies() -> Result<(), WireguardInterfaceError> {

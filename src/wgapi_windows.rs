@@ -138,7 +138,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 error!("Failed to read interface data. Error: {err}");
                 WireguardInterfaceError::ReadInterfaceError(err.to_string())
             })?;
-        debug!("Wireguard service check output: {output:?}",);
+        debug!("WireGuard service check output: {output:?}",);
 
         // Service already exists
         if output.status.success() {

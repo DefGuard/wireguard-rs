@@ -192,7 +192,7 @@ pub(crate) fn add_peer_routing(
         debug!("Host configuration read for interface {ifname}");
         trace!("Current host: {host:?}");
 
-        debug!("Choosing fwmark for marking Wireguard traffic");
+        debug!("Choosing fwmark for marking WireGuard traffic");
         let fwmark = match host.fwmark {
             Some(fwmark) if fwmark != 0 => fwmark,
             Some(_) | None => {
@@ -212,13 +212,13 @@ pub(crate) fn add_peer_routing(
                 table
             }
         };
-        debug!("Using the following fwmark for marking Wireguard traffic: {fwmark}");
+        debug!("Using the following fwmark for marking WireGuard traffic: {fwmark}");
 
         // Add routes and table rules
         debug!("Adding default route: {default_route}");
         netlink::add_route(ifname, default_route, Some(fwmark))?;
         debug!("Default route added successfully");
-        debug!("Adding fwmark rule for the wireguard interface to prevent routing loops");
+        debug!("Adding fwmark rule for the WireGuard interface to prevent routing loops");
         netlink::add_fwmark_rule(default_route, fwmark)?;
         debug!("Fwmark rule added successfully");
 
@@ -227,7 +227,7 @@ pub(crate) fn add_peer_routing(
         debug!("Main table rule added successfully");
 
         if !is_ipv6 {
-            debug!("Setting net.ipv4.conf.all.src_valid_mark=1 by writing to /proc/sys/net/ipv4/conf/all/src_valid_mark");
+            debug!("Setting net.ipv4.conf.all.src_valid_mark=1");
             OpenOptions::new()
                 .write(true)
                 .open("/proc/sys/net/ipv4/conf/all/src_valid_mark")?.write_all(b"1")?;
@@ -235,9 +235,9 @@ pub(crate) fn add_peer_routing(
         }
     } else {
         for allowed_ip in unique_allowed_ips {
-            debug!("Adding a route for allowed ip: {allowed_ip}");
+            debug!("Adding a route for allowed IP: {allowed_ip}");
             netlink::add_route(ifname, allowed_ip, None)?;
-            debug!("Route added for allowed ip: {allowed_ip}");
+            debug!("Route added for allowed IP: {allowed_ip}");
         }
     }
     info!("Peers routing added successfully");
