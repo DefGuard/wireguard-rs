@@ -15,6 +15,7 @@ const COMMANDS: [&str; 2] = ["wireguard-go", "networksetup"];
 const COMMANDS: [&str; 1] = ["resolvconf"];
 
 pub(crate) fn check_external_dependencies() -> Result<(), WireguardInterfaceError> {
+    debug!("Checking if all commands required by wireguard-rs are available");
     let paths = env::var_os("PATH").ok_or(WireguardInterfaceError::MissingDependency(
         "Environment variable `PATH` not found".into(),
     ))?;
