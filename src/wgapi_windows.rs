@@ -36,7 +36,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         dns: &[IpAddr],
         search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
@@ -50,6 +50,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         debug!("Creating WireGuard configuration file {file_name} in: {file_path}");
 
         let mut file = File::create(&file_name)?;
+
+        debug!("WireGuard configuration file {file_name} created in {file_path}. Preparing configuration...");
 
         let mut wireguard_configuration = format!(
             "[Interface]\nPrivateKey = {}\nAddress = {}\n",
@@ -117,10 +119,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             }
         }
 
+        debug!(
+            "WireGuard configuration prepared: {wireguard_configuration}, writing to the file at {file_path}..."
+        );
         file.write_all(wireguard_configuration.as_bytes())?;
         info!("WireGuard configuration written to file: {file_path}",);
 
         // Check for existing service and remove it
+        debug!(
+            "Checking for existing wireguard service for interface {}",
+            self.ifname
+        );
         let output = Command::new("wg")
             .arg("show")
             .arg(&self.ifname)
@@ -129,14 +138,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 error!("Failed to read interface data. Error: {err}");
                 WireguardInterfaceError::ReadInterfaceError(err.to_string())
             })?;
+        debug!("WireGuard service check output: {output:?}",);
 
         // Service already exists
         if output.status.success() {
+            debug!("Service already exists, removing it first");
             Command::new("wireguard")
                 .arg("/uninstalltunnelservice")
                 .arg(&self.ifname)
                 .output()?;
 
+            debug!("Waiting for service to be removed");
             let mut counter = 1;
             loop {
                 // Occasionally the tunnel is still available even though wg show cannot find it, causing /installtunnelservice to fail
@@ -159,8 +171,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
                 counter = counter + 1;
             }
+            debug!("Finished waiting for service to be removed, the service is considered to be removed, proceeding further");
         }
 
+        debug!("Installing the new service for interface {}", self.ifname);
         let service_installation_output = Command::new("wireguard")
             .arg("/installtunnelservice")
             .arg(file_path)
@@ -171,7 +185,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 WireguardInterfaceError::ServiceInstallationFailed { err, message }
             })?;
 
-        info!("Service installation output: {service_installation_output:?}",);
+        debug!("Done installing the new service. Service installation output: {service_installation_output:?}",);
 
         if !service_installation_output.status.success() {
             let message = format!(
@@ -186,6 +200,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // TODO: set maximum transfer unit (MTU)
 
+        info!(
+            "Interface {} configured successfully with config: {config:?}",
+            self.ifname
+        );
         Ok(())
     }
 
@@ -194,7 +212,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
-        info!("Removing interface {}", self.ifname);
+        debug!("Removing interface {}", self.ifname);
 
         Command::new("wireguard")
             .arg("/uninstalltunnelservice")
@@ -205,6 +223,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 WireguardInterfaceError::CommandExecutionFailed(err)
             })?;
 
+        info!("Interface {} removed successfully", self.ifname);
         Ok(())
     }
 

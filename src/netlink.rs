@@ -198,7 +198,7 @@ where
         let mut offset = 0;
         loop {
             let response = NetlinkMessage::<I>::deserialize(&recv_buf[offset..])?;
-            debug!("Read netlink response from socket: {response:?}");
+            trace!("Read netlink response from socket: {response:?}");
             match response.payload {
                 // We've parsed all parts of the response and can leave the loop.
                 NetlinkPayload::Error(msg) if msg.code.is_none() => return Ok(responses),
@@ -563,7 +563,7 @@ pub(crate) fn add_route(
 }
 
 /// Add rule for fwmark.
-pub(crate) fn add_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
+pub(crate) fn add_fwmark_rule(address: &IpAddrMask, fwmark: u32) -> NetlinkResult<()> {
     let mut message = RuleMessage::default();
     let rule_msg_hdr = RuleHeader {
         family: address.address_family(),
@@ -627,7 +627,6 @@ pub(crate) fn add_main_table_rule(
         family: address.address_family(),
         table: RouteHeader::RT_TABLE_MAIN,
         action: RuleAction::ToTable,
-        flags: RuleFlags::Invert,
         ..Default::default()
     };
 

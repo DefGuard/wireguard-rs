@@ -15,8 +15,8 @@ pub enum WireguardInterfaceError {
     CommandExecutionError { stdout: String, stderr: String },
     #[error("IP address/mask error")]
     IpAddrMask(#[from] crate::net::IpAddrParseError),
-    #[error("{0} executable not found in system PATH")]
-    ExecutableNotFound(String),
+    #[error("Required dependency not found, details: {0}")]
+    MissingDependency(String),
     #[error("Unix socket error: {0}")]
     UnixSockerError(String),
     #[error("Peer configuration error: {0}")]

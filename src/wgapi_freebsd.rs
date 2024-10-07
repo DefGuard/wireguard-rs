@@ -14,14 +14,19 @@ use crate::{
 impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Creates a WireGuard network interface.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
-        info!("Creating interface {}", &self.ifname);
+        debug!("Creating interface {}", &self.ifname);
         bsd::create_interface(&self.ifname)?;
+        info!("Interface {} created successfully", &self.ifname);
         Ok(())
     }
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
         bsd::assign_address(&self.ifname, address)?;
+        info!(
+            "Address {address} assigned to interface {} successfully",
+            self.ifname
+        );
         Ok(())
     }
 
@@ -40,7 +45,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// ## Note:
     /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
+        debug!("Configuring peer routing for interface {}", self.ifname);
         add_peer_routing(peers, &self.ifname)?;
+        info!(
+            "Peer routing configured successfully for interface {}",
+            self.ifname
+        );
         Ok(())
     }
 
@@ -48,54 +58,83 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         &self,
         config: &InterfaceConfiguration,
     ) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
 
         // assign IP address to interface
+        debug!(
+            "Parsing address {} for interface {}",
+            config.address, self.ifname
+        );
         let address = IpAddrMask::from_str(&config.address)?;
+        debug!(
+            "Address {} parsed successfully for interface {}",
+            config.address, self.ifname
+        );
         self.assign_address(&address)?;
-
         // configure interface
+        debug!("Setting host configuration for interface {}", self.ifname);
         let host = config.try_into()?;
         bsd::set_host(&self.ifname, &host)?;
+        debug!("Host configuration set for interface {}.", self.ifname);
+        trace!("Host configuration: {host:?}");
 
         // Set maximum transfer unit (MTU).
         if let Some(mtu) = config.mtu {
+            debug!("Setting MTU of {mtu} for interface {}", self.ifname);
             bsd::set_mtu(&self.ifname, mtu)?;
+            debug!("MTU of {mtu} set for interface {}, value: {mtu}");
         }
 
+        info!(
+            "Interface {} configured successfully with config: {config:?}",
+            self.ifname
+        );
         Ok(())
     }
 
     /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
-        info!("Removing interface {}", &self.ifname);
+        debug!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;
+        debug!("Interface {} removed successfully", &self.ifname);
 
         clear_dns(&self.ifname)?;
+
+        info!("Interface {} removed successfully", &self.ifname);
         Ok(())
     }
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
-        info!("Configuring peer {peer:?} on interface {}", self.ifname);
+        debug!("Configuring peer {peer:?} on interface {}", self.ifname);
         bsd::set_peer(&self.ifname, peer)?;
+        info!(
+            "Peer {peer:?} configured successfully on interface {}",
+            self.ifname
+        );
         Ok(())
     }
 
     fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Removing peer with public key {peer_pubkey} from interface {}",
             self.ifname
         );
         bsd::delete_peer(&self.ifname, peer_pubkey)?;
+        info!(
+            "Peer with public key {peer_pubkey} removed successfully from interface {}",
+            self.ifname
+        );
         Ok(())
     }
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
         let host = bsd::get_host(&self.ifname)?;
+        debug!("Host info read for interface {}", self.ifname);
+        trace!("Host configuration: {host:?}");
         Ok(host)
     }
 
@@ -113,10 +152,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             warn!("Received empty DNS server list. Skipping DNS configuration...");
             return Ok(());
         }
-        info!(
-            "Configuring DNS for interface {}, using address: {dns:?}",
-            self.ifname
-        );
         configure_dns(&self.ifname, dns, search_domains)?;
         Ok(())
     }

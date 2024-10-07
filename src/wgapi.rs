@@ -1,7 +1,7 @@
 //! Shared multi-platform management API abstraction
 use std::marker::PhantomData;
 
-use crate::error::WireguardInterfaceError;
+use crate::{dependencies::check_external_dependencies, error::WireguardInterfaceError};
 
 pub struct Kernel;
 pub struct Userspace;
@@ -18,6 +18,7 @@ pub struct WGApi<API = Kernel> {
 impl WGApi {
     /// Create new instance of `WGApi`.
     pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
+        check_external_dependencies()?;
         Ok(WGApi {
             ifname,
             _api: PhantomData,

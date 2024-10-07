@@ -4,12 +4,13 @@ use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Cursor, Error as IoError};
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use std::net::{Ipv4Addr, Ipv6Addr};
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::{io::Write, process::Stdio};
 use std::{
+    fs::OpenOptions,
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     process::Command,
 };
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use std::{io::Write, process::Stdio};
 
 #[cfg(target_os = "freebsd")]
 use crate::check_command_output_status;
@@ -30,7 +31,7 @@ pub(crate) fn configure_dns(
     search_domains: &[&str],
 ) -> Result<(), WireguardInterfaceError> {
     // Build the resolvconf command
-    debug!("Setting up DNS");
+    debug!("Starting DNS servers configuration for interface {ifname}, DNS: {dns:?}, search domains: {search_domains:?}");
     let mut cmd = Command::new("resolvconf");
     let mut args = vec!["-a", ifname, "-m", "0"];
     // Set the exclusive flag if no search domains are provided,
@@ -43,6 +44,7 @@ pub(crate) fn configure_dns(
 
     match cmd.stdin(Stdio::piped()).spawn() {
         Ok(mut child) => {
+            debug!("Command resolvconf spawned successfully, proceeding with writing nameservers and search domains to its stdin");
             if let Some(mut stdin) = child.stdin.take() {
                 for entry in dns {
                     debug!("Adding nameserver entry: {entry}");
@@ -53,9 +55,11 @@ pub(crate) fn configure_dns(
                     writeln!(stdin, "search {domain}")?;
                 }
             }
+            debug!("Waiting for resolvconf command to finish");
 
             let status = child.wait().expect("Failed to wait for command");
             if status.success() {
+                info!("DNS servers and search domains set successfully for interface {ifname}");
                 Ok(())
             } else {
                 Err(WireguardInterfaceError::DnsError(format!("Failed to execute resolvconf command while setting DNS servers and search domains: {status}")))
@@ -70,6 +74,7 @@ pub(crate) fn configure_dns(
 #[cfg(target_os = "macos")]
 /// Obtain list of network services
 fn network_services() -> Result<Vec<String>, IoError> {
+    debug!("Getting list of network services");
     let output = Command::new("networksetup")
         .arg("-listallnetworkservices")
         .output()?;
@@ -82,7 +87,7 @@ fn network_services() -> Result<Vec<String>, IoError> {
             .lines()
             .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
             .collect();
-
+        debug!("Network services: {lines:?}");
         Ok(lines)
     } else {
         Err(IoError::other(format!(
@@ -114,6 +119,7 @@ pub(crate) fn configure_dns(
                 "Command `networksetup` failed while setting DNS servers for {service}: {status}"
             )));
         }
+        info!("DNS servers set successfully for {service}");
 
         // Set search domains, if empty, clear all search domains.
         debug!("Setting search domains for {service}");
@@ -130,6 +136,8 @@ pub(crate) fn configure_dns(
         if !status.success() {
             return Err(WireguardInterfaceError::DnsError(format!("Command `networksetup` failed while setting search domains for {service}: {status}")));
         }
+
+        info!("Search domains set successfully for {service}");
     }
 
     Ok(())
@@ -137,12 +145,13 @@ pub(crate) fn configure_dns(
 
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
-    info!("Removing DNS configuration for interface {ifname}");
+    debug!("Removing DNS configuration for interface {ifname}");
     let args = ["-d", ifname, "-f"];
     debug!("Executing resolvconf with args: {args:?}");
     let mut cmd = Command::new("resolvconf");
     let output = cmd.args(args).output()?;
     check_command_output_status(output)?;
+    info!("DNS configuration removed successfully for interface {ifname}");
     Ok(())
 }
 
@@ -169,16 +178,21 @@ pub(crate) fn add_peer_routing(
             unique_allowed_ips.insert(addr);
         }
     }
+    debug!("Allowed IPs that will be used during the peer routing setup: {unique_allowed_ips:?}");
 
     // If there is default route skip adding other routes.
     if let Some(default_route) = default_route {
-        debug!("Found default route: {default_route:?}");
+        debug!("Found default route in AllowedIPs: {default_route:?}");
         let is_ipv6 = default_route.ip.is_ipv6();
         let proto = if is_ipv6 { "-6" } else { "-4" };
+        debug!("Using the following IP version: {proto}");
 
+        debug!("Getting current host configuration for interface {ifname}");
         let mut host = netlink::get_host(ifname)?;
-        debug!("Current host: {host:?}");
+        debug!("Host configuration read for interface {ifname}");
+        trace!("Current host: {host:?}");
 
+        debug!("Choosing fwmark for marking WireGuard traffic");
         let fwmark = match host.fwmark {
             Some(fwmark) if fwmark != 0 => fwmark,
             Some(_) | None => {
@@ -198,34 +212,33 @@ pub(crate) fn add_peer_routing(
                 table
             }
         };
-        debug!("Using fwmark: {fwmark}");
-        // Add table rules
-        debug!("Adding route for allowed IP: {default_route}");
+        debug!("Using the following fwmark for marking WireGuard traffic: {fwmark}");
+
+        // Add routes and table rules
+        debug!("Adding default route: {default_route}");
         netlink::add_route(ifname, default_route, Some(fwmark))?;
-        netlink::add_rule(default_route, fwmark)?;
+        debug!("Default route added successfully");
+        debug!("Adding fwmark rule for the WireGuard interface to prevent routing loops");
+        netlink::add_fwmark_rule(default_route, fwmark)?;
+        debug!("Fwmark rule added successfully");
 
-        debug!("Adding rule for main table");
+        debug!("Adding rule for main table to suppress current default gateway");
         netlink::add_main_table_rule(default_route, 0)?;
+        debug!("Main table rule added successfully");
 
-        if is_ipv6 {
-            debug!("Reloading ip6tables");
-            let output = Command::new("ip6tables-restore").arg("-n").output()?;
-            check_command_output_status(output)?;
-        } else {
-            debug!("Setting systemctl net.ipv4.conf.all.src_valid_mark=1");
-            let output = Command::new("sysctl")
-                .args(["-q", "net.ipv4.conf.all.src_valid_mark=1"])
-                .output()?;
-            check_command_output_status(output)?;
-
-            debug!("Reloading iptables");
-            let output = Command::new("iptables-restore").arg("-n").output()?;
-            check_command_output_status(output)?;
+        if !is_ipv6 {
+            debug!("Setting net.ipv4.conf.all.src_valid_mark=1");
+            OpenOptions::new()
+                .write(true)
+                .open("/proc/sys/net/ipv4/conf/all/src_valid_mark")?
+                .write_all(b"1")?;
+            debug!("net.ipv4.conf.all.src_valid_mark=1 set successfully");
         }
     } else {
         for allowed_ip in unique_allowed_ips {
-            debug!("Processing allowed IP: {allowed_ip}");
+            debug!("Adding a route for allowed IP: {allowed_ip}");
             netlink::add_route(ifname, allowed_ip, None)?;
+            debug!("Route added for allowed IP: {allowed_ip}");
         }
     }
     info!("Peers routing added successfully");
