@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{self, BufRead, BufReader, Read, Write},
+    io::{self, BufRead, BufReader, ErrorKind, Read, Write},
     marker::PhantomData,
     net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
@@ -50,11 +50,11 @@ impl WGApi<Userspace> {
 
     /// Create UNIX socket to communicate with `wireguard-go`.
     fn socket(&self) -> io::Result<UnixStream> {
-        debug!("Creating socket for interface {}", self.ifname);
+        debug!("Connecting to a socket (interface {})", self.ifname);
         let path = self.socket_path();
         let socket = UnixStream::connect(path)?;
         socket.set_read_timeout(Some(Duration::new(3, 0)))?;
-        debug!("Socket created for interface {}", self.ifname);
+        debug!("Connected to a socket (interface {})", self.ifname);
         Ok(socket)
     }
 
@@ -262,6 +262,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
 
     #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
     fn remove_endpoint_routing(&self, endpoint: &str) -> Result<(), WireguardInterfaceError> {
+        debug!("Removing routing to {endpoint}, interface: {}", self.ifname);
         let endpoint_addr = resolve(endpoint)?;
         let host = IpAddrMask::host(endpoint_addr.ip());
         match bsd::delete_gateway(&host) {
@@ -277,15 +278,30 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         debug!("Removing interface {}", self.ifname);
         // `wireguard-go` should by design shut down if the socket is removed
         debug!("Shutting down socket for interface {}", self.ifname);
-        let socket = self.socket()?;
-        socket.shutdown(Shutdown::Both).map_err(|err| {
-            WireguardInterfaceError::UnixSockerError(format!(
-                "Failed to shutdown socket for interface {}: {err}",
-                self.ifname
-            ))
-        })?;
-        fs::remove_file(self.socket_path())?;
-        debug!("Socket shutdown for interface {}", self.ifname);
+        match self.socket() {
+            Ok(socket) => {
+                debug!("Removing socket for interface {}", self.ifname);
+                socket.shutdown(Shutdown::Both).map_err(|err| {
+                    WireguardInterfaceError::UnixSockerError(format!(
+                        "Failed to shutdown socket for interface {}: {err}",
+                        self.ifname
+                    ))
+                })?;
+                fs::remove_file(self.socket_path())?;
+                debug!("Socket removed for interface {}", self.ifname);
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                debug!("Socket not found for interface {}, skipping removal as there is nothing to remove. Continuing with further cleanup.", self.ifname);
+            }
+            Err(err) => {
+                return Err(WireguardInterfaceError::UnixSockerError(format!(
+                    "Failed to remove socket for interface {}: {err}",
+                    self.ifname
+                )))
+            }
+        }
+
+        debug!("Clearing DNS entries, interface {}", self.ifname);
         #[cfg(target_os = "macos")]
         {
             configure_dns(&[], &[])?;
@@ -294,6 +310,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         {
             clear_dns(&self.ifname)?;
         }
+        debug!("DNS entries cleared, interface {}", self.ifname);
 
         info!("Interface {} removed successfully", self.ifname);
         Ok(())

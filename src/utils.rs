@@ -102,6 +102,8 @@ pub(crate) fn configure_dns(
     dns: &[IpAddr],
     search_domains: &[&str],
 ) -> Result<(), WireguardInterfaceError> {
+    debug!("Configuring DNS servers and search domains, DNS: {dns:?}, search domains: {search_domains:?}");
+
     for service in network_services()? {
         debug!("Setting DNS entries for {service}");
         let mut cmd = Command::new("networksetup");
@@ -140,6 +142,7 @@ pub(crate) fn configure_dns(
         info!("Search domains set successfully for {service}");
     }
 
+    info!("DNS servers and search domains set successfully");
     Ok(())
 }
 
@@ -245,74 +248,83 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
+fn compare_class(ip1: IpAddr, ip2: IpAddr) -> bool {
+    match (ip1, ip2) {
+        (IpAddr::V4(_), IpAddr::V4(_)) => true,
+        (IpAddr::V6(_), IpAddr::V6(_)) => true,
+        _ => false,
+    }
+}
+
 /// Helper function to add routing.
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    use crate::bsd::delete_gateway;
+    use nix::errno::Errno;
+
+    use crate::bsd::{delete_gateway, IoError};
 
     debug!("Adding peer routing for interface: {ifname}");
     for peer in peers {
+        debug!("Processing peer: {}", peer.public_key);
+        let mut default_route_v4 = false;
+        let mut default_route_v6 = false;
+        let mut gateway_v4 = Ok(None);
+        let mut gateway_v6 = Ok(None);
         for addr in &peer.allowed_ips {
+            debug!("Processing route for allowed IP: {addr}, interface: {ifname}");
             // FIXME: currently it is impossible to add another default route, so use the hack from wg-quick for Darwin.
             if addr.ip.is_unspecified() && addr.cidr == 0 {
+                debug!("Found following default route in the allowed IPs: {addr}, interface: {ifname}, proceeding with default route initial setup...");
                 let default1;
                 let default2;
-                let gateway;
                 if addr.ip.is_ipv4() {
                     // 0.0.0.0/1
                     default1 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1);
                     // 128.0.0.0/1
                     default2 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)), 1);
-                    gateway = get_gateway(IpVersion::IPv4);
+                    gateway_v4 = get_gateway(IpVersion::IPv4);
+                    debug!("Default gateway for IPv4 value: {gateway_v4:?}");
+                    default_route_v4 = true;
                 } else {
                     // ::/1
                     default1 = IpAddrMask::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 1);
                     // 8000::/1
                     default2 =
                         IpAddrMask::new(IpAddr::V6(Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0)), 1);
-                    gateway = get_gateway(IpVersion::IPv6);
+                    gateway_v6 = get_gateway(IpVersion::IPv6);
+                    debug!("Default gateway for IPv6 value: {gateway_v6:?}");
+                    default_route_v6 = true;
                 }
                 match add_linked_route(&default1, ifname) {
                     Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
                     Err(err) => {
-                        error!("Failed to add route to {default1} for interface {ifname}: {err}");
+                        match err {
+                            IoError::WriteIo(errno) if errno == Errno::ENETUNREACH => {
+                                warn!("Failed add default route {default1} for interface {ifname}: Network is unreachable. \
+                                    This may happen if your interface's IP address is not the same IP version as the default gateway ({default1}) that was tried to be set, in this case this warning can be ignored. \
+                                    Otherwise, there may be some other issues with your network configuration.");
+                            }
+                            _ => {
+                                error!("Failed to add route to {default1} for interface {ifname}: {err}");
+                            }
+                        }
                     }
                 }
                 match add_linked_route(&default2, ifname) {
                     Ok(()) => debug!("Route to {default2} has been added for interface {ifname}"),
                     Err(err) => {
-                        error!("Failed to add route to {default2} for interface {ifname}: {err}");
-                    }
-                }
-                if let Some(endpoint) = peer.endpoint {
-                    let host = IpAddrMask::host(endpoint.ip());
-                    if let Ok(Some(gateway)) = gateway {
-                        // Try to silently remove route to host as it may already exist.
-                        let _ = delete_gateway(&host);
-                        match add_gateway(&host, gateway, false) {
-                            Ok(()) => {
-                                debug!("Route to {host} has been added for gateway {gateway}");
+                        match err {
+                            IoError::WriteIo(errno) if errno == Errno::ENETUNREACH => {
+                                warn!("Failed add default route {default2} for interface {ifname}: Network is unreachable. \
+                                    This may happen if your interface's IP address is not the same IP version as the default gateway ({default2}) that was tried to be set, in this case this warning can be ignored. \
+                                    Otherwise, there may be some other issues with your network configuration.");
                             }
-                            Err(err) => {
-                                error!(
-                                    "Failed to add route to {host} for gateway {gateway}: {err}"
-                                );
-                            }
-                        }
-                    } else {
-                        // Equivalent to `route -n add -inet[6] <endpoint> <localhost> -blackhole`
-                        let localhost = if endpoint.is_ipv4() {
-                            IpAddr::V4(Ipv4Addr::LOCALHOST)
-                        } else {
-                            IpAddr::V6(Ipv6Addr::LOCALHOST)
-                        };
-                        match add_gateway(&host, localhost, true) {
-                            Ok(()) => debug!("Blackhole route to {host} has been added"),
-                            Err(err) => {
-                                error!("Failed to add blackhole route to {host}: {err}");
+                            _ => {
+                                error!("Failed to add route to {default2} for interface {ifname}: {err}");
                             }
                         }
                     }
@@ -323,6 +335,84 @@ pub(crate) fn add_peer_routing(
                     Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
                     Err(err) => {
                         error!("Failed to add route to {addr} for interface {ifname}: {err}");
+                    }
+                }
+            }
+        }
+
+        if default_route_v4 || default_route_v6 {
+            if let Some(endpoint) = peer.endpoint {
+                debug!("Default routes have been set, proceeding with further configuration...");
+                let host = IpAddrMask::host(endpoint.ip());
+                let localhost = if endpoint.is_ipv4() {
+                    IpAddr::V4(Ipv4Addr::LOCALHOST)
+                } else {
+                    IpAddr::V6(Ipv6Addr::LOCALHOST)
+                };
+                debug!("Cleaning up old route to {host}, if it exists...");
+                match delete_gateway(&host) {
+                    Ok(()) => {
+                        debug!(
+                            "Previously existing route to {host} has been removed, if it existed"
+                        );
+                    }
+                    Err(err) => {
+                        debug!("Previously existing route to {host} has not been removed: {err}");
+                    }
+                }
+                if endpoint.is_ipv6() && default_route_v6 {
+                    debug!("Endpoint is an IPv6 address and a default route (IPv6) is present in the alloweds IPs, proceeding with further configuration...");
+                    match gateway_v6 {
+                        Ok(Some(gateway)) => {
+                            debug!("Default gateway for IPv4 has been found before: {gateway}, routing the traffic destined to {host} through it...");
+                            match add_gateway(&host, gateway, false) {
+                                Ok(()) => {
+                                    debug!("Route to {host} has been added for gateway {gateway}");
+                                }
+                                Err(err) => {
+                                    error!("Failed to add route to {host} for gateway {gateway}: {err}");
+                                }
+                            };
+                        }
+                        Ok(None) => {
+                            debug!("Default gateway for IPv6 has not been found, routing the traffic destined to {host} through localhost as a blackhole route...");
+                            match add_gateway(&host, localhost, true) {
+                                Ok(()) => debug!("Blackhole route to {host} has been added"),
+                                Err(err) => {
+                                    error!("Failed to add blackhole route to {host}: {err}");
+                                }
+                            };
+                        }
+                        Err(err) => {
+                            error!("Failed to get gateway for {host}: {err}");
+                        }
+                    }
+                } else if default_route_v4 {
+                    debug!("Endpoint is an IPv4 address and a default route (IPv4) is present in the alloweds IPs, proceeding with further configuration...");
+                    match gateway_v4 {
+                        Ok(Some(gateway)) => {
+                            debug!("Default gateway for IPv4 has been found before: {gateway}, routing the traffic destined to {host} through it...");
+                            match add_gateway(&host, gateway, false) {
+                                Ok(()) => {
+                                    debug!("Added route to {host} for gateway {gateway}");
+                                }
+                                Err(err) => {
+                                    error!("Failed to add route to {host} for gateway {gateway}: {err}");
+                                }
+                            };
+                        }
+                        Ok(None) => {
+                            debug!("Default gateway for IPv4 has not been found, routing the traffic destined to {host} through localhost as a blackhole route...");
+                            match add_gateway(&host, localhost, true) {
+                                Ok(()) => debug!("Blackhole route to {host} has been added"),
+                                Err(err) => {
+                                    error!("Failed to add blackhole route to {host}: {err}");
+                                }
+                            };
+                        }
+                        Err(err) => {
+                            error!("Failed to get gateway for {host}: {err}");
+                        }
                     }
                 }
             }
