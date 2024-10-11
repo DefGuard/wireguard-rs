@@ -248,15 +248,6 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
-fn compare_class(ip1: IpAddr, ip2: IpAddr) -> bool {
-    match (ip1, ip2) {
-        (IpAddr::V4(_), IpAddr::V4(_)) => true,
-        (IpAddr::V6(_), IpAddr::V6(_)) => true,
-        _ => false,
-    }
-}
-
 /// Helper function to add routing.
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
 pub(crate) fn add_peer_routing(
