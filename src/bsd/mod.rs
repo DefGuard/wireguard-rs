@@ -364,6 +364,9 @@ pub fn get_gateway(ip_version: IpVersion) -> Result<Option<IpAddr>, IoError> {
 
 /// Add routing gateway.
 pub fn add_gateway(dest: &IpAddrMask, gateway: IpAddr, is_blackhole: bool) -> Result<(), IoError> {
+    debug!(
+        "Adding gateway, destination: {dest}, gateway: {gateway}, is blackhole: {is_blackhole}..."
+    );
     match (dest.ip, dest.mask(), gateway) {
         (IpAddr::V4(ip), IpAddr::V4(mask), IpAddr::V4(gw)) => {
             let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), gw.into());
@@ -378,11 +381,13 @@ pub fn add_gateway(dest: &IpAddrMask, gateway: IpAddr, is_blackhole: bool) -> Re
         _ => error!("Unsupported address for add route"),
     }
 
+    debug!("Gateway added");
     Ok(())
 }
 
-/// Add routing gateway.
+/// Remove routing gateway.
 pub fn delete_gateway(dest: &IpAddrMask) -> Result<(), IoError> {
+    debug!("Deleting gateway with destination {dest}...");
     match (dest.ip, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
             let payload =
@@ -399,11 +404,13 @@ pub fn delete_gateway(dest: &IpAddrMask) -> Result<(), IoError> {
         _ => error!("Unsupported address for add route"),
     }
 
+    debug!("Gateway {dest} deleted.");
     Ok(())
 }
 
 /// Add link layer address gateway.
 pub fn add_linked_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
+    debug!("Adding link layer gateway, destination: {dest}, interface: {if_name}");
     let name = CString::new(if_name).unwrap();
     let if_index = unsafe { libc::if_nametoindex(name.as_ptr()) as u16 };
     if if_index == 0 {
@@ -425,6 +432,7 @@ pub fn add_linked_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError>
         _ => error!("Unsupported address for add route"),
     }
 
+    debug!("Link layer gateway with destination: {dest} (interface: {if_name}) has been added.");
     Ok(())
 }
 
