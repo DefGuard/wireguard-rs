@@ -371,10 +371,18 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
                 trace!("Host info: {host:?}");
                 Ok(host)
             }
-            Err(err) => Err(WireguardInterfaceError::ReadInterfaceError(format!(
-                "Failed to read interface {} data, error: {err}",
-                self.ifname
-            ))),
+            Err(err) => match err {
+                err if err.kind() == ErrorKind::NotFound => {
+                    return Err(WireguardInterfaceError::ReadInterfaceError(format!(
+                        "Failed to read interface {} data, the socket may have been closed before we've attempted to read. If the socket has been closed intentionally, this message can be ignored. Error details: {err}",
+                        self.ifname
+                    )))
+                }
+                _ => Err(WireguardInterfaceError::ReadInterfaceError(format!(
+                    "Failed to read interface {} data, error: {err}",
+                    self.ifname
+                ))),
+            },
         }
     }
 }
