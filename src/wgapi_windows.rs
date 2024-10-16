@@ -201,8 +201,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // TODO: set maximum transfer unit (MTU)
 
         info!(
-            "Interface {} has been successfully configured. It has been assigned the following address: {}",
-            self.ifname, address
+            "Interface {} has been successfully configured.",
+            self.ifname
         );
         debug!(
             "Interface {} configured with config: {config:?}",
