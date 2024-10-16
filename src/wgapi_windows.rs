@@ -201,7 +201,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // TODO: set maximum transfer unit (MTU)
 
         info!(
-            "Interface {} configured successfully with config: {config:?}",
+            "Interface {} has been successfully configured. It has been assigned the following address: {}",
+            self.ifname, address
+        );
+        debug!(
+            "Interface {} configured with config: {config:?}",
             self.ifname
         );
         Ok(())
@@ -228,12 +232,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     }
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
-        info!("Configuring peer {peer:?} on interface {}", self.ifname);
+        debug!("Configuring peer {peer:?} on interface {}", self.ifname);
         Ok(())
     }
 
     fn remove_peer(&self, peer_pubkey: &Key) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Removing peer with public key {peer_pubkey} from interface {}",
             self.ifname
         );
@@ -313,7 +317,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         dns: &[IpAddr],
         search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
-        info!(
+        debug!(
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname
         );

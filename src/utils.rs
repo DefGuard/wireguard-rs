@@ -59,7 +59,7 @@ pub(crate) fn configure_dns(
 
             let status = child.wait().expect("Failed to wait for command");
             if status.success() {
-                info!("DNS servers and search domains set successfully for interface {ifname}");
+                debug!("DNS servers and search domains set successfully for interface {ifname}");
                 Ok(())
             } else {
                 Err(WireguardInterfaceError::DnsError(format!("Failed to execute resolvconf command while setting DNS servers and search domains: {status}")))
@@ -74,7 +74,6 @@ pub(crate) fn configure_dns(
 #[cfg(target_os = "macos")]
 /// Obtain list of network services
 fn network_services() -> Result<Vec<String>, IoError> {
-    debug!("Getting list of network services");
     let output = Command::new("networksetup")
         .arg("-listallnetworkservices")
         .output()?;
@@ -87,7 +86,7 @@ fn network_services() -> Result<Vec<String>, IoError> {
             .lines()
             .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
             .collect();
-        debug!("Network services: {lines:?}");
+        debug!("Found following network services: {lines:?}");
         Ok(lines)
     } else {
         Err(IoError::other(format!(
@@ -104,8 +103,11 @@ pub(crate) fn configure_dns(
 ) -> Result<(), WireguardInterfaceError> {
     debug!("Configuring DNS servers and search domains, DNS: {dns:?}, search domains: {search_domains:?}");
 
+    debug!("Setting DNS servers and search domains for all network services");
     for service in network_services()? {
-        debug!("Setting DNS entries for {service}");
+        debug!(
+            "Setting DNS entries (search domains and DNS servers) for network service {service}"
+        );
         let mut cmd = Command::new("networksetup");
         cmd.arg("-setdnsservers").arg(&service);
         if dns.is_empty() {
@@ -121,7 +123,7 @@ pub(crate) fn configure_dns(
                 "Command `networksetup` failed while setting DNS servers for {service}: {status}"
             )));
         }
-        info!("DNS servers set successfully for {service}");
+        debug!("DNS servers set successfully for {service}");
 
         // Set search domains, if empty, clear all search domains.
         debug!("Setting search domains for {service}");
@@ -139,10 +141,10 @@ pub(crate) fn configure_dns(
             return Err(WireguardInterfaceError::DnsError(format!("Command `networksetup` failed while setting search domains for {service}: {status}")));
         }
 
-        info!("Search domains set successfully for {service}");
+        debug!("Search domains set successfully for {service}");
     }
 
-    info!("DNS servers and search domains set successfully");
+    debug!("The following DNS servers and search domains were set successfully: DNS: {dns:?}, search domains: {search_domains:?}");
     Ok(())
 }
 
@@ -244,7 +246,7 @@ pub(crate) fn add_peer_routing(
             debug!("Route added for allowed IP: {allowed_ip}");
         }
     }
-    info!("Peers routing added successfully");
+    debug!("Peers routing added successfully");
     Ok(())
 }
 
@@ -410,7 +412,7 @@ pub(crate) fn add_peer_routing(
         }
     }
 
-    info!("Peers routing added successfully");
+    debug!("Peers routing added successfully");
     Ok(())
 }
 

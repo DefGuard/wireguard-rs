@@ -38,4 +38,6 @@ pub enum WireguardInterfaceError {
         err: std::io::Error,
         message: String,
     },
+    #[error("Socket is closed: {0}")]
+    SocketClosed(String),
 }
