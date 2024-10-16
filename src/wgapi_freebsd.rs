@@ -16,14 +16,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Creating interface {}", &self.ifname);
         bsd::create_interface(&self.ifname)?;
-        info!("Interface {} created successfully", &self.ifname);
+        debug!("Interface {} created successfully", &self.ifname);
         Ok(())
     }
 
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
         debug!("Assigning address {address} to interface {}", self.ifname);
         bsd::assign_address(&self.ifname, address)?;
-        info!(
+        debug!(
             "Address {address} assigned to interface {} successfully",
             self.ifname
         );
@@ -89,7 +89,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
 
         info!(
-            "Interface {} configured successfully with config: {config:?}",
+            "Interface {} has been successfully configured. It has been assigned the following address: {}",
+            self.ifname, address
+        );
+        debug!(
+            "Interface {} configured with config: {config:?}",
             self.ifname
         );
         Ok(())
@@ -110,7 +114,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
         debug!("Configuring peer {peer:?} on interface {}", self.ifname);
         bsd::set_peer(&self.ifname, peer)?;
-        info!(
+        debug!(
             "Peer {peer:?} configured successfully on interface {}",
             self.ifname
         );
@@ -123,7 +127,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
         bsd::delete_peer(&self.ifname, peer_pubkey)?;
-        info!(
+        debug!(
             "Peer with public key {peer_pubkey} removed successfully from interface {}",
             self.ifname
         );
