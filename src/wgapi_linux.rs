@@ -40,9 +40,15 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
 
         // flush all IP addresses
-        debug!("Flushing all IP addresses from interface {}", self.ifname);
+        debug!(
+            "Flushing all existing IP addresses from interface {} before assigning a new one",
+            self.ifname
+        );
         netlink::flush_interface(&self.ifname)?;
-        debug!("All IP addresses flushed from interface {}", self.ifname);
+        debug!(
+            "All existing IP addresses flushed from interface {}",
+            self.ifname
+        );
 
         // assign IP address to interface
         debug!(
@@ -57,11 +63,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
 
         // configure interface
-        debug!("Setting host configuration for interface {}", self.ifname);
+        debug!(
+            "Applying the WireGuard host configuration for interface {}",
+            self.ifname
+        );
         let host = config.try_into()?;
         netlink::set_host(&self.ifname, &host)?;
-        debug!("Host configuration set for interface {}.", self.ifname);
-        trace!("Host configuration: {host:?}");
+        debug!(
+            "WireGuard host configuration set for interface {}.",
+            self.ifname
+        );
+        trace!("WireGuard host configuration: {host:?}");
 
         // set maximum transfer unit
         if let Some(mtu) = config.mtu {
@@ -102,12 +114,15 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!(
-            "Removing interface {}. Getting its host configuration first...",
+            "Removing interface {}. Getting its WireGuard host configuration first...",
             self.ifname
         );
         let host = netlink::get_host(&self.ifname)?;
-        debug!("Host configuration read for interface {}", self.ifname);
-        trace!("Host configuration: {host:?}");
+        debug!(
+            "WireGuard host configuration read for interface {}",
+            self.ifname
+        );
+        trace!("WireGuard host configuration: {host:?}");
         if let Some(fwmark) = host.fwmark {
             if fwmark != 0 {
                 debug!("Cleaning fwmark rules for interface {}", self.ifname);

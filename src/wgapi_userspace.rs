@@ -184,13 +184,16 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
 
         // configure interface
         debug!(
-            "Applying the interface configuration to interface {}",
+            "Applying the WireGuard host configuration for interface {}",
             self.ifname
         );
         let host = config.try_into()?;
         self.write_host(&host)?;
-        debug!("Interface configuration set for interface {}.", self.ifname);
-        trace!("Interface configuration: {host:?}");
+        debug!(
+            "WireGuard host configuration set for interface {}.",
+            self.ifname
+        );
+        trace!("WireGuard host configuration: {host:?}");
 
         // Set maximum transfer unit (MTU).
         if let Some(mtu) = config.mtu {
