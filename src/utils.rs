@@ -156,7 +156,7 @@ pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
     let mut cmd = Command::new("resolvconf");
     let output = cmd.args(args).output()?;
     check_command_output_status(output)?;
-    info!("DNS configuration removed successfully for interface {ifname}");
+    debug!("DNS configuration removed successfully for interface {ifname}");
     Ok(())
 }
 

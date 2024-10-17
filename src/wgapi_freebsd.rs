@@ -75,11 +75,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
         self.assign_address(&address)?;
         // configure interface
-        debug!("Setting host configuration for interface {}", self.ifname);
+        debug!(
+            "Applying the WireGuard host configuration for interface {}",
+            self.ifname
+        );
         let host = config.try_into()?;
         bsd::set_host(&self.ifname, &host)?;
-        debug!("Host configuration set for interface {}.", self.ifname);
-        trace!("Host configuration: {host:?}");
+        debug!("WireGuard host configuration set for interface {}.", self.ifname);
+        trace!("WireGuard host configuration: {host:?}");
 
         // Set maximum transfer unit (MTU).
         if let Some(mtu) = config.mtu {
