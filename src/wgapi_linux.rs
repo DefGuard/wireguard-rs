@@ -40,9 +40,15 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
 
         // flush all IP addresses
-        debug!("Flushing all existing IP addresses from interface {} before assigning a new one", self.ifname);
+        debug!(
+            "Flushing all existing IP addresses from interface {} before assigning a new one",
+            self.ifname
+        );
         netlink::flush_interface(&self.ifname)?;
-        debug!("All existing IP addresses flushed from interface {}", self.ifname);
+        debug!(
+            "All existing IP addresses flushed from interface {}",
+            self.ifname
+        );
 
         // assign IP address to interface
         debug!(
@@ -63,7 +69,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
         let host = config.try_into()?;
         netlink::set_host(&self.ifname, &host)?;
-        debug!("WireGuard host configuration set for interface {}.", self.ifname);
+        debug!(
+            "WireGuard host configuration set for interface {}.",
+            self.ifname
+        );
         trace!("WireGuard host configuration: {host:?}");
 
         // set maximum transfer unit
@@ -109,7 +118,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
         let host = netlink::get_host(&self.ifname)?;
-        debug!("WireGuard host configuration read for interface {}", self.ifname);
+        debug!(
+            "WireGuard host configuration read for interface {}",
+            self.ifname
+        );
         trace!("WireGuard host configuration: {host:?}");
         if let Some(fwmark) = host.fwmark {
             if fwmark != 0 {
