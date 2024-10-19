@@ -23,7 +23,7 @@ fn hex_value(char: u8) -> Option<u8> {
 
 /// WireGuard key representation in binary form.
 #[derive(Clone, Default, Serialize, Deserialize)]
-#[serde(try_from = "&str")]
+#[serde(into = "String", try_from = "&str")]
 pub struct Key([u8; KEY_LENGTH]);
 
 impl Key {
@@ -166,6 +166,12 @@ impl fmt::Display for Key {
     }
 }
 
+impl Into<String> for Key {
+    fn into(self) -> String {
+        self.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +212,15 @@ mod tests {
             "000102030405060708090a0b0c0d0e0ff0e1d2c3b4a5968778695a4b3c2d1e0f"
         );
         assert_eq!(format!("{key}"), key_str);
+    }
+
+    #[test]
+    fn serde() {
+        let key_str = "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=";
+        let key: Key = key_str.try_into().unwrap();
+        let json = serde_json::to_string(&key).unwrap();
+        assert_eq!(json, "\"AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=\"");
+        let deserialized_key = serde_json::from_str(&json).unwrap();
+        assert_eq!(key, deserialized_key);
     }
 }
