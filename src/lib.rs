@@ -96,12 +96,12 @@ pub enum IpVersion {
     IPv6,
 }
 
-/// Host WireGuard interface configuration
-#[derive(Clone, Serialize, Deserialize)]
+/// Host WireGuard interface configuration.
+#[derive(Clone, Deserialize, Serialize)]
 pub struct InterfaceConfiguration {
     pub name: String,
     pub prvkey: String,
-    pub address: String,
+    pub addresses: Vec<IpAddrMask>,
     pub port: u32,
     pub peers: Vec<Peer>,
     /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
@@ -113,7 +113,7 @@ impl fmt::Debug for InterfaceConfiguration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InterfaceConfiguration")
             .field("name", &self.name)
-            .field("address", &self.address)
+            .field("addresses", &self.addresses)
             .field("port", &self.port)
             .field("peers", &self.peers)
             .field("mtu", &self.mtu)

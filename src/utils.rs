@@ -1,16 +1,15 @@
-#[cfg(target_os = "linux")]
-use std::collections::HashSet;
 #[cfg(target_os = "macos")]
 use std::io::{BufRead, BufReader, Cursor, Error as IoError};
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use std::net::{Ipv4Addr, Ipv6Addr};
+#[cfg(target_os = "linux")]
+use std::{collections::HashSet, fs::OpenOptions};
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use std::{io::Write, process::Stdio};
 use std::{
-    fs::OpenOptions,
     net::{IpAddr, SocketAddr, ToSocketAddrs},
     process::Command,
 };
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::{io::Write, process::Stdio};
 
 #[cfg(target_os = "freebsd")]
 use crate::check_command_output_status;

@@ -14,7 +14,7 @@ categories = ["network-programming"]
 base64 = "0.22"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0"
+thiserror = "2.0"
 
 [dev-dependencies]
 env_logger = "0.11"
