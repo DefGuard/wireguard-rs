@@ -10,6 +10,9 @@ repository = "https://github.com/DefGuard/wireguard-rs"
 keywords = ["wireguard", "network", "vpn"]
 categories = ["network-programming"]
 
+[features]
+check_dependencies = []
+
 [dependencies]
 base64 = "0.22"
 log = "0.4"
