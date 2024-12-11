@@ -22,7 +22,7 @@ pub(crate) fn check_external_dependencies() -> Result<(), WireguardInterfaceErro
 
     // Find the missing command to provide a more informative error message later.
     let missing = COMMANDS.iter().find(|cmd| {
-        env::split_paths(&paths).any(|dir| {
+        !env::split_paths(&paths).any(|dir| {
             trace!("Trying to find {cmd} in {dir:?}");
             match dir.join(cmd).try_exists() {
                 Ok(true) => {
