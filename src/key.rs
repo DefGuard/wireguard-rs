@@ -7,7 +7,10 @@ use std::{
 };
 
 use base64::{prelude::BASE64_STANDARD, DecodeError, Engine};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{
+    de::{Unexpected, Visitor},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 const KEY_LENGTH: usize = 32;
@@ -23,8 +26,8 @@ fn hex_value(char: u8) -> Option<u8> {
 }
 
 /// WireGuard key representation in binary form.
-#[derive(Clone, Default, Deserialize)]
-#[serde(try_from = "&str")]
+#[derive(Clone, Default)]
+// #[serde(try_from = "String")]
 pub struct Key([u8; KEY_LENGTH]);
 
 impl Key {
@@ -94,8 +97,8 @@ impl Key {
 
     /// Make WireGuard public key from a private key.
     #[must_use]
-    pub fn public_key(private_key: &Self) -> Self {
-        Self(PublicKey::from(private_key.0).to_bytes())
+    pub fn public_key(&self) -> Self {
+        Self(PublicKey::from(self.0).to_bytes())
     }
 }
 
@@ -109,7 +112,16 @@ impl TryFrom<&str> for Key {
             Key::decode(value)
         } else {
             // Try base64
-            Self::from_str(value)
+            let v = BASE64_STANDARD.decode(value)?;
+            let length = v.len();
+            if length == KEY_LENGTH {
+                let buf = v
+                    .try_into()
+                    .map_err(|_| Self::Error::InvalidLength(length))?;
+                Ok(Self::new(buf))
+            } else {
+                Err(Self::Error::InvalidLength(length))
+            }
         }
     }
 }
@@ -132,15 +144,9 @@ impl TryFrom<&[u8]> for Key {
 impl FromStr for Key {
     type Err = DecodeError;
 
+    /// Try to decode `Key` from base16 or base64 encoded string.
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let v = BASE64_STANDARD.decode(value)?;
-        let length = v.len();
-        if length == KEY_LENGTH {
-            let buf = v.try_into().map_err(|_| Self::Err::InvalidLength(length))?;
-            Ok(Self::new(buf))
-        } else {
-            Err(Self::Err::InvalidLength(length))
-        }
+        value.try_into()
     }
 }
 
@@ -179,6 +185,32 @@ impl Serialize for Key {
     }
 }
 
+struct KeyVisitor;
+
+impl Visitor<'_> for KeyVisitor {
+    type Value = Key;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("32-bytes encoded as either base16 or base64")
+    }
+
+    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Key::try_from(s).map_err(|_| serde::de::Error::invalid_value(Unexpected::Str(s), &self))
+    }
+}
+
+impl<'de> Deserialize<'de> for Key {
+    fn deserialize<D>(deserializer: D) -> Result<Key, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(KeyVisitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +245,6 @@ mod tests {
     #[test]
     fn serialize_key() {
         let key = Key(KEY_BUF);
-        assert_tokens(&key, &[Token::BorrowedStr(KEY_B64)]);
+        assert_tokens(&key, &[Token::Str(KEY_B64)]);
     }
 }

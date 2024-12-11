@@ -20,27 +20,25 @@ pub(crate) fn check_external_dependencies() -> Result<(), WireguardInterfaceErro
         "Environment variable `PATH` not found".into(),
     ))?;
 
-    // Find the missing command to provide a more informative error message later
+    // Find the missing command to provide a more informative error message later.
     let missing = COMMANDS.iter().find(|cmd| {
-        env::split_paths(&paths)
-            .find(|dir| {
-                trace!("Trying to find {cmd} in {dir:?}");
-                match dir.join(cmd).try_exists() {
-                    Ok(true) => {
-                        debug!("{cmd} found in {dir:?}");
-                        true
-                    }
-                    Ok(false) => {
-                        trace!("{cmd} not found in {dir:?}");
-                        false
-                    }
-                    Err(err) => {
-                        warn!("Error while checking for {cmd} in {dir:?}: {err}");
-                        false
-                    }
+        env::split_paths(&paths).any(|dir| {
+            trace!("Trying to find {cmd} in {dir:?}");
+            match dir.join(cmd).try_exists() {
+                Ok(true) => {
+                    debug!("{cmd} found in {dir:?}");
+                    true
                 }
-            })
-            .is_none()
+                Ok(false) => {
+                    trace!("{cmd} not found in {dir:?}");
+                    false
+                }
+                Err(err) => {
+                    warn!("Error while checking for {cmd} in {dir:?}: {err}");
+                    false
+                }
+            }
+        })
     });
 
     if let Some(cmd) = missing {
