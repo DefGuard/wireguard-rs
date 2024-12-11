@@ -14,12 +14,14 @@ use netlink_packet_wireguard::{
     constants::{WGDEVICE_F_REPLACE_PEERS, WGPEER_F_REPLACE_ALLOWEDIPS},
     nlas::{WgAllowedIpAttrs, WgDeviceAttrs, WgPeer, WgPeerAttrs},
 };
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{error::WireguardInterfaceError, key::Key, net::IpAddrMask, utils::resolve};
 
 /// WireGuard peer representation.
-#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct Peer {
     pub public_key: Key,
     pub preshared_key: Option<Key>,
@@ -171,7 +173,8 @@ impl Peer {
 }
 
 /// WireGuard host representation.
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct Host {
     pub listen_port: u16,
     pub private_key: Option<Key>,

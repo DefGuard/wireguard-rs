@@ -7,6 +7,7 @@ use std::{
 };
 
 use base64::{prelude::BASE64_STANDARD, DecodeError, Engine};
+#[cfg(feature = "serde")]
 use serde::{
     de::{Unexpected, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -27,7 +28,6 @@ fn hex_value(char: u8) -> Option<u8> {
 
 /// WireGuard key representation in binary form.
 #[derive(Clone, Default)]
-// #[serde(try_from = "String")]
 pub struct Key([u8; KEY_LENGTH]);
 
 impl Key {
@@ -176,6 +176,7 @@ impl fmt::Display for Key {
     }
 }
 
+#[cfg(feature = "serde")]
 impl Serialize for Key {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -185,8 +186,10 @@ impl Serialize for Key {
     }
 }
 
+#[cfg(feature = "serde")]
 struct KeyVisitor;
 
+#[cfg(feature = "serde")]
 impl Visitor<'_> for KeyVisitor {
     type Value = Key;
 
@@ -202,6 +205,7 @@ impl Visitor<'_> for KeyVisitor {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for Key {
     fn deserialize<D>(deserializer: D) -> Result<Key, D::Error>
     where
@@ -215,6 +219,7 @@ impl<'de> Deserialize<'de> for Key {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "serde")]
     use serde_test::{assert_tokens, Token};
 
     // Same `Key` in different representations.
@@ -242,6 +247,7 @@ mod tests {
         assert_eq!(key.to_string(), KEY_B64);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn serialize_key() {
         let key = Key(KEY_BUF);

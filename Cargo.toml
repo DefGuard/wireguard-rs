@@ -14,7 +14,7 @@ categories = ["network-programming"]
 [dependencies]
 base64 = "0.22"
 log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "2.0"
 x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 
@@ -41,6 +41,10 @@ netlink-packet-route = "0.20"
 netlink-packet-utils = "0.5"
 netlink-packet-wireguard = "0.2"
 netlink-sys = "0.8"
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
 
 [profile.release]
 lto = "thin"
