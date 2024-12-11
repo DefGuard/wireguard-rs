@@ -61,6 +61,7 @@ pub(crate) mod netlink;
 mod utils;
 mod wgapi;
 
+#[cfg(feature = "check_dependencies")]
 mod dependencies;
 #[cfg(target_os = "freebsd")]
 mod wgapi_freebsd;

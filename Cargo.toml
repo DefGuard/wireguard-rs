@@ -44,6 +44,7 @@ netlink-sys = "0.8"
 
 [features]
 default = ["serde"]
+check_dependencies = []
 serde = ["dep:serde"]
 
 [profile.release]
