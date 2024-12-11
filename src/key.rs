@@ -7,7 +7,8 @@ use std::{
 };
 
 use base64::{prelude::BASE64_STANDARD, DecodeError, Engine};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
+use x25519_dalek::{PublicKey, StaticSecret};
 
 const KEY_LENGTH: usize = 32;
 
@@ -22,7 +23,7 @@ fn hex_value(char: u8) -> Option<u8> {
 }
 
 /// WireGuard key representation in binary form.
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 #[serde(try_from = "&str")]
 pub struct Key([u8; KEY_LENGTH]);
 
@@ -84,6 +85,18 @@ impl Key {
         }
         Ok(Self(key))
     }
+
+    /// Generate WireGuard private key.
+    #[must_use]
+    pub fn generate() -> Self {
+        Self(StaticSecret::random().to_bytes())
+    }
+
+    /// Make WireGuard public key from a private key.
+    #[must_use]
+    pub fn public_key(private_key: &Self) -> Self {
+        Self(PublicKey::from(private_key.0).to_bytes())
+    }
 }
 
 impl TryFrom<&str> for Key {
@@ -96,16 +109,7 @@ impl TryFrom<&str> for Key {
             Key::decode(value)
         } else {
             // Try base64
-            let v = BASE64_STANDARD.decode(value)?;
-            let length = v.len();
-            if length == KEY_LENGTH {
-                let buf = v
-                    .try_into()
-                    .map_err(|_| Self::Error::InvalidLength(length))?;
-                Ok(Self::new(buf))
-            } else {
-                Err(Self::Error::InvalidLength(length))
-            }
+            Self::from_str(value)
         }
     }
 }
@@ -166,45 +170,49 @@ impl fmt::Display for Key {
     }
 }
 
+impl Serialize for Key {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&BASE64_STANDARD.encode(self.0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use serde_test::{assert_tokens, Token};
+
+    // Same `Key` in different representations.
+    static KEY_B64: &str = "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=";
+    static KEY_HEX: &str = "000102030405060708090a0b0c0d0e0ff0e1d2c3b4a5968778695a4b3c2d1e0f";
+    static KEY_BUF: [u8; KEY_LENGTH] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b, 0x3c, 0x2d,
+        0x1e, 0x0f,
+    ];
+
     #[test]
     fn decode_key() {
-        let key_str = "000102030405060708090a0b0c0d0e0ff0e1d2c3b4a5968778695a4b3c2d1e0f";
-        let key = Key::decode(key_str).unwrap();
-        assert_eq!(
-            key.0,
-            [
-                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-                0x0e, 0x0f, 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b,
-                0x3c, 0x2d, 0x1e, 0x0f
-            ]
-        );
-        assert_eq!(key.to_lower_hex(), key_str);
-        assert_eq!(
-            format!("{key}"),
-            "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8="
-        );
+        let key = Key::decode(KEY_HEX).unwrap();
+        assert_eq!(key.0, KEY_BUF);
+        assert_eq!(key.to_lower_hex(), KEY_HEX);
+        assert_eq!(key.to_string(), KEY_B64);
     }
 
     #[test]
     fn parse_key() {
-        let key_str = "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=";
-        let key: Key = key_str.try_into().unwrap();
-        assert_eq!(
-            key.0,
-            [
-                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-                0x0e, 0x0f, 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b,
-                0x3c, 0x2d, 0x1e, 0x0f
-            ]
-        );
-        assert_eq!(
-            key.to_lower_hex(),
-            "000102030405060708090a0b0c0d0e0ff0e1d2c3b4a5968778695a4b3c2d1e0f"
-        );
-        assert_eq!(format!("{key}"), key_str);
+        let key: Key = KEY_B64.try_into().unwrap();
+        assert_eq!(key.0, KEY_BUF);
+        assert_eq!(key.to_lower_hex(), KEY_HEX);
+        assert_eq!(key.to_string(), KEY_B64);
+    }
+
+    #[test]
+    fn serialize_key() {
+        let key = Key(KEY_BUF);
+        assert_tokens(&key, &[Token::BorrowedStr(KEY_B64)]);
     }
 }

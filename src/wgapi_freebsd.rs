@@ -91,7 +91,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         if let Some(mtu) = config.mtu {
             debug!("Setting MTU of {mtu} for interface {}", self.ifname);
             bsd::set_mtu(&self.ifname, mtu)?;
-            debug!("MTU of {mtu} set for interface {}, value: {mtu}");
+            debug!(
+                "MTU of {mtu} set for interface {}, value: {mtu}",
+                self.ifname
+            );
         }
 
         info!(

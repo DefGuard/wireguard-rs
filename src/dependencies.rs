@@ -44,10 +44,9 @@ pub(crate) fn check_external_dependencies() -> Result<(), WireguardInterfaceErro
     });
 
     if let Some(cmd) = missing {
-        return Err(WireguardInterfaceError::MissingDependency(format!(
-            "Command `{}` required by wireguard-rs couldn't be found. The following directories were checked: {paths:?}",
-            cmd
-        )));
+        Err(WireguardInterfaceError::MissingDependency(format!(
+            "Command `{cmd}` required by wireguard-rs couldn't be found. The following directories were checked: {paths:?}"
+        )))
     } else {
         debug!("All commands required by wireguard-rs are available");
         Ok(())
