@@ -11,10 +11,12 @@ use netlink_packet_wireguard::{
     constants::{AF_INET, AF_INET6},
     nlas::{WgAllowedIp, WgAllowedIpAttrs},
 };
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// IP address with CIDR.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Eq, Hash)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct IpAddrMask {
     // IP v4 or v6
     pub ip: IpAddr,

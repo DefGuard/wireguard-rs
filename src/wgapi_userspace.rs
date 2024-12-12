@@ -9,6 +9,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "check_dependencies")]
+use crate::dependencies::check_external_dependencies;
 #[cfg(target_os = "linux")]
 use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
@@ -17,7 +19,6 @@ use crate::utils::clear_dns;
 use crate::{bsd, utils::resolve};
 use crate::{
     check_command_output_status,
-    dependencies::check_external_dependencies,
     error::WireguardInterfaceError,
     utils::{add_peer_routing, configure_dns},
     wgapi::{Userspace, WGApi},
@@ -37,6 +38,7 @@ impl WGApi<Userspace> {
     /// # Errors
     /// Will return `WireguardInterfaceError` if `wireguard-go` can't be found.
     pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
+        #[cfg(feature = "check_dependencies")]
         check_external_dependencies()?;
         Ok(WGApi {
             ifname,
@@ -303,7 +305,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
                 return Err(WireguardInterfaceError::UnixSockerError(format!(
                     "Failed to remove socket for interface {}: {err}",
                     self.ifname
-                )))
+                )));
             }
         }
 
@@ -383,7 +385,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             }
             Err(err) => match err {
                 err if err.kind() == ErrorKind::NotFound => {
-                    return Err(WireguardInterfaceError::SocketClosed(format!(
+                    Err(WireguardInterfaceError::SocketClosed(format!(
                         "Failed to read network information for interface {} data, the socket may have been closed before we've attempted to read. If the socket has been closed intentionally, this message can be ignored. Error details: {err}",
                         self.ifname
                     )))

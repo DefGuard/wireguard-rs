@@ -61,6 +61,7 @@ pub(crate) mod netlink;
 mod utils;
 mod wgapi;
 
+#[cfg(feature = "check_dependencies")]
 mod dependencies;
 #[cfg(target_os = "freebsd")]
 mod wgapi_freebsd;
@@ -77,6 +78,7 @@ extern crate log;
 
 use std::{fmt, process::Output};
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 // public re-exports
 pub use wgapi::{Kernel, Userspace, WGApi};
@@ -97,7 +99,8 @@ pub enum IpVersion {
 }
 
 /// Host WireGuard interface configuration
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct InterfaceConfiguration {
     pub name: String,
     pub prvkey: String,
