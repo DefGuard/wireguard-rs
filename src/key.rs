@@ -98,7 +98,8 @@ impl Key {
     /// Make WireGuard public key from a private key.
     #[must_use]
     pub fn public_key(&self) -> Self {
-        Self(PublicKey::from(self.0).to_bytes())
+        let secret = StaticSecret::from(self.0);
+        Self(PublicKey::from(&secret).to_bytes())
     }
 }
 
