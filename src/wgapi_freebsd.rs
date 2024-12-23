@@ -14,6 +14,7 @@ use crate::{
 impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Creates a WireGuard network interface.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
+        bsd::load_wireguard_kernel_module();
         debug!("Creating interface {}", &self.ifname);
         bsd::create_interface(&self.ifname)?;
         debug!("Interface {} created successfully", &self.ifname);

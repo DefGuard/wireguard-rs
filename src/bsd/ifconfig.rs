@@ -3,8 +3,6 @@ use std::{
     os::fd::AsRawFd,
 };
 
-#[cfg(target_os = "freebsd")]
-use libc::{c_char, kld_load};
 use libc::{IFF_UP, IF_NAMESIZE};
 use nix::{ioctl_readwrite, ioctl_write_ptr, sys::socket::AddressFamily};
 
@@ -75,21 +73,6 @@ pub struct IfReq {
 impl IfReq {
     #[must_use]
     pub(super) fn new(if_name: &str) -> Self {
-        // First, try to load a kernel module for this type of network interface.
-        // Omit digits at the end of interface name, e.g. "wg0" -> "if_wg".
-        #[cfg(target_os = "freebsd")]
-        {
-            let index = if_name
-                .find(|c: char| c.is_ascii_digit())
-                .unwrap_or(if_name.len());
-            let mod_name = format!("if_{}", &if_name[0..index]);
-            unsafe {
-                // Ignore the return value for the time being.
-                // Do the cast because `c_char` differs across platforms.
-                kld_load(mod_name.as_ptr() as *const c_char);
-            }
-        }
-
         Self {
             ifr_name: make_ifr_name(if_name),
             ifr_ifru: SockAddrIn::default(),
