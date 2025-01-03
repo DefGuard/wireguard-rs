@@ -211,7 +211,8 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         }
 
         info!(
-            "Interface {} has been successfully configured. It has been assigned the following addresses: {:?}",
+            "Interface {} has been successfully configured. \
+            It has been assigned the following addresses: {:?}",
             self.ifname, config.addresses
         );
         debug!(

@@ -86,8 +86,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
 
         info!(
-            "Interface {} has been successfully configured.",
-            self.ifname
+            "Interface {} has been successfully configured. \
+            It has been assigned the following addresses: {:?}",
+            self.ifname, config.addresses
         );
         debug!(
             "Interface {} configured with config: {config:?}",
