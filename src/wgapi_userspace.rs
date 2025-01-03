@@ -181,7 +181,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
 
         // Assign IP addresses to the interface.
         for address in &config.addresses {
-            self.assign_address(&address)?;
+            self.assign_address(address)?;
         }
 
         // configure interface

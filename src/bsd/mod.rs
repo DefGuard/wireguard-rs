@@ -327,6 +327,19 @@ pub fn delete_interface(if_name: &str) -> Result<(), IoError> {
     ifreq.destroy()
 }
 
+pub fn set_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
+    match address.ip {
+        IpAddr::V4(address) => {
+            let ifreq = IfReq::new_with_address(if_name, address);
+            ifreq.set_address()
+        }
+        IpAddr::V6(address) => {
+            let ifreq6 = IfReq6::new_with_address(if_name, address);
+            ifreq6.set_address()
+        }
+    }
+}
+
 pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
     let broadcast = address.broadcast();
     let mask = address.mask();
@@ -347,12 +360,12 @@ pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError
 pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
     match address.ip {
         IpAddr::V4(address) => {
-            let mut ifreq = IfReq::new(if_name);
-            ifreq.delete_address(address)
+            let ifreq = IfReq::new_with_address(if_name, address);
+            ifreq.delete_address()
         }
         IpAddr::V6(address) => {
-            let mut ifreq6 = IfReq6::new(if_name);
-            ifreq6.delete_address(address)
+            let ifreq6 = IfReq6::new_with_address(if_name, address);
+            ifreq6.delete_address()
         }
     }
 }
