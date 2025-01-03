@@ -78,7 +78,7 @@ pub enum NvValue<'a> {
     // NvListAUp,
 }
 
-impl<'a> NvValue<'a> {
+impl NvValue<'_> {
     /// Return number of bytes this value occupies when packed.
     #[must_use]
     pub fn byte_size(&self) -> usize {
@@ -162,7 +162,7 @@ pub struct NvList<'a> {
     is_big_endian: bool,
 }
 
-impl<'a> Default for NvList<'a> {
+impl Default for NvList<'_> {
     fn default() -> Self {
         Self::new()
     }

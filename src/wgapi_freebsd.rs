@@ -14,6 +14,7 @@ use crate::{
 impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Creates a WireGuard network interface.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
+        bsd::load_wireguard_kernel_module();
         debug!("Creating interface {}", &self.ifname);
         bsd::create_interface(&self.ifname)?;
         debug!("Interface {} created successfully", &self.ifname);
@@ -91,7 +92,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         if let Some(mtu) = config.mtu {
             debug!("Setting MTU of {mtu} for interface {}", self.ifname);
             bsd::set_mtu(&self.ifname, mtu)?;
-            debug!("MTU of {mtu} set for interface {}, value: {mtu}");
+            debug!(
+                "MTU of {mtu} set for interface {}, value: {mtu}",
+                self.ifname
+            );
         }
 
         info!(

@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, net::IpAddr, process::Command, str::FromStr};
+use std::{net::IpAddr, str::FromStr};
 
 use crate::{
     netlink,

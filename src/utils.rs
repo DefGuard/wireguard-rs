@@ -295,7 +295,7 @@ pub(crate) fn add_peer_routing(
                     Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
                     Err(err) => {
                         match err {
-                            IoError::WriteIo(errno) if errno == Errno::ENETUNREACH => {
+                            IoError::WriteIo(Errno::ENETUNREACH) => {
                                 warn!("Failed to add default route {default1} for interface {ifname}: Network is unreachable. \
                                     This may happen if your interface's IP address is not the same IP version as the default gateway ({default1}) that was tried to be set, in this case this warning can be ignored. \
                                     Otherwise, there may be some other issues with your network configuration.");
@@ -310,7 +310,7 @@ pub(crate) fn add_peer_routing(
                     Ok(()) => debug!("Route to {default2} has been added for interface {ifname}"),
                     Err(err) => {
                         match err {
-                            IoError::WriteIo(errno) if errno == Errno::ENETUNREACH => {
+                            IoError::WriteIo(Errno::ENETUNREACH) => {
                                 warn!("Failed to add default route {default2} for interface {ifname}: Network is unreachable. \
                                     This may happen if your interface's IP address is not the same IP version as the default gateway ({default2}) that was tried to be set, in this case this warning can be ignored. \
                                     Otherwise, there may be some other issues with your network configuration.");

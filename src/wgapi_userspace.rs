@@ -305,7 +305,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
                 return Err(WireguardInterfaceError::UnixSockerError(format!(
                     "Failed to remove socket for interface {}: {err}",
                     self.ifname
-                )))
+                )));
             }
         }
 
@@ -385,7 +385,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             }
             Err(err) => match err {
                 err if err.kind() == ErrorKind::NotFound => {
-                    return Err(WireguardInterfaceError::SocketClosed(format!(
+                    Err(WireguardInterfaceError::SocketClosed(format!(
                         "Failed to read network information for interface {} data, the socket may have been closed before we've attempted to read. If the socket has been closed intentionally, this message can be ignored. Error details: {err}",
                         self.ifname
                     )))

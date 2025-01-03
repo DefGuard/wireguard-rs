@@ -5,12 +5,12 @@ on:
     branches:
       - main
     paths-ignore:
-      - 'LICENSE'
+      - "LICENSE"
   pull_request:
     branches:
       - main
     paths-ignore:
-      - 'LICENSE'
+      - "LICENSE"
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,7 +18,7 @@ env:
 jobs:
   test:
     runs-on: [self-hosted, Linux]
-    container: rust:1.75
+    container: rust:1.80
 
     steps:
       - name: Debug

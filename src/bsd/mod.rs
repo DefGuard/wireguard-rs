@@ -81,6 +81,8 @@ pub enum IoError {
     NetworkInterface,
     #[error("Not enough bytes to unpack")]
     Unpack,
+    #[error("Failed to load kernel module")]
+    KernelModule,
 }
 
 impl From<IoError> for WireguardInterfaceError {
@@ -299,6 +301,17 @@ pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
 
     let mut wg_data = WgWriteIo::new(if_name, &mut buf);
     wg_data.write_data()
+}
+
+#[cfg(target_os = "freebsd")]
+pub fn load_wireguard_kernel_module() -> Result<(), IoError> {
+    // Ignore the return value for the time being.
+    let retval = unsafe { libc::kld_load(c"if_wg".as_ptr()) };
+    if retval == 0 {
+        Ok(())
+    } else {
+        Err(IoError::KernelModule)
+    }
 }
 
 pub fn create_interface(if_name: &str) -> Result<(), IoError> {
