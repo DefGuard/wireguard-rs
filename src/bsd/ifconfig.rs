@@ -17,26 +17,38 @@ const ND6_INFINITE_LIFETIME: u32 = u32::MAX;
 
 // SIOCIFDESTROY
 ioctl_write_ptr!(destroy_clone_if, b'i', 121, IfReq);
+
 // SIOCIFCREATE2
 // FIXME: not on NetBSD
 ioctl_readwrite!(create_clone_if, b'i', 124, IfReq);
+
 // SIOCGIFMTU
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 ioctl_readwrite!(get_if_mtu, b'i', 51, IfMtu);
 #[cfg(target_os = "netbsd")]
 ioctl_readwrite!(get_if_mtu, b'i', 126, IfMtu);
+
 // SIOCSIFMTU
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 ioctl_write_ptr!(set_if_mtu, b'i', 52, IfMtu);
 #[cfg(target_os = "netbsd")]
 ioctl_write_ptr!(set_if_mtu, b'i', 127, IfMtu);
+
+// SIOCSIFADDR
+ioctl_write_ptr!(set_addr_if, b'i', 12, IfReq);
+
 // SIOCAIFADDR
 #[cfg(target_os = "freebsd")]
 ioctl_write_ptr!(add_addr_if, b'i', 43, InAliasReq);
 #[cfg(any(target_os = "macos", target_os = "netbsd"))]
 ioctl_write_ptr!(add_addr_if, b'i', 26, InAliasReq);
+
 // SIOCDIFADDR
 ioctl_write_ptr!(del_addr_if, b'i', 25, IfReq);
+
+// SIOCSIFADDR_IN6
+ioctl_write_ptr!(set_addr_if_in6, b'i', 12, IfReq6);
+
 // SIOCAIFADDR_IN6
 #[cfg(target_os = "freebsd")]
 ioctl_write_ptr!(add_addr_if_in6, b'i', 27, In6AliasReq);
@@ -44,10 +56,13 @@ ioctl_write_ptr!(add_addr_if_in6, b'i', 27, In6AliasReq);
 ioctl_write_ptr!(add_addr_if_in6, b'i', 26, In6AliasReq);
 #[cfg(target_os = "netbsd")]
 ioctl_write_ptr!(add_addr_if_in6, b'i', 107, In6AliasReq);
+
 // SIOCDIFADDR_IN6
 ioctl_write_ptr!(del_addr_if_in6, b'i', 25, IfReq6);
+
 // SIOCSIFFLAGS
 ioctl_write_ptr!(set_if_flags, b'i', 16, IfReqFlags);
+
 // SIOCGIFFLAGS
 ioctl_readwrite!(get_if_flags, b'i', 17, IfReqFlags);
 
@@ -71,6 +86,14 @@ pub struct IfReq {
 }
 
 impl IfReq {
+    #[must_use]
+    pub(super) fn new_with_address(if_name: &str, address: Ipv4Addr) -> Self {
+        Self {
+            ifr_name: make_ifr_name(if_name),
+            ifr_ifru: address.into(),
+        }
+    }
+
     #[must_use]
     pub(super) fn new(if_name: &str) -> Self {
         Self {
@@ -99,9 +122,16 @@ impl IfReq {
         Ok(())
     }
 
-    pub(super) fn delete_address(&mut self, addr: Ipv4Addr) -> Result<(), IoError> {
-        self.ifr_ifru = addr.into();
+    pub(super) fn set_address(&self) -> Result<(), IoError> {
+        let socket = create_socket(AddressFamily::Inet).map_err(IoError::WriteIo)?;
+        unsafe {
+            set_addr_if(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+        }
 
+        Ok(())
+    }
+
+    pub(super) fn delete_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AddressFamily::Inet).map_err(IoError::WriteIo)?;
         unsafe {
             del_addr_if(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
@@ -161,17 +191,25 @@ pub struct IfReq6 {
 
 impl IfReq6 {
     #[must_use]
-    pub(super) fn new(if_name: &str) -> Self {
+    pub(super) fn new_with_address(if_name: &str, address: Ipv6Addr) -> Self {
         Self {
             ifr_name: make_ifr_name(if_name),
-            ifr_ifru: SockAddrIn6::default(),
+            ifr_ifru: address.into(),
             _padding: [0u8; 244],
         }
     }
 
-    pub(super) fn delete_address(&mut self, addr: Ipv6Addr) -> Result<(), IoError> {
-        self.ifr_ifru = addr.into();
+    pub(super) fn set_address(&self) -> Result<(), IoError> {
+        let socket = create_socket(AddressFamily::Inet6).map_err(IoError::WriteIo)?;
 
+        unsafe {
+            set_addr_if_in6(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn delete_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AddressFamily::Inet6).map_err(IoError::WriteIo)?;
         unsafe {
             del_addr_if_in6(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;

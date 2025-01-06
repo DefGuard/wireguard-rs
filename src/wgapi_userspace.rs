@@ -5,7 +5,6 @@ use std::{
     net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
     process::Command,
-    str::FromStr,
     time::Duration,
 };
 
@@ -180,9 +179,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             self.ifname
         );
 
-        // assign IP address to interface
-        let address = IpAddrMask::from_str(&config.address)?;
-        self.assign_address(&address)?;
+        // Assign IP addresses to the interface.
+        for address in &config.addresses {
+            self.assign_address(address)?;
+        }
 
         // configure interface
         debug!(
@@ -211,8 +211,9 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         }
 
         info!(
-            "Interface {} has been successfully configured. It has been assigned the following address: {}",
-            self.ifname, address
+            "Interface {} has been successfully configured. \
+            It has been assigned the following addresses: {:?}",
+            self.ifname, config.addresses
         );
         debug!(
             "Interface {} configured with config: {config:?}",

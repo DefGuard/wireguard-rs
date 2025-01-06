@@ -29,7 +29,7 @@
 //! let interface_config = InterfaceConfiguration {
 //!     name: ifname.clone(),
 //!     prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
-//!     address: "10.6.0.30".to_string(),
+//!     addresses: vec!["10.6.0.30".parse().unwrap()],
 //!     port: 12345,
 //!     peers: vec![],
 //!     mtu: None,
@@ -98,13 +98,13 @@ pub enum IpVersion {
     IPv6,
 }
 
-/// Host WireGuard interface configuration
+/// Host WireGuard interface configuration.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct InterfaceConfiguration {
     pub name: String,
     pub prvkey: String,
-    pub address: String,
+    pub addresses: Vec<IpAddrMask>,
     pub port: u32,
     pub peers: Vec<Peer>,
     /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
@@ -116,7 +116,7 @@ impl fmt::Debug for InterfaceConfiguration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InterfaceConfiguration")
             .field("name", &self.name)
-            .field("address", &self.address)
+            .field("addresses", &self.addresses)
             .field("port", &self.port)
             .field("peers", &self.peers)
             .field("mtu", &self.mtu)

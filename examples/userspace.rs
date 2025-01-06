@@ -13,7 +13,7 @@ fn pause() {
     let mut stdout = stdout();
     stdout.write_all(b"Press Enter to continue...").unwrap();
     stdout.flush().unwrap();
-    stdin().read_exact(&mut [0]).unwrap();
+    stdin().read(&mut [0]).unwrap();
 }
 
 #[cfg(target_os = "macos")]
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
         "wg0".into()
     } else {
-        "utun3".into()
+        "utun5".into()
     };
     let api = WGApi::<Userspace>::new(ifname.clone())?;
 
@@ -54,7 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interface_config = InterfaceConfiguration {
         name: ifname.clone(),
         prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
-        address: "10.6.0.30".to_string(),
+        addresses: vec![
+            "10.6.0.30".parse().unwrap(),
+            "fc00:def9::0a1d".parse().unwrap(),
+        ],
         port: 12345,
         peers: vec![peer],
         mtu: None,

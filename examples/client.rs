@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interface_config = InterfaceConfiguration {
         name: ifname.clone(),
         prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
-        address: "10.6.0.30".to_string(),
+        addresses: vec!["10.6.0.30".parse().unwrap()],
         port: 12345,
         peers: vec![peer],
         mtu: None,

@@ -1,4 +1,4 @@
-use std::{net::IpAddr, str::FromStr};
+use std::net::IpAddr;
 
 use crate::{
     netlink,
@@ -50,17 +50,15 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        // assign IP address to interface
-        debug!(
-            "Assigning address {} to interface {}",
-            config.address, self.ifname
-        );
-        let address = IpAddrMask::from_str(&config.address)?;
-        self.assign_address(&address)?;
-        debug!(
-            "Address {} assigned to interface {} successfully",
-            config.address, self.ifname
-        );
+        // Assign IP addresses to the interface.
+        for address in &config.addresses {
+            debug!("Assigning address {address} to interface {}", self.ifname);
+            self.assign_address(&address)?;
+            debug!(
+                "Address {address} assigned to interface {} successfully",
+                self.ifname
+            );
+        }
 
         // configure interface
         debug!(
@@ -88,8 +86,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
 
         info!(
-            "Interface {} has been successfully configured. It has been assigned the following address: {}",
-            self.ifname, address
+            "Interface {} has been successfully configured. \
+            It has been assigned the following addresses: {:?}",
+            self.ifname, config.addresses
         );
         debug!(
             "Interface {} configured with config: {config:?}",
