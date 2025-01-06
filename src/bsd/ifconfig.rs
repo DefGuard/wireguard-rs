@@ -199,15 +199,6 @@ impl IfReq6 {
         }
     }
 
-    // #[must_use]
-    // pub(super) fn new(if_name: &str) -> Self {
-    //     Self {
-    //         ifr_name: make_ifr_name(if_name),
-    //         ifr_ifru: SockAddrIn6::default(),
-    //         _padding: [0u8; 244],
-    //     }
-    // }
-
     pub(super) fn set_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AddressFamily::Inet6).map_err(IoError::WriteIo)?;
 
