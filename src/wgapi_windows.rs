@@ -53,9 +53,15 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         debug!("WireGuard configuration file {file_name} created in {file_path}. Preparing configuration...");
 
+        let address = config
+            .addresses
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect::<Vec<String>>()
+            .join(",");
         let mut wireguard_configuration = format!(
-            "[Interface]\nPrivateKey = {}\nAddress = {}\n",
-            config.prvkey, config.address
+            "[Interface]\nPrivateKey = {}\nAddress = {address}\n",
+            config.prvkey
         );
 
         if !dns.is_empty() {
@@ -315,7 +321,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn configure_dns(
         &self,
         dns: &[IpAddr],
-        search_domains: &[&str],
+        _search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
         debug!(
             "Configuring DNS for interface {}, using address: {dns:?}",
