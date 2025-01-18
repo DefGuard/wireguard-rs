@@ -1,4 +1,4 @@
-use std::{net::IpAddr, str::FromStr};
+use std::net::IpAddr;
 
 use crate::{
     bsd,
@@ -14,7 +14,7 @@ use crate::{
 impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Creates a WireGuard network interface.
     fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
-        bsd::load_wireguard_kernel_module();
+        let _ = bsd::load_wireguard_kernel_module();
         debug!("Creating interface {}", &self.ifname);
         bsd::create_interface(&self.ifname)?;
         debug!("Interface {} created successfully", &self.ifname);
@@ -64,17 +64,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        // assign IP address to interface
-        debug!(
-            "Parsing address {} for interface {}",
-            config.address, self.ifname
-        );
-        let address = IpAddrMask::from_str(&config.address)?;
-        debug!(
-            "Address {} parsed successfully for interface {}",
-            config.address, self.ifname
-        );
-        self.assign_address(&address)?;
+        // Assign IP address to the interface.
+        for address in &config.addresses {
+            self.assign_address(address)?;
+        }
+
         // configure interface
         debug!(
             "Applying the WireGuard host configuration for interface {}",
@@ -99,13 +93,15 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
 
         info!(
-            "Interface {} has been successfully configured. It has been assigned the following address: {}",
-            self.ifname, address
+            "Interface {} has been successfully configured. \
+            It has been assigned the following addresses: {:?}",
+            self.ifname, config.addresses
         );
         debug!(
             "Interface {} configured with config: {config:?}",
             self.ifname
         );
+
         Ok(())
     }
 

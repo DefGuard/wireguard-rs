@@ -225,6 +225,7 @@ where
 }
 
 /// Create WireGuard interface.
+/// Note: maximum 15 characters for `ifname`.
 pub(crate) fn create_interface(ifname: &str) -> NetlinkResult<()> {
     let mut message = LinkMessage::default();
     message.header.flags = LinkFlags::Up;
