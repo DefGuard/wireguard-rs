@@ -204,6 +204,21 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             });
         }
 
+        debug!(
+            "Disabling automatic restart for interface {} tunnel service",
+            self.ifname
+        );
+        let service_update_output = Command::new("sc")
+            .arg("config")
+            .arg(format!("WireGuardTunnel${}", self.ifname))
+            .arg("start=demand")
+            .output()
+            .map_err(|err| {
+                error!("Failed to configure tunnel service. Error: {err}");
+                let message = err.to_string();
+                WireguardInterfaceError::ServiceInstallationFailed { err, message }
+            })?;
+
         // TODO: set maximum transfer unit (MTU)
 
         info!(
