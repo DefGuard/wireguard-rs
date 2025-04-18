@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use defguard_wireguard_rs::{
-    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Kernel, Userspace, WGApi,
+    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Kernel, WGApi,
     WireguardInterfaceApi,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
