@@ -1,7 +1,7 @@
 use std::{
     env,
     fs::File,
-    io::{self, BufRead, BufReader, Cursor, Write},
+    io::{BufRead, BufReader, Cursor, Write},
     net::{IpAddr, SocketAddr},
     process::Command,
     str::FromStr,
@@ -94,9 +94,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
 
         for peer in &config.peers {
-            wireguard_configuration.push_str(
-                format!("\n[Peer]\nPublicKey = {}", peer.public_key.to_string()).as_str(),
-            );
+            wireguard_configuration
+                .push_str(format!("\n[Peer]\nPublicKey = {}", peer.public_key).as_str());
 
             if let Some(preshared_key) = &peer.preshared_key {
                 wireguard_configuration
@@ -175,7 +174,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                     break;
                 }
 
-                counter = counter + 1;
+                counter += 1;
             }
             debug!("Finished waiting for service to be removed, the service is considered to be removed, proceeding further");
         }
