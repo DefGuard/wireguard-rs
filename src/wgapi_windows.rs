@@ -257,7 +257,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 "Failed to remove WireGuard tunnel service: {:?}",
                 command_output.stdout
             );
-            return Err(WireguardInterfaceError::ServiceRemovalFailed { message });
+            return Err(WireguardInterfaceError::ServiceRemovalFailed(message));
         }
 
         info!("Interface {} removed successfully", self.ifname);
