@@ -219,6 +219,18 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 WireguardInterfaceError::ServiceInstallationFailed { err, message }
             })?;
 
+        debug!("Done disabling automatic restart for the new service. Service update output: {service_update_output:?}",);
+        if !service_update_output.status.success() {
+            let message = format!(
+                "Failed to configure WireGuard tunnel service: {:?}",
+                service_update_output.stdout
+            );
+            return Err(WireguardInterfaceError::ServiceInstallationFailed {
+                err: io::Error::new(io::ErrorKind::Other, "Cannot configure service"),
+                message,
+            });
+        }
+
         // TODO: set maximum transfer unit (MTU)
 
         info!(
