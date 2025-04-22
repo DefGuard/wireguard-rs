@@ -1,14 +1,10 @@
-use std::{
-    io::{stdin, stdout, Read, Write},
-    net::SocketAddr,
-    str::FromStr,
-};
+#[cfg(target_os = "macos")]
+use std::io::{stdin, stdout, Read, Write};
 
-use defguard_wireguard_rs::{host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration};
 #[cfg(target_os = "macos")]
 use defguard_wireguard_rs::{Userspace, WGApi, WireguardInterfaceApi};
-use x25519_dalek::{EphemeralSecret, PublicKey};
 
+#[cfg(target_os = "macos")]
 fn pause() {
     let mut stdout = stdout();
     stdout.write_all(b"Press Enter to continue...").unwrap();

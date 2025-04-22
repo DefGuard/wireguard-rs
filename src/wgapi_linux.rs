@@ -53,7 +53,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // Assign IP addresses to the interface.
         for address in &config.addresses {
             debug!("Assigning address {address} to interface {}", self.ifname);
-            self.assign_address(&address)?;
+            self.assign_address(address)?;
             debug!(
                 "Address {address} assigned to interface {} successfully",
                 self.ifname
@@ -102,9 +102,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// If allowed IPs contain a default route, instead of adding a route for every peer, the following changes are made:
     /// - A new default route is added
     /// - The current default route is suppressed by modifying the main routing table rule with `suppress_prefixlen 0`, this makes
-    ///     it so that the whole main routing table rules are still applied except for the default route rules (so the new default route is used instead)
+    ///   it so that the whole main routing table rules are still applied except for the default route rules (so the new default route is used instead)
     /// - A rule pushing all traffic through the WireGuard interface is added with the exception of traffic marked with 51820 (default) fwmark which
-    ///    is used for the WireGuard traffic itself (so it doesn't get stuck in a loop)
+    ///   is used for the WireGuard traffic itself (so it doesn't get stuck in a loop)
     ///
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;

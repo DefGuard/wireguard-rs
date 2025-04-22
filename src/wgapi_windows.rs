@@ -1,7 +1,7 @@
 use std::{
     env,
     fs::File,
-    io::{self, BufRead, BufReader, Cursor, Write},
+    io::{BufRead, BufReader, Cursor, Write},
     net::{IpAddr, SocketAddr},
     process::Command,
     str::FromStr,
@@ -94,9 +94,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
 
         for peer in &config.peers {
-            wireguard_configuration.push_str(
-                format!("\n[Peer]\nPublicKey = {}", peer.public_key.to_string()).as_str(),
-            );
+            wireguard_configuration
+                .push_str(format!("\n[Peer]\nPublicKey = {}", peer.public_key).as_str());
 
             if let Some(preshared_key) = &peer.preshared_key {
                 wireguard_configuration
@@ -175,7 +174,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                     break;
                 }
 
-                counter = counter + 1;
+                counter += 1;
             }
             debug!("Finished waiting for service to be removed, the service is considered to be removed, proceeding further");
         }
@@ -187,8 +186,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .output()
             .map_err(|err| {
                 error!("Failed to create interface. Error: {err}");
-                let message = err.to_string();
-                WireguardInterfaceError::ServiceInstallationFailed { err, message }
+                WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
             })?;
 
         debug!("Done installing the new service. Service installation output: {service_installation_output:?}",);
@@ -198,10 +196,30 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 "Failed to install WireGuard tunnel as a Windows service: {:?}",
                 service_installation_output.stdout
             );
-            return Err(WireguardInterfaceError::ServiceInstallationFailed {
-                err: io::Error::new(io::ErrorKind::Other, "Cannot create service"),
-                message,
-            });
+            return Err(WireguardInterfaceError::ServiceInstallationFailed(message));
+        }
+
+        debug!(
+            "Disabling automatic restart for interface {} tunnel service",
+            self.ifname
+        );
+        let service_update_output = Command::new("sc")
+            .arg("config")
+            .arg(format!("WireGuardTunnel${}", self.ifname))
+            .arg("start=demand")
+            .output()
+            .map_err(|err| {
+                error!("Failed to configure tunnel service. Error: {err}");
+                WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
+            })?;
+
+        debug!("Done disabling automatic restart for the new service. Service update output: {service_update_output:?}",);
+        if !service_update_output.status.success() {
+            let message = format!(
+                "Failed to configure WireGuard tunnel service: {:?}",
+                service_update_output.stdout
+            );
+            return Err(WireguardInterfaceError::ServiceInstallationFailed(message));
         }
 
         // TODO: set maximum transfer unit (MTU)
@@ -224,7 +242,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
 
-        Command::new("wireguard")
+        let command_output = Command::new("wireguard")
             .arg("/uninstalltunnelservice")
             .arg(&self.ifname)
             .output()
@@ -232,6 +250,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 error!("Failed to remove interface. Error: {err}");
                 WireguardInterfaceError::CommandExecutionFailed(err)
             })?;
+
+        if !command_output.status.success() {
+            let message = format!(
+                "Failed to remove WireGuard tunnel service: {:?}",
+                command_output.stdout
+            );
+            return Err(WireguardInterfaceError::ServiceRemovalFailed(message));
+        }
 
         info!("Interface {} removed successfully", self.ifname);
         Ok(())

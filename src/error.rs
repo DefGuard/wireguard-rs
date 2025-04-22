@@ -33,11 +33,12 @@ pub enum WireguardInterfaceError {
     KernelNotSupported,
     #[error("DNS error: {0}")]
     DnsError(String),
-    #[error("Service installation failed: `{message}`")]
-    ServiceInstallationFailed {
-        err: std::io::Error,
-        message: String,
-    },
+    #[cfg(target_os = "windows")]
+    #[error("Service installation failed: `{0}`")]
+    ServiceInstallationFailed(String),
+    #[cfg(target_os = "windows")]
+    #[error("Tunnel service removal failed: `{0}`")]
+    ServiceRemovalFailed(String),
     #[error("Socket is closed: {0}")]
     SocketClosed(String),
 }

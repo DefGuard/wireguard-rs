@@ -76,7 +76,9 @@ mod wireguard_interface;
 #[macro_use]
 extern crate log;
 
-use std::{fmt, process::Output};
+use std::fmt;
+#[cfg(not(target_os = "windows"))]
+use std::process::Output;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -139,6 +141,7 @@ impl TryFrom<&InterfaceConfiguration> for Host {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 /// Utility function which checks external command output status.
 fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
     if !output.status.success() {

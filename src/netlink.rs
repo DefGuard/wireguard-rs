@@ -467,6 +467,7 @@ fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
     Ok(None)
 }
 
+#[cfg(test)]
 /// Get default route for a given address family.
 pub(crate) fn get_gateway(address_family: AddressFamily) -> NetlinkResult<Option<IpAddr>> {
     let header = RouteHeader {
@@ -493,16 +494,13 @@ pub(crate) fn get_gateway(address_family: AddressFamily) -> NetlinkResult<Option
             // Because messages can't be properly filtered, find the first `Gateway`.
             if let RouteNetlinkMessage::NewRoute(RouteMessage { attributes, .. }) = message {
                 for nla in attributes {
-                    match nla {
-                        RouteAttribute::Gateway(address) => {
-                            debug!("Found gateway {address:?}");
-                            match address {
-                                RouteAddress::Inet(ipv4) => return Ok(Some(IpAddr::V4(ipv4))),
-                                RouteAddress::Inet6(ipv6) => return Ok(Some(IpAddr::V6(ipv6))),
-                                _ => (),
-                            }
+                    if let RouteAttribute::Gateway(address) = nla {
+                        debug!("Found gateway {address:?}");
+                        match address {
+                            RouteAddress::Inet(ipv4) => return Ok(Some(IpAddr::V4(ipv4))),
+                            RouteAddress::Inet6(ipv6) => return Ok(Some(IpAddr::V6(ipv6))),
+                            _ => (),
                         }
-                        _ => (),
                     }
                 }
             }
