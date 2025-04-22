@@ -187,8 +187,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .output()
             .map_err(|err| {
                 error!("Failed to create interface. Error: {err}");
-                let message = err.to_string();
-                WireguardInterfaceError::ServiceInstallationFailed { err, message }
+                WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
             })?;
 
         debug!("Done installing the new service. Service installation output: {service_installation_output:?}",);
@@ -198,10 +197,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 "Failed to install WireGuard tunnel as a Windows service: {:?}",
                 service_installation_output.stdout
             );
-            return Err(WireguardInterfaceError::ServiceInstallationFailed {
-                err: io::Error::new(io::ErrorKind::Other, "Cannot create service"),
-                message,
-            });
+            return Err(WireguardInterfaceError::ServiceInstallationFailed(message));
         }
 
         debug!(
@@ -215,8 +211,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .output()
             .map_err(|err| {
                 error!("Failed to configure tunnel service. Error: {err}");
-                let message = err.to_string();
-                WireguardInterfaceError::ServiceInstallationFailed { err, message }
+                WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
             })?;
 
         debug!("Done disabling automatic restart for the new service. Service update output: {service_update_output:?}",);
@@ -225,10 +220,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 "Failed to configure WireGuard tunnel service: {:?}",
                 service_update_output.stdout
             );
-            return Err(WireguardInterfaceError::ServiceInstallationFailed {
-                err: io::Error::new(io::ErrorKind::Other, "Cannot configure service"),
-                message,
-            });
+            return Err(WireguardInterfaceError::ServiceInstallationFailed(message));
         }
 
         // TODO: set maximum transfer unit (MTU)
