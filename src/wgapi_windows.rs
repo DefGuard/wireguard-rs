@@ -251,7 +251,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
 
-        Command::new("wireguard")
+        let command_output = Command::new("wireguard")
             .arg("/uninstalltunnelservice")
             .arg(&self.ifname)
             .output()
@@ -259,6 +259,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 error!("Failed to remove interface. Error: {err}");
                 WireguardInterfaceError::CommandExecutionFailed(err)
             })?;
+
+        if !command_output.status.success() {
+            let message = format!(
+                "Failed to remove WireGuard tunnel service: {:?}",
+                command_output.stdout
+            );
+            return Err(WireguardInterfaceError::ServiceRemovalError { message });
+        }
 
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
