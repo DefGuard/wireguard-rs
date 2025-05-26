@@ -70,11 +70,8 @@ type IfName = [u8; IF_NAMESIZE];
 
 fn make_ifr_name(if_name: &str) -> IfName {
     let mut ifr_name = [0u8; IF_NAMESIZE];
-    if_name
-        .bytes()
-        .take(IF_NAMESIZE - 1)
-        .enumerate()
-        .for_each(|(i, b)| ifr_name[i] = b);
+    let len = if_name.len().min(IF_NAMESIZE - 1);
+    ifr_name[..len].copy_from_slice(&if_name.as_bytes()[..len]);
     ifr_name
 }
 

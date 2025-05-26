@@ -373,7 +373,7 @@ impl<Payload> RtMessage<Payload> {
         }
 
         let mut buf = [0u8; 256]; // FIXME: fixed buffer size
-        let len = read(socket.as_raw_fd(), &mut buf).map_err(IoError::ReadIo)?;
+        let len = read(socket.as_fd(), &mut buf).map_err(IoError::ReadIo)?;
         if len < size_of::<Self>() {
             return Err(IoError::Unpack);
         }

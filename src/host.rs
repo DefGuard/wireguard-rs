@@ -314,9 +314,9 @@ impl Host {
                                 break;
                             }
                         }
-                        return Err(io::Error::new(io::ErrorKind::Other, "error reading UAPI"));
+                        return Err(io::Error::other("error reading UAPI"));
                     }
-                    _ => error!("Unknown UAPI keyword {}", keyword),
+                    _ => error!("Unknown UAPI keyword {keyword}"),
                 }
             }
         }

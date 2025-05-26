@@ -17,7 +17,7 @@ pub struct WGApi<API = Kernel> {
     pub(super) _api: PhantomData<API>,
 }
 
-impl WGApi {
+impl<API> WGApi<API> {
     /// Create new instance of `WGApi`.
     pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
         #[cfg(feature = "check_dependencies")]

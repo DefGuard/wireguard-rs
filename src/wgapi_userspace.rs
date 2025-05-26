@@ -1,7 +1,6 @@
 use std::{
     fs,
     io::{self, BufRead, BufReader, ErrorKind, Read, Write},
-    marker::PhantomData,
     net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
     process::Command,
@@ -32,19 +31,6 @@ const USERSPACE_EXECUTABLE: &str = "wireguard-go";
 /// We assume that `wireguard-go` executable is managed externally and available in `PATH`.
 /// Currently works on Unix platforms.
 impl WGApi<Userspace> {
-    /// Create new instance of `WireguardApiUserspace`.
-    ///
-    /// # Errors
-    /// Will return `WireguardInterfaceError` if `wireguard-go` can't be found.
-    pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
-        #[cfg(feature = "check_dependencies")]
-        check_external_dependencies()?;
-        Ok(WGApi {
-            ifname,
-            _api: PhantomData,
-        })
-    }
-
     fn socket_path(&self) -> String {
         format!("/var/run/wireguard/{}.sock", self.ifname)
     }
@@ -315,7 +301,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             debug!("Clearing DNS entries by applying an empty DNS list to all network services, interface {}", self.ifname);
             configure_dns(&[], &[])?;
         }
-        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))]
         {
             debug!("Clearing DNS entries for interface {}", self.ifname);
             clear_dns(&self.ifname)?;

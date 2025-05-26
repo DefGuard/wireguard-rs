@@ -77,7 +77,6 @@ mod wireguard_interface;
 extern crate log;
 
 use std::fmt;
-#[cfg(not(target_os = "windows"))]
 use std::process::Output;
 
 #[cfg(feature = "serde")]
