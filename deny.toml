@@ -99,7 +99,6 @@ allow = [
     "0BSD",
     "CC0-1.0",
     "OpenSSL",
-    "AGPL-3.0",
     "CDLA-Permissive-2.0",
 ]
 # The confidence threshold for detecting a license from license text.
