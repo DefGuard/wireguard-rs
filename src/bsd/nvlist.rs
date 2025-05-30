@@ -5,7 +5,7 @@ use std::{error::Error, ffi::CStr, fmt};
 /// `NV_HEADER_SIZE` is for both: `nvlist_header` and `nvpair_header`.
 const NV_HEADER_SIZE: usize = 19;
 const NV_NAME_MAX: usize = 2048;
-const NVLIST_HEADER_MAGIC: u8 = 0x6c; // 'l'
+const NVLIST_HEADER_MAGIC: u8 = b'l';
 const NVLIST_HEADER_VERSION: u8 = 0;
 // Public flags
 // Perform case-insensitive lookups of provided names.
@@ -186,7 +186,7 @@ impl<'a> NvList<'a> {
         self.items.iter().find(|(n, _)| n == &name).map(|(_, v)| v)
     }
 
-    /// Get value as `bool`.
+    // Get value as `bool`.
     // pub fn get_bool(&self, name: &str) -> Option<bool> {
     //     self.get(name).and_then(|value| match value {
     //         NvValue::Bool(boolean) => Some(*boolean),
@@ -202,7 +202,7 @@ impl<'a> NvList<'a> {
         })
     }
 
-    /// Get value as `&str`.
+    // Get value as `&str`.
     // pub fn get_string(&self, name: &str) -> Option<&str> {
     //     self.get(name).and_then(|value| match value {
     //         NvValue::String(string) => Some(*string),
@@ -242,7 +242,7 @@ impl<'a> NvList<'a> {
         self.items.push((name, NvValue::Number(number)));
     }
 
-    /// Append `String` value to the list.
+    // Append `String` value to the list.
     // pub fn append_string(&mut self, name: &'a str, string: &'a str) {
     //     self.items.push((name, NvValue::String(string)));
     // }
