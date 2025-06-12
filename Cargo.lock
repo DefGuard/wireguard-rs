@@ -152,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "defguard_wireguard_rs"
-version = "0.7.3"
+version = "0.7.4"
 dependencies = [
  "base64",
  "env_logger",
