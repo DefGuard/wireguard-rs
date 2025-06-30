@@ -1,4 +1,5 @@
 use std::{
+    ffi::{CStr, CString},
     mem::{size_of, MaybeUninit},
     net::IpAddr,
     os::fd::{AsFd, AsRawFd},
@@ -214,14 +215,15 @@ pub(super) struct GatewayLink<S> {
 
 /// Get an address for a given interface. First address is returned.
 fn if_addr<S: SocketFromRaw>(if_name: &str) -> Option<S> {
+    let ifname_c = CString::new(if_name).unwrap();
     let mut addrs = MaybeUninit::<*mut libc::ifaddrs>::uninit();
     let errno = unsafe { libc::getifaddrs(addrs.as_mut_ptr()) };
     if errno == 0 {
         let addrs = unsafe { addrs.assume_init() };
         let mut addr = addrs;
         while !addr.is_null() {
-            let name = unsafe { std::ffi::CStr::from_ptr((*addr).ifa_name) };
-            if name.to_str().unwrap() == if_name {
+            let name = unsafe { CStr::from_ptr((*addr).ifa_name) };
+            if name == ifname_c.as_c_str() {
                 if let Some(sockaddr) = unsafe { S::from_raw((*addr).ifa_addr) } {
                     return Some(sockaddr);
                 }

@@ -39,7 +39,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        // flush all IP addresses
+        // Flush all IP addresses from WireGuard interface.
         debug!(
             "Flushing all existing IP addresses from interface {} before assigning a new one",
             self.ifname

@@ -1,18 +1,11 @@
 //! Convert binary `sockaddr_in` or `sockaddr_in6` (see netinet/in.h) to `SocketAddr`.
 use std::{
     mem::{size_of, zeroed},
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     ptr::{copy, from_mut},
 };
 
-use super::{cast_bytes, cast_ref};
-
-// Note: these values differ across different platforms.
-const AF_INET: u8 = libc::AF_INET as u8;
-const AF_INET6: u8 = libc::AF_INET6 as u8;
-const AF_LINK: u8 = libc::AF_LINK as u8;
-const SA_IN_SIZE: u8 = size_of::<SockAddrIn>() as u8;
-const SA_IN6_SIZE: u8 = size_of::<SockAddrIn6>() as u8;
+use super::{cast_bytes, cast_ref, AF_INET, AF_INET6, AF_LINK, SA_IN6_SIZE, SA_IN_SIZE};
 
 pub(super) trait SocketFromRaw {
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self>
@@ -28,6 +21,13 @@ pub(super) struct SockAddrIn {
     port: u16,
     addr: [u8; 4],
     zero: [u8; 8],
+}
+
+impl SockAddrIn {
+    #[must_use]
+    pub(super) fn ip_addr(&self) -> IpAddr {
+        IpAddr::from(self.addr)
+    }
 }
 
 impl SocketFromRaw for SockAddrIn {
@@ -116,6 +116,11 @@ impl SockAddrIn6 {
             addr: [0u8; 16],
             scope_id: 0,
         }
+    }
+
+    #[must_use]
+    pub(super) fn ip_addr(&self) -> IpAddr {
+        IpAddr::from(self.addr)
     }
 }
 
