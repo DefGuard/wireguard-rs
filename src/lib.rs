@@ -77,8 +77,6 @@ mod wireguard_interface;
 extern crate log;
 
 use std::fmt;
-#[cfg(not(target_os = "windows"))]
-use std::process::Output;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -113,7 +111,7 @@ pub struct InterfaceConfiguration {
     pub mtu: Option<u32>,
 }
 
-// implement manually to avoid exposing private keys
+// Implement `Debug` manually to avoid exposing private keys.
 impl fmt::Debug for InterfaceConfiguration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InterfaceConfiguration")
@@ -141,9 +139,11 @@ impl TryFrom<&InterfaceConfiguration> for Host {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 /// Utility function which checks external command output status.
-fn check_command_output_status(output: Output) -> Result<(), WireguardInterfaceError> {
+fn check_command_output_status(
+    output: std::process::Output,
+) -> Result<(), WireguardInterfaceError> {
     if !output.status.success() {
         let stdout = String::from_utf8(output.stdout).expect("Invalid UTF8 sequence in stdout");
         let stderr = String::from_utf8(output.stderr).expect("Invalid UTF8 sequence in stderr");

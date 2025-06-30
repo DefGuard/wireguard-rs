@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(target_os = "macos"))]
     let wgapi = WGApi::<Kernel>::new(ifname.clone())?;
     #[cfg(target_os = "macos")]
-    let wgapi = WGApi::<Userspace>::new(ifname.clone())?;
+    let mut wgapi = WGApi::<defguard_wireguard_rs::Userspace>::new(ifname.clone())?;
 
     // create host interface
     wgapi.create_interface()?;

@@ -1,10 +1,15 @@
-#[cfg(target_os = "macos")]
-use std::io::{stdin, stdout, Read, Write};
+use std::{
+    io::{stdin, stdout, Read, Write},
+    net::SocketAddr,
+    str::FromStr,
+};
 
-#[cfg(target_os = "macos")]
-use defguard_wireguard_rs::{Userspace, WGApi, WireguardInterfaceApi};
+use defguard_wireguard_rs::{
+    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Userspace, WGApi,
+    WireguardInterfaceApi,
+};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
-#[cfg(target_os = "macos")]
 fn pause() {
     let mut stdout = stdout();
     stdout.write_all(b"Press Enter to continue...").unwrap();
@@ -12,17 +17,19 @@ fn pause() {
     stdin().read(&mut [0]).unwrap();
 }
 
-#[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Setup API struct for interface management
+    tracing_subscriber::fmt()
+        .pretty()
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
         "wg0".into()
     } else {
         "utun5".into()
     };
-    let api = WGApi::<Userspace>::new(ifname.clone())?;
+    let mut api = WGApi::<Userspace>::new(ifname.clone())?;
 
-    // create interface
     api.create_interface()?;
 
     // Peer configuration
@@ -32,15 +39,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer_key: Key = key.as_ref().try_into().unwrap();
     let mut peer = Peer::new(peer_key.clone());
 
-    println!("endpoint");
-    // Your WireGuard server endpoint which peer connects too
+    // WireGuard server endpoint which peer connects to.
     let endpoint: SocketAddr = "10.20.30.40:55001".parse().unwrap();
-    // Peer endpoint and interval
+    // Peer endpoint and interval.
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);
 
     // Peer allowed ips
-    let allowed_ips = vec!["10.6.0.0/24", "192.168.2.0/24"];
+    let allowed_ips = ["10.6.0.0/24", "192.168.2.0/24"];
     for allowed_ip in allowed_ips {
         let addr = IpAddrMask::from_str(allowed_ip)?;
         peer.allowed_ips.push(addr);

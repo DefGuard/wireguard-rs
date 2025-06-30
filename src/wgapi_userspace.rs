@@ -3,12 +3,11 @@ use std::{
     io::{self, BufRead, BufReader, ErrorKind, Read, Write},
     net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
-    process::Command,
     time::Duration,
 };
 
-#[cfg(feature = "check_dependencies")]
-use crate::dependencies::check_external_dependencies;
+use boringtun::device::{DeviceConfig, DeviceHandle};
+
 #[cfg(target_os = "linux")]
 use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
@@ -16,7 +15,6 @@ use crate::utils::clear_dns;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::{bsd, utils::resolve};
 use crate::{
-    check_command_output_status,
     error::WireguardInterfaceError,
     utils::{add_peer_routing, configure_dns},
     wgapi::{Userspace, WGApi},
@@ -24,18 +22,13 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
 };
 
-const USERSPACE_EXECUTABLE: &str = "wireguard-go";
-
-/// Manages interfaces created with `wireguard-go`.
-///
-/// We assume that `wireguard-go` executable is managed externally and available in `PATH`.
-/// Currently works on Unix platforms.
+/// Manages interfaces created with BoringTun.
 impl WGApi<Userspace> {
     fn socket_path(&self) -> String {
         format!("/var/run/wireguard/{}.sock", self.ifname)
     }
 
-    /// Create UNIX socket to communicate with `wireguard-go`.
+    /// Create UNIX socket to communicate with BoringTun.
     fn socket(&self) -> io::Result<UnixStream> {
         let path = self.socket_path();
         let socket = UnixStream::connect(path)?;
@@ -95,13 +88,19 @@ impl WGApi<Userspace> {
 }
 
 impl WireguardInterfaceApi for WGApi<Userspace> {
-    fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
-        debug!("Creating userspace interface {}", self.ifname);
-        let output = Command::new(USERSPACE_EXECUTABLE)
-            .arg(&self.ifname)
-            .output()?;
-        check_command_output_status(output)?;
+    fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
+        let config = DeviceConfig::default();
+        let device_handle = match DeviceHandle::new(&self.ifname, config) {
+            Ok(handle) => handle,
+            Err(err) => {
+                error!("Failed to initialize tunnel: {err}");
+                return Err(err.into());
+            }
+        };
+
         debug!("Userspace interface {} created successfully", self.ifname);
+        self.device_handle = Some(device_handle);
+
         Ok(())
     }
 

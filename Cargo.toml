@@ -1,6 +1,6 @@
 [package]
 name = "defguard_wireguard_rs"
-version = "0.7.4"
+version = "0.7.5"
 edition = "2021"
 rust-version = "1.80"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
@@ -12,6 +12,9 @@ keywords = ["wireguard", "network", "vpn"]
 categories = ["network-programming"]
 
 [dependencies]
+boringtun = { path = "../boringtun/boringtun", default-features = false, features = [
+    "device",
+] }
 base64 = "0.22"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -21,6 +24,8 @@ x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 [dev-dependencies]
 env_logger = "0.11"
 serde_test = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [target.'cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))'.dependencies]
 libc = { version = "0.2", default-features = false }

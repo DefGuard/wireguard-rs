@@ -9,8 +9,8 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 
 ## Supported platforms
 
-* **Native OS Kernel**: Linux, FreeBSD (and pfSense/OPNSense), Windows
-* Userspace using [wireguard-go](https://github.com/WireGuard/wireguard-go) - Linux, **macOS**, FreeBSD
+* Native OS Kernel: Linux, FreeBSD (and pfSense/OPNSense), NetBSD, Windows
+* Userspace: Linux, macOS, FreeBSD, NetBSD
 
 ### Unique features
 
@@ -24,8 +24,8 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 Please note that [WireGuard](https://www.wireguard.com/install/) needs to be installed on Windows with commands `wg` and `wireguard` available to be called from the command line.
 
 ### Note on `wireguard-go`
-If you intend to use the userspace WireGuard implementation you should note that currently the library assumes 
-that the `wireguard-go` binary will be available at runtime. There are some sanity checks when instantiating the API, 
+If you intend to use the userspace WireGuard implementation you should note that currently the library assumes
+that the `wireguard-go` binary will be available at runtime. There are some sanity checks when instantiating the API,
 but installing it is outside the scope of this project.
 
 ## Examples

@@ -9,7 +9,7 @@ const COMMANDS: [&str; 2] = ["resolvconf", "ip"];
 const COMMANDS: [&str; 1] = [("wireguard.exe")];
 
 #[cfg(target_os = "macos")]
-const COMMANDS: [&str; 2] = ["wireguard-go", "networksetup"];
+const COMMANDS: [&str; 1] = ["networksetup"];
 
 #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
 const COMMANDS: [&str; 1] = ["resolvconf"];
