@@ -6,7 +6,12 @@ mod timespec;
 mod wgio;
 
 use std::{
-    collections::HashMap, ffi::CString, mem::size_of, net::IpAddr, os::fd::OwnedFd, ptr::from_ref,
+    collections::HashMap,
+    ffi::{CStr, CString},
+    mem::{size_of, MaybeUninit},
+    net::IpAddr,
+    os::fd::OwnedFd,
+    ptr::from_ref,
     slice::from_raw_parts,
 };
 
@@ -15,7 +20,7 @@ use nix::{
     sys::socket::{socket, AddressFamily, SockFlag, SockType},
 };
 use route::{DestAddrMask, GatewayLink};
-use sockaddr::{SockAddrDl, SockAddrIn, SockAddrIn6};
+use sockaddr::{SockAddrDl, SockAddrIn, SockAddrIn6, SocketFromRaw};
 use thiserror::Error;
 
 use self::{
@@ -31,6 +36,13 @@ use crate::{
     net::IpAddrMask,
     IpVersion, Key, WireguardInterfaceError,
 };
+
+// Note: these values differ across different platforms.
+const AF_INET: u8 = libc::AF_INET as u8;
+const AF_INET6: u8 = libc::AF_INET6 as u8;
+const AF_LINK: u8 = libc::AF_LINK as u8;
+const SA_IN_SIZE: u8 = size_of::<SockAddrIn>() as u8;
+const SA_IN6_SIZE: u8 = size_of::<SockAddrIn6>() as u8;
 
 // nvlist key names
 static NV_LISTEN_PORT: &str = "listen-port";
@@ -368,6 +380,62 @@ pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError
             ifreq6.delete_address()
         }
     }
+}
+
+pub fn flush_interface(if_name: &str) -> Result<(), IoError> {
+    let ifname_c = CString::new(if_name).unwrap();
+    let mut addr_to_remove = Vec::new();
+
+    let mut addrs = MaybeUninit::<*mut libc::ifaddrs>::uninit();
+    let errno = unsafe { libc::getifaddrs(addrs.as_mut_ptr()) };
+    if errno == 0 {
+        let addrs = unsafe { addrs.assume_init() };
+        let mut addr = addrs;
+        while !addr.is_null() {
+            unsafe {
+                let name = CStr::from_ptr((*addr).ifa_name);
+                if name == ifname_c.as_c_str() {
+                    let ifa_addr = (*addr).ifa_addr;
+                    if ifa_addr.is_null() {
+                        continue;
+                    }
+                    // Convert `ifa_addr` to `IpAddr`.
+                    // Note: `ifa_addr` is actually `sockaddr_in` or `sockaddr_in6` depending on
+                    // `sa_len` and `sa_family`.
+                    if (*ifa_addr).sa_len == SA_IN_SIZE && (*ifa_addr).sa_family == AF_INET {
+                        if let Some(sockaddr) = SockAddrIn::from_raw(ifa_addr) {
+                            addr_to_remove.push(sockaddr.ip_addr());
+                        }
+                    } else if (*ifa_addr).sa_len == SA_IN6_SIZE
+                        && (*ifa_addr).sa_family == libc::AF_INET6 as u8
+                    {
+                        if let Some(sockaddr) = SockAddrIn6::from_raw(ifa_addr) {
+                            addr_to_remove.push(sockaddr.ip_addr());
+                        }
+                    }
+                }
+                addr = (*addr).ifa_next;
+            };
+        }
+        unsafe { libc::freeifaddrs(addrs) };
+    } else {
+        debug!("getifaddrs returned {errno}");
+    }
+
+    for address in addr_to_remove {
+        match address {
+            IpAddr::V4(address) => {
+                let ifreq = IfReq::new_with_address(if_name, address);
+                ifreq.delete_address()?;
+            }
+            IpAddr::V6(address) => {
+                let ifreq6 = IfReq6::new_with_address(if_name, address);
+                ifreq6.delete_address()?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn get_mtu(if_name: &str) -> Result<u32, IoError> {

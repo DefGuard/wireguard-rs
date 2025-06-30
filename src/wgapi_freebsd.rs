@@ -64,6 +64,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
+        // Flush all IP addresses from WireGuard interface.
+        debug!(
+            "Flushing all existing IP addresses from interface {} before assigning a new one",
+            self.ifname
+        );
+        bsd::flush_interface(&self.ifname)?;
+        debug!(
+            "All existing IP addresses flushed from interface {}",
+            self.ifname
+        );
+
         // Assign IP address to the interface.
         for address in &config.addresses {
             self.assign_address(address)?;
