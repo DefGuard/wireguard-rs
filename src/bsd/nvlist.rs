@@ -182,7 +182,7 @@ impl<'a> NvList<'a> {
     }
 
     /// Get value for a given `name`.
-    fn get(&self, name: &str) -> Option<&NvValue> {
+    fn get(&self, name: &str) -> Option<&NvValue<'_>> {
         self.items.iter().find(|(n, _)| n == &name).map(|(_, v)| v)
     }
 
@@ -219,7 +219,7 @@ impl<'a> NvList<'a> {
     }
 
     /// Get value as `Vec<NvList>`
-    pub fn get_nvlist_array(&self, name: &str) -> Option<&[NvList]> {
+    pub fn get_nvlist_array(&self, name: &str) -> Option<&[NvList<'_>]> {
         self.get(name).and_then(|value| match value {
             NvValue::NvListArray(array) => Some(array.as_slice()),
             _ => None,
@@ -394,10 +394,14 @@ impl<'a> NvList<'a> {
                 NvValue::Binary(bytes) => buf.extend_from_slice(bytes),
                 NvValue::Bytes(bytes) => buf.extend_from_slice(bytes.as_slice()),
                 NvValue::BoolArray(array) => {
-                    array.iter().for_each(|boolean| buf.push((*boolean).into()));
+                    for boolean in array {
+                        buf.push((*boolean).into());
+                    }
                 }
                 NvValue::NumberArray(array) => {
-                    array.iter().for_each(|number| self.store_u64(*number, buf));
+                    for number in array {
+                        self.store_u64(*number, buf);
+                    }
                 }
                 NvValue::StringArray(array) => {
                     for string in array {

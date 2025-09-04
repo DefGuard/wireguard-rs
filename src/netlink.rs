@@ -19,7 +19,6 @@ use netlink_packet_route::{
     rule::{RuleAction, RuleAttribute, RuleFlags, RuleHeader, RuleMessage},
     AddressFamily, RouteNetlinkMessage,
 };
-use netlink_packet_utils::errors::DecodeError;
 use netlink_packet_wireguard::{
     constants::WGPEER_F_REMOVE_ME,
     nlas::{WgDeviceAttrs, WgPeer, WgPeerAttrs},
@@ -50,7 +49,7 @@ pub(crate) enum NetlinkError {
     #[error("Socket error: {0}")]
     SocketError(String),
     #[error("Failed to read response")]
-    ResponseError(#[from] DecodeError),
+    ResponseError(#[from] netlink_packet_core::DecodeError),
     #[error("Netlink payload error: {0}")]
     PayloadError(netlink_packet_core::ErrorMessage),
     #[error("Failed to create WireGuard interface")]
@@ -149,7 +148,7 @@ where
                 message.set_resolved_family_id(*family_id);
             }
             _ => return Err(NetlinkError::UnexpectedPayload),
-        };
+        }
     }
     netlink_request(message, flags, NETLINK_GENERIC)
 }
