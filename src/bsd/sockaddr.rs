@@ -5,7 +5,7 @@ use std::{
     ptr::{copy, from_mut},
 };
 
-use super::{cast_bytes, cast_ref, AF_INET, AF_INET6, AF_LINK, SA_IN6_SIZE, SA_IN_SIZE};
+use super::{AF_INET, AF_INET6, AF_LINK, SA_IN_SIZE, SA_IN6_SIZE, cast_bytes, cast_ref};
 
 pub(super) trait SocketFromRaw {
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self>
@@ -33,16 +33,18 @@ impl SockAddrIn {
 impl SocketFromRaw for SockAddrIn {
     /// Construct `SockAddrIn` from `libc::sockaddr`.
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
-        if addr.is_null() || (*addr).sa_family != AF_INET {
-            None
-        } else {
-            let mut sockaddr: Self = zeroed();
-            copy(
-                addr.cast::<u8>(),
-                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
-                (*addr).sa_len as usize,
-            );
-            Some(sockaddr)
+        unsafe {
+            if addr.is_null() || (*addr).sa_family != AF_INET {
+                None
+            } else {
+                let mut sockaddr: Self = zeroed();
+                copy(
+                    addr.cast::<u8>(),
+                    from_mut::<Self>(&mut sockaddr).cast::<u8>(),
+                    (*addr).sa_len as usize,
+                );
+                Some(sockaddr)
+            }
         }
     }
 }
@@ -127,16 +129,18 @@ impl SockAddrIn6 {
 impl SocketFromRaw for SockAddrIn6 {
     /// Construct `SockAddrIn6` from `libc::sockaddr`.
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
-        if addr.is_null() || (*addr).sa_family != AF_INET6 {
-            None
-        } else {
-            let mut sockaddr: Self = zeroed();
-            copy(
-                addr.cast::<u8>(),
-                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
-                (*addr).sa_len as usize,
-            );
-            Some(sockaddr)
+        unsafe {
+            if addr.is_null() || (*addr).sa_family != AF_INET6 {
+                None
+            } else {
+                let mut sockaddr: Self = zeroed();
+                copy(
+                    addr.cast::<u8>(),
+                    from_mut::<Self>(&mut sockaddr).cast::<u8>(),
+                    (*addr).sa_len as usize,
+                );
+                Some(sockaddr)
+            }
         }
     }
 }

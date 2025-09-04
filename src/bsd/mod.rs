@@ -8,7 +8,7 @@ mod wgio;
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
-    mem::{size_of, MaybeUninit},
+    mem::{MaybeUninit, size_of},
     net::IpAddr,
     os::fd::OwnedFd,
     ptr::from_ref,
@@ -17,7 +17,7 @@ use std::{
 
 use nix::{
     errno::Errno,
-    sys::socket::{socket, AddressFamily, SockFlag, SockType},
+    sys::socket::{AddressFamily, SockFlag, SockType, socket},
 };
 use route::{DestAddrMask, GatewayLink};
 use sockaddr::{SockAddrDl, SockAddrIn, SockAddrIn6, SocketFromRaw};
@@ -32,9 +32,9 @@ use self::{
     wgio::{WgReadIo, WgWriteIo},
 };
 use crate::{
+    IpVersion, Key, WireguardInterfaceError,
     host::{Host, Peer},
     net::IpAddrMask,
-    IpVersion, Key, WireguardInterfaceError,
 };
 
 // Note: these values differ across different platforms.
@@ -68,12 +68,12 @@ static NV_IPV6: &str = "ipv6";
 
 /// Cast bytes to `T`.
 unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
-    bytes.as_ptr().cast::<T>().as_ref().unwrap()
+    unsafe { bytes.as_ptr().cast::<T>().as_ref().unwrap() }
 }
 
 /// Cast `T' to bytes.
 unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
-    from_raw_parts(from_ref::<T>(p).cast::<u8>(), size_of::<T>())
+    unsafe { from_raw_parts(from_ref::<T>(p).cast::<u8>(), size_of::<T>()) }
 }
 
 /// Create socket for ioctl communication.

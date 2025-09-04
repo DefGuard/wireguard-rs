@@ -6,11 +6,11 @@ use std::{
     str::FromStr,
 };
 
-use base64::{prelude::BASE64_STANDARD, DecodeError, Engine};
+use base64::{DecodeError, Engine, prelude::BASE64_STANDARD};
 #[cfg(feature = "serde")]
 use serde::{
-    de::{Unexpected, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
+    de::{Unexpected, Visitor},
 };
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -221,7 +221,7 @@ mod tests {
     use super::*;
 
     #[cfg(feature = "serde")]
-    use serde_test::{assert_tokens, Token};
+    use serde_test::{Token, assert_tokens};
 
     // Same `Key` in different representations.
     static KEY_B64: &str = "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=";

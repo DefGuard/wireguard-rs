@@ -1,8 +1,8 @@
 [package]
 name = "defguard_wireguard_rs"
-version = "0.7.5"
-edition = "2021"
-rust-version = "1.80"
+version = "0.7.6"
+edition = "2024"
+rust-version = "1.85"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
 license = "Apache-2.0"
 readme = "README.md"
@@ -27,10 +27,10 @@ libc = { version = "0.2", default-features = false }
 nix = { version = "0.30", features = ["ioctl", "socket"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-netlink-packet-core = "0.7"
-netlink-packet-generic = "0.3"
-netlink-packet-route = "0.22"
-netlink-packet-utils = "0.5"
+netlink-packet-core = "0.8"
+netlink-packet-generic = "0.4"
+netlink-packet-route = "0.25"
+netlink-packet-utils = "0.6"
 netlink-packet-wireguard = "0.2"
 netlink-sys = "0.8"
 

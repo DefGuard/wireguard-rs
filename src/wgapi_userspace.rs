@@ -13,16 +13,15 @@ use crate::dependencies::check_external_dependencies;
 use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::utils::clear_dns;
-#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
-use crate::{bsd, utils::resolve};
 use crate::{
-    check_command_output_status,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, check_command_output_status,
     error::WireguardInterfaceError,
     utils::{add_peer_routing, configure_dns},
     wgapi::{Userspace, WGApi},
     wireguard_interface::WireguardInterfaceApi,
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
 };
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use crate::{bsd, utils::resolve};
 
 const USERSPACE_EXECUTABLE: &str = "wireguard-go";
 
@@ -286,7 +285,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
                 debug!("Socket removed for interface {}", self.ifname);
             }
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                debug!("Socket not found for interface {}, skipping removal as there is nothing to remove. Continuing with further cleanup.", self.ifname);
+                debug!(
+                    "Socket not found for interface {}, skipping removal as there is nothing to remove. Continuing with further cleanup.",
+                    self.ifname
+                );
             }
             Err(err) => {
                 return Err(WireguardInterfaceError::UnixSockerError(format!(
@@ -298,7 +300,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
 
         #[cfg(target_os = "macos")]
         {
-            debug!("Clearing DNS entries by applying an empty DNS list to all network services, interface {}", self.ifname);
+            debug!(
+                "Clearing DNS entries by applying an empty DNS list to all network services, interface {}",
+                self.ifname
+            );
             configure_dns(&[], &[])?;
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))]
@@ -366,7 +371,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         );
         match self.read_host() {
             Ok(host) => {
-                debug!("Interface configuration and statistics read successfully for interface {}", self.ifname);
+                debug!(
+                    "Interface configuration and statistics read successfully for interface {}",
+                    self.ifname
+                );
                 trace!("Network information: {host:?}");
                 Ok(host)
             }

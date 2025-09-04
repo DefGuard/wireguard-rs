@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use crate::{error::WireguardInterfaceError, Host, InterfaceConfiguration, IpAddrMask, Key, Peer};
+use crate::{Host, InterfaceConfiguration, IpAddrMask, Key, Peer, error::WireguardInterfaceError};
 
 /// API for managing a WireGuard interface.
 ///

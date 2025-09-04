@@ -1,5 +1,5 @@
 use std::{
-    alloc::{alloc, dealloc, Layout},
+    alloc::{Layout, alloc, dealloc},
     os::fd::AsRawFd,
     ptr::null_mut,
     slice::from_raw_parts,
@@ -8,7 +8,7 @@ use std::{
 use libc::IF_NAMESIZE;
 use nix::{ioctl_readwrite, sys::socket::AddressFamily};
 
-use super::{create_socket, IoError};
+use super::{IoError, create_socket};
 
 // FIXME: `WgReadIo` and `WgWriteIo` have to be declared public.
 ioctl_readwrite!(write_wireguard_data, b'i', 210, WgWriteIo);

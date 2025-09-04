@@ -3,13 +3,12 @@ use std::{
     os::fd::AsRawFd,
 };
 
-use libc::{IFF_UP, IF_NAMESIZE};
+use libc::{IF_NAMESIZE, IFF_UP};
 use nix::{ioctl_readwrite, ioctl_write_ptr, sys::socket::AddressFamily};
 
 use super::{
-    create_socket,
+    IoError, create_socket,
     sockaddr::{SockAddrIn, SockAddrIn6},
-    IoError,
 };
 
 // From `netinet6/in6.h`.

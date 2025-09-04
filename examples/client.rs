@@ -1,8 +1,8 @@
 use std::{net::SocketAddr, str::FromStr};
 
 use defguard_wireguard_rs::{
-    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Kernel, WGApi,
-    WireguardInterfaceApi,
+    InterfaceConfiguration, Kernel, WGApi, WireguardInterfaceApi, host::Peer, key::Key,
+    net::IpAddrMask,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 

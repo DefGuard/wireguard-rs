@@ -10,19 +10,19 @@ use std::{io::Write, process::Stdio};
 #[cfg(not(target_os = "windows"))]
 use std::{net::IpAddr, process::Command};
 
-#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
-use crate::check_command_output_status;
 #[cfg(not(target_os = "windows"))]
 use crate::Peer;
 use crate::WireguardInterfaceError;
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+use crate::check_command_output_status;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::{
+    IpVersion,
     bsd::{add_gateway, add_linked_route, get_gateway},
     net::IpAddrMask,
-    IpVersion,
 };
 #[cfg(target_os = "linux")]
-use crate::{check_command_output_status, netlink, IpVersion};
+use crate::{IpVersion, check_command_output_status, netlink};
 
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 pub(crate) fn configure_dns(
@@ -321,7 +321,7 @@ pub(crate) fn add_peer_routing(
 ) -> Result<(), WireguardInterfaceError> {
     use nix::errno::Errno;
 
-    use crate::bsd::{delete_gateway, IoError};
+    use crate::bsd::{IoError, delete_gateway};
 
     debug!("Adding peer routing for interface: {ifname}");
     for peer in peers {
