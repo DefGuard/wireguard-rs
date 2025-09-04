@@ -67,14 +67,14 @@ static NV_IPV4: &str = "ipv4";
 static NV_IPV6: &str = "ipv6";
 
 /// Cast bytes to `T`.
-unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
+unsafe fn cast_ref<T>(bytes: &[u8]) -> &T { unsafe {
     bytes.as_ptr().cast::<T>().as_ref().unwrap()
-}
+}}
 
 /// Cast `T' to bytes.
-unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
+unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] { unsafe {
     from_raw_parts(from_ref::<T>(p).cast::<u8>(), size_of::<T>())
-}
+}}
 
 /// Create socket for ioctl communication.
 fn create_socket(address_family: AddressFamily) -> Result<OwnedFd, Errno> {

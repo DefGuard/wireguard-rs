@@ -32,7 +32,7 @@ impl SockAddrIn {
 
 impl SocketFromRaw for SockAddrIn {
     /// Construct `SockAddrIn` from `libc::sockaddr`.
-    unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
+    unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> { unsafe {
         if addr.is_null() || (*addr).sa_family != AF_INET {
             None
         } else {
@@ -44,7 +44,7 @@ impl SocketFromRaw for SockAddrIn {
             );
             Some(sockaddr)
         }
-    }
+    }}
 }
 
 impl Default for SockAddrIn {
@@ -126,7 +126,7 @@ impl SockAddrIn6 {
 
 impl SocketFromRaw for SockAddrIn6 {
     /// Construct `SockAddrIn6` from `libc::sockaddr`.
-    unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
+    unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> { unsafe {
         if addr.is_null() || (*addr).sa_family != AF_INET6 {
             None
         } else {
@@ -138,7 +138,7 @@ impl SocketFromRaw for SockAddrIn6 {
             );
             Some(sockaddr)
         }
-    }
+    }}
 }
 
 impl Default for SockAddrIn6 {

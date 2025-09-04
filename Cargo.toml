@@ -1,8 +1,8 @@
 [package]
 name = "defguard_wireguard_rs"
 version = "0.7.6"
-edition = "2021"
-rust-version = "1.80"
+edition = "2024"
+rust-version = "1.85"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
 license = "Apache-2.0"
 readme = "README.md"
