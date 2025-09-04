@@ -7,8 +7,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "check_dependencies")]
-use crate::dependencies::check_external_dependencies;
 #[cfg(target_os = "linux")]
 use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
