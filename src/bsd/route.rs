@@ -1,20 +1,19 @@
 use std::{
     ffi::{CStr, CString},
-    mem::{size_of, MaybeUninit},
+    mem::{MaybeUninit, size_of},
     net::IpAddr,
     os::fd::{AsFd, AsRawFd},
 };
 
 use nix::{
     errno::Errno,
-    sys::socket::{shutdown, socket, AddressFamily, Shutdown, SockFlag, SockType},
+    sys::socket::{AddressFamily, Shutdown, SockFlag, SockType, shutdown, socket},
     unistd::{read, write},
 };
 
 use super::{
-    cast_bytes, cast_ref,
-    sockaddr::{unpack_sockaddr, SockAddrDl, SocketFromRaw},
-    IoError,
+    IoError, cast_bytes, cast_ref,
+    sockaddr::{SockAddrDl, SocketFromRaw, unpack_sockaddr},
 };
 
 // Routing data types are not defined in libc crate, so define then here.

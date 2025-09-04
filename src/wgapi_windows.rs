@@ -10,12 +10,12 @@ use std::{
 };
 
 use crate::{
+    InterfaceConfiguration, WireguardInterfaceApi,
     error::WireguardInterfaceError,
     host::{Host, Peer},
     key::Key,
     net::IpAddrMask,
     wgapi::{Kernel, WGApi},
-    InterfaceConfiguration, WireguardInterfaceApi,
 };
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
@@ -51,7 +51,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         let mut file = File::create(&file_name)?;
 
-        debug!("WireGuard configuration file {file_name} created in {file_path}. Preparing configuration...");
+        debug!(
+            "WireGuard configuration file {file_name} created in {file_path}. Preparing configuration..."
+        );
 
         let address = config
             .addresses
@@ -176,7 +178,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
                 counter += 1;
             }
-            debug!("Finished waiting for service to be removed, the service is considered to be removed, proceeding further");
+            debug!(
+                "Finished waiting for service to be removed, the service is considered to be removed, proceeding further"
+            );
         }
 
         debug!("Installing the new service for interface {}", self.ifname);
@@ -189,7 +193,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
             })?;
 
-        debug!("Done installing the new service. Service installation output: {service_installation_output:?}",);
+        debug!(
+            "Done installing the new service. Service installation output: {service_installation_output:?}",
+        );
 
         if !service_installation_output.status.success() {
             let message = format!(
@@ -213,7 +219,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
             })?;
 
-        debug!("Done disabling automatic restart for the new service. Service update output: {service_update_output:?}",);
+        debug!(
+            "Done disabling automatic restart for the new service. Service update output: {service_update_output:?}",
+        );
         if !service_update_output.status.success() {
             let message = format!(
                 "Failed to configure WireGuard tunnel service: {:?}",

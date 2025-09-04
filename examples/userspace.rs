@@ -1,5 +1,5 @@
 #[cfg(target_os = "macos")]
-use std::io::{stdin, stdout, Read, Write};
+use std::io::{Read, Write, stdin, stdout};
 
 #[cfg(target_os = "macos")]
 use defguard_wireguard_rs::{Userspace, WGApi, WireguardInterfaceApi};
