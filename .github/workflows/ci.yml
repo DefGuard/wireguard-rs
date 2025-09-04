@@ -18,24 +18,28 @@ env:
 jobs:
   test:
     runs-on: [self-hosted, Linux, X64]
-    container: rust:1.80
+    container: rust:1-slim
 
     steps:
-      - name: Debug
-        run: echo ${{ github.ref_name }}
       - name: Checkout
         uses: actions/checkout@v3
         with:
           submodules: recursive
+
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Check format
         run: |
           rustup component add rustfmt
           cargo fmt -- --check
+
       - name: Run cargo deny
-        uses: EmbarkStudios/cargo-deny-action@v2
+        run: |
+          cargo install cargo-deny
+          cargo deny check
+
       - name: Run tests
         run: cargo test --locked --no-fail-fast
