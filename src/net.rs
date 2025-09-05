@@ -98,6 +98,30 @@ impl IpAddrMask {
         }
     }
 
+    /// Check if given address fits in `IpAddrMask`.
+    #[must_use]
+    pub fn contains(&self, other: IpAddr) -> bool {
+        match (self.ip, other) {
+            (IpAddr::V4(ip), IpAddr::V4(other)) => {
+                let mask = if self.cidr == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - self.cidr)
+                };
+                (ip.to_bits() & mask) == (other.to_bits() & mask)
+            }
+            (IpAddr::V6(ip), IpAddr::V6(other)) => {
+                let mask = if self.cidr == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - self.cidr)
+                };
+                (ip.to_bits() & mask) == (other.to_bits() & mask)
+            }
+            _ => false,
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[must_use]
     pub fn to_nlas_allowed_ip(&self) -> WgAllowedIp {
@@ -260,5 +284,18 @@ mod tests {
                 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 0
             ))
         );
+    }
+
+    #[test]
+    fn addr_mask_contains() {
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)), 24);
+        assert!(ip.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0))));
+        assert!(ip.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1))));
+        assert!(ip.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 254))));
+        assert!(ip.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 255))));
+        assert!(!ip.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
+        assert!(ip.contains(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
     }
 }

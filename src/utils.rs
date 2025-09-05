@@ -402,6 +402,18 @@ pub(crate) fn add_peer_routing(
                     },
                 }
             } else {
+                // Check if allowed IPs contain endpoint's address.
+                if let Some(endpoint) = peer.endpoint {
+                    let endpoint_ip = endpoint.ip();
+                    if addr.contains(endpoint_ip) {
+                        warn!(
+                            "Not adding route to {addr} because it contains endpoint {}",
+                            endpoint_ip
+                        );
+                        continue;
+                    }
+                }
+
                 // Equivalent to `route -n add -inet[6] <allowed_ip> -interface <ifname>`.
                 match add_linked_route(addr, ifname) {
                     Ok(()) => debug!("Route to {addr} has been added for interface {ifname}"),
