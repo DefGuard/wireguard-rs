@@ -407,8 +407,7 @@ pub(crate) fn add_peer_routing(
                     let endpoint_ip = endpoint.ip();
                     if addr.contains(endpoint_ip) {
                         warn!(
-                            "Not adding route to {addr} because it contains endpoint {}",
-                            endpoint_ip
+                            "Not adding route to {addr} because it contains endpoint {endpoint_ip}"
                         );
                         continue;
                     }
