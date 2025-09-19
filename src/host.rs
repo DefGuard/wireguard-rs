@@ -467,4 +467,24 @@ mod tests {
             peer.as_uapi_remove()
         );
     }
+
+    #[test]
+    fn dg25_28_test_dont_expose_preshared_keys() {
+        let preshared_key_str = "000102030405060708090a0b0c0d0e0ff0e1d2c3b4a5968778695a4b3c2d1e0f";
+        let peer = Peer {
+            public_key: Key::decode("286ac5ff9b2f900259008172225da774031e8a3689d8f341667be157b2336970").unwrap(),
+            preshared_key: Some(Key::decode(preshared_key_str).unwrap()),
+            protocol_version: None,
+            endpoint: None,
+            last_handshake: None,
+            tx_bytes: 0,
+            rx_bytes: 0,
+            persistent_keepalive_interval: None,
+            allowed_ips: Vec::new(),
+        };
+
+        let debug = format!("{peer:?}");
+        assert!(!debug.contains("preshared_key"));
+        assert!(!debug.contains(preshared_key_str));
+    }
 }
