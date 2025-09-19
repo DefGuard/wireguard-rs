@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    fmt::{Debug, Formatter},
+    fmt::{self, Debug, Formatter},
     io::{self, BufRead, BufReader, Read},
     net::SocketAddr,
     str::FromStr,
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{error::WireguardInterfaceError, key::Key, net::IpAddrMask, utils::resolve};
 
 /// WireGuard peer representation.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct Peer {
     pub public_key: Key,
@@ -32,6 +32,25 @@ pub struct Peer {
     pub rx_bytes: u64,
     pub persistent_keepalive_interval: Option<u16>,
     pub allowed_ips: Vec<IpAddrMask>,
+}
+
+// implement manually to avoid exposing preshared keys
+impl fmt::Debug for Peer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Peer")
+            .field("public_key", &self.public_key)
+            .field("protocol_version", &self.protocol_version)
+            .field("endpoint", &self.endpoint)
+            .field("last_handshake", &self.last_handshake)
+            .field("tx_bytes", &self.tx_bytes)
+            .field("rx_bytes", &self.rx_bytes)
+            .field(
+                "persistent_keepalive_interval",
+                &self.persistent_keepalive_interval,
+            )
+            .field("allowed_ips", &self.allowed_ips)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Peer {
