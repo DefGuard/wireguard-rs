@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    fmt::{Debug, Formatter},
+    fmt::{self, Debug, Formatter},
     io::{self, BufRead, BufReader, Read},
     net::SocketAddr,
     str::FromStr,
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{error::WireguardInterfaceError, key::Key, net::IpAddrMask, utils::resolve};
 
 /// WireGuard peer representation.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct Peer {
     pub public_key: Key,
@@ -32,6 +32,25 @@ pub struct Peer {
     pub rx_bytes: u64,
     pub persistent_keepalive_interval: Option<u16>,
     pub allowed_ips: Vec<IpAddrMask>,
+}
+
+// implement manually to avoid exposing preshared keys
+impl fmt::Debug for Peer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Peer")
+            .field("public_key", &self.public_key)
+            .field("protocol_version", &self.protocol_version)
+            .field("endpoint", &self.endpoint)
+            .field("last_handshake", &self.last_handshake)
+            .field("tx_bytes", &self.tx_bytes)
+            .field("rx_bytes", &self.rx_bytes)
+            .field(
+                "persistent_keepalive_interval",
+                &self.persistent_keepalive_interval,
+            )
+            .field("allowed_ips", &self.allowed_ips)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Peer {
@@ -447,5 +466,28 @@ mod tests {
             remove=true\n",
             peer.as_uapi_remove()
         );
+    }
+
+    #[test]
+    fn dg25_28_test_dont_expose_preshared_keys() {
+        let preshared_key_str = "000102030405060708090a0b0c0d0e0ff0e1d2c3b4a5968778695a4b3c2d1e0f";
+        let peer = Peer {
+            public_key: Key::decode(
+                "286ac5ff9b2f900259008172225da774031e8a3689d8f341667be157b2336970",
+            )
+            .unwrap(),
+            preshared_key: Some(Key::decode(preshared_key_str).unwrap()),
+            protocol_version: None,
+            endpoint: None,
+            last_handshake: None,
+            tx_bytes: 0,
+            rx_bytes: 0,
+            persistent_keepalive_interval: None,
+            allowed_ips: Vec::new(),
+        };
+
+        let debug = format!("{peer:?}");
+        assert!(!debug.contains("preshared_key"));
+        assert!(!debug.contains(preshared_key_str));
     }
 }
