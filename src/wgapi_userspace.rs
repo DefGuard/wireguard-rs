@@ -12,15 +12,17 @@ use boringtun::device::{DeviceConfig, DeviceHandle};
 use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::utils::clear_dns;
-#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
-use crate::{bsd, utils::resolve};
 use crate::{
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     error::WireguardInterfaceError,
     utils::{add_peer_routing, configure_dns},
     wgapi::{Userspace, WGApi},
     wireguard_interface::WireguardInterfaceApi,
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
 };
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use crate::{bsd, utils::resolve};
+
+const SOCKET_TIMEOUT: Duration = Duration::new(3, 0);
 
 /// Manages interfaces created with BoringTun.
 impl WGApi<Userspace> {
@@ -32,7 +34,7 @@ impl WGApi<Userspace> {
     fn socket(&self) -> io::Result<UnixStream> {
         let path = self.socket_path();
         let socket = UnixStream::connect(path)?;
-        socket.set_read_timeout(Some(Duration::new(3, 0)))?;
+        socket.set_read_timeout(Some(SOCKET_TIMEOUT))?;
         Ok(socket)
     }
 
@@ -43,7 +45,7 @@ impl WGApi<Userspace> {
             let line = match line_result {
                 Ok(line) => line,
                 Err(err) => {
-                    error!("Error parsing errno buffer line: {err}, continuing with next line...");
+                    error!("Error parsing errno buffer line: {err}, continuing with next line.");
                     continue;
                 }
             };
@@ -285,7 +287,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
                 debug!("Socket removed for interface {}", self.ifname);
             }
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                debug!("Socket not found for interface {}, skipping removal as there is nothing to remove. Continuing with further cleanup.", self.ifname);
+                debug!(
+                    "Socket not found for interface {}, skipping removal as there is nothing to remove. Continuing with further cleanup.",
+                    self.ifname
+                );
             }
             Err(err) => {
                 return Err(WireguardInterfaceError::UnixSockerError(format!(
@@ -297,7 +302,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
 
         #[cfg(target_os = "macos")]
         {
-            debug!("Clearing DNS entries by applying an empty DNS list to all network services, interface {}", self.ifname);
+            debug!(
+                "Clearing DNS entries by applying an empty DNS list to all network services, interface {}",
+                self.ifname
+            );
             configure_dns(&[], &[])?;
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))]
@@ -365,7 +373,10 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         );
         match self.read_host() {
             Ok(host) => {
-                debug!("Interface configuration and statistics read successfully for interface {}", self.ifname);
+                debug!(
+                    "Interface configuration and statistics read successfully for interface {}",
+                    self.ifname
+                );
                 trace!("Network information: {host:?}");
                 Ok(host)
             }

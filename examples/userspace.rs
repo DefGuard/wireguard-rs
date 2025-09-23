@@ -1,12 +1,9 @@
-use std::{
-    io::{stdin, stdout, Read, Write},
-    net::SocketAddr,
-    str::FromStr,
-};
+#[cfg(target_os = "macos")]
+use std::io::{Read, Write, stdin, stdout};
 
 use defguard_wireguard_rs::{
-    host::Peer, key::Key, net::IpAddrMask, InterfaceConfiguration, Userspace, WGApi,
-    WireguardInterfaceApi,
+    InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, host::Peer, key::Key,
+    net::IpAddrMask,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 

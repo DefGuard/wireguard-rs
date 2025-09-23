@@ -1,11 +1,10 @@
 use std::net::IpAddr;
 
 use crate::{
-    netlink,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    WireguardInterfaceError, netlink,
     utils::{add_peer_routing, clean_fwmark_rules, clear_dns, configure_dns},
     wgapi::{Kernel, WGApi},
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
-    WireguardInterfaceError,
 };
 
 /// Manages interfaces created with Linux kernel WireGuard module.
@@ -39,7 +38,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        // flush all IP addresses
+        // Flush all IP addresses from WireGuard interface.
         debug!(
             "Flushing all existing IP addresses from interface {} before assigning a new one",
             self.ifname

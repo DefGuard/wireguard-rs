@@ -1,18 +1,11 @@
 //! Convert binary `sockaddr_in` or `sockaddr_in6` (see netinet/in.h) to `SocketAddr`.
 use std::{
     mem::{size_of, zeroed},
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     ptr::{copy, from_mut},
 };
 
-use super::{cast_bytes, cast_ref};
-
-// Note: these values differ across different platforms.
-const AF_INET: u8 = libc::AF_INET as u8;
-const AF_INET6: u8 = libc::AF_INET6 as u8;
-const AF_LINK: u8 = libc::AF_LINK as u8;
-const SA_IN_SIZE: u8 = size_of::<SockAddrIn>() as u8;
-const SA_IN6_SIZE: u8 = size_of::<SockAddrIn6>() as u8;
+use super::{AF_INET, AF_INET6, AF_LINK, SA_IN_SIZE, SA_IN6_SIZE, cast_bytes, cast_ref};
 
 pub(super) trait SocketFromRaw {
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self>
@@ -30,19 +23,28 @@ pub(super) struct SockAddrIn {
     zero: [u8; 8],
 }
 
+impl SockAddrIn {
+    #[must_use]
+    pub(super) fn ip_addr(&self) -> IpAddr {
+        IpAddr::from(self.addr)
+    }
+}
+
 impl SocketFromRaw for SockAddrIn {
     /// Construct `SockAddrIn` from `libc::sockaddr`.
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
-        if addr.is_null() || (*addr).sa_family != AF_INET {
-            None
-        } else {
-            let mut sockaddr: Self = zeroed();
-            copy(
-                addr.cast::<u8>(),
-                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
-                (*addr).sa_len as usize,
-            );
-            Some(sockaddr)
+        unsafe {
+            if addr.is_null() || (*addr).sa_family != AF_INET {
+                None
+            } else {
+                let mut sockaddr: Self = zeroed();
+                copy(
+                    addr.cast::<u8>(),
+                    from_mut::<Self>(&mut sockaddr).cast::<u8>(),
+                    (*addr).sa_len as usize,
+                );
+                Some(sockaddr)
+            }
         }
     }
 }
@@ -117,21 +119,28 @@ impl SockAddrIn6 {
             scope_id: 0,
         }
     }
+
+    #[must_use]
+    pub(super) fn ip_addr(&self) -> IpAddr {
+        IpAddr::from(self.addr)
+    }
 }
 
 impl SocketFromRaw for SockAddrIn6 {
     /// Construct `SockAddrIn6` from `libc::sockaddr`.
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self> {
-        if addr.is_null() || (*addr).sa_family != AF_INET6 {
-            None
-        } else {
-            let mut sockaddr: Self = zeroed();
-            copy(
-                addr.cast::<u8>(),
-                from_mut::<Self>(&mut sockaddr).cast::<u8>(),
-                (*addr).sa_len as usize,
-            );
-            Some(sockaddr)
+        unsafe {
+            if addr.is_null() || (*addr).sa_family != AF_INET6 {
+                None
+            } else {
+                let mut sockaddr: Self = zeroed();
+                copy(
+                    addr.cast::<u8>(),
+                    from_mut::<Self>(&mut sockaddr).cast::<u8>(),
+                    (*addr).sa_len as usize,
+                );
+                Some(sockaddr)
+            }
         }
     }
 }

@@ -2,14 +2,15 @@
 use std::{fmt::Debug, io::ErrorKind, net::IpAddr};
 
 use netlink_packet_core::{
-    NetlinkDeserializable, NetlinkMessage, NetlinkPayload, NetlinkSerializable, NLM_F_ACK,
-    NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
+    NLM_F_ACK, NLM_F_CREATE, NLM_F_DUMP, NLM_F_EXCL, NLM_F_REPLACE, NLM_F_REQUEST,
+    NetlinkDeserializable, NetlinkMessage, NetlinkPayload, NetlinkSerializable,
 };
 use netlink_packet_generic::{
-    ctrl::{nlas::GenlCtrlAttrs, GenlCtrl, GenlCtrlCmd},
     GenlFamily, GenlMessage,
+    ctrl::{GenlCtrl, GenlCtrlCmd, nlas::GenlCtrlAttrs},
 };
 use netlink_packet_route::{
+    AddressFamily, RouteNetlinkMessage,
     address::{AddressAttribute, AddressMessage},
     link::{InfoKind, LinkAttribute, LinkFlags, LinkHeader, LinkInfo, LinkMessage},
     route::{
@@ -17,24 +18,22 @@ use netlink_packet_route::{
         RouteType,
     },
     rule::{RuleAction, RuleAttribute, RuleFlags, RuleHeader, RuleMessage},
-    AddressFamily, RouteNetlinkMessage,
 };
-use netlink_packet_utils::errors::DecodeError;
 use netlink_packet_wireguard::{
+    Wireguard, WireguardCmd,
     constants::WGPEER_F_REMOVE_ME,
     nlas::{WgDeviceAttrs, WgPeer, WgPeerAttrs},
-    Wireguard, WireguardCmd,
 };
 use netlink_sys::{
-    constants::{NETLINK_GENERIC, NETLINK_ROUTE},
     Socket, SocketAddr,
+    constants::{NETLINK_GENERIC, NETLINK_ROUTE},
 };
 use thiserror::Error;
 
 use crate::{
+    IpVersion, Key, WireguardInterfaceError,
     host::{Host, Peer},
     net::IpAddrMask,
-    IpVersion, Key, WireguardInterfaceError,
 };
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
@@ -50,7 +49,7 @@ pub(crate) enum NetlinkError {
     #[error("Socket error: {0}")]
     SocketError(String),
     #[error("Failed to read response")]
-    ResponseError(#[from] DecodeError),
+    ResponseError(#[from] netlink_packet_core::DecodeError),
     #[error("Netlink payload error: {0}")]
     PayloadError(netlink_packet_core::ErrorMessage),
     #[error("Failed to create WireGuard interface")]
@@ -149,7 +148,7 @@ where
                 message.set_resolved_family_id(*family_id);
             }
             _ => return Err(NetlinkError::UnexpectedPayload),
-        };
+        }
     }
     netlink_request(message, flags, NETLINK_GENERIC)
 }
@@ -208,7 +207,7 @@ where
                         ErrorKind::AlreadyExists => Err(NetlinkError::FileAlreadyExists),
                         ErrorKind::NotFound => Err(NetlinkError::NotFound),
                         _ => Err(NetlinkError::PayloadError(msg)),
-                    }
+                    };
                 }
                 _ => {}
             }

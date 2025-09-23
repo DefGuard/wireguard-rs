@@ -1,11 +1,10 @@
 use std::net::IpAddr;
 
 use crate::{
-    bsd,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
+    WireguardInterfaceError, bsd,
     utils::{add_peer_routing, clear_dns, configure_dns},
     wgapi::{Kernel, WGApi},
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
-    WireguardInterfaceError,
 };
 
 /// Manages interfaces created with FreeBSD kernel WireGuard module.
@@ -34,15 +33,21 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Add peer addresses to network routing table.
     ///
     /// For every allowed IP, it runs:
-    /// - `route -q -n add <inet> allowed_ip -interface if_name`
-    /// `ifname` - interface name while creating api
-    /// `allowed_ip`- one of [Peer](crate::Peer) allowed ip
+    /// `route -q -n add <inet> allowed_ip -interface if_name`
+    ///
+    /// Where:
+    ///   - `ifname` - interface name while creating api
+    ///   - `allowed_ip`- one of [Peer](crate::Peer) allowed ip
+    ///
     /// For `0.0.0.0/0` or `::/0`  allowed IP, it adds default routing and skips other using:
-    /// - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.
-    /// - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.
-    /// - `route -q -n add <inet> <endpoint> -gateway <gateway>`
-    /// `<endpoint>` - Add routing for every unique Peer endpoint.
-    /// `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
+    ///  - `route -q -n add <inet> 0.0.0.0/1 -interface if_name`.
+    ///  - `route -q -n add <inet> 128.0.0.0/1 -interface if_name`.
+    ///  - `route -q -n add <inet> <endpoint> -gateway <gateway>`
+    ///
+    /// Where:
+    ///   - `<endpoint>` - Add routing for every unique Peer endpoint.
+    ///   - `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
+    ///
     /// ## Note:
     /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
@@ -61,6 +66,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     ) -> Result<(), WireguardInterfaceError> {
         debug!(
             "Configuring interface {} with config: {config:?}",
+            self.ifname
+        );
+
+        // Flush all IP addresses from WireGuard interface.
+        debug!(
+            "Flushing all existing IP addresses from interface {} before assigning a new one",
+            self.ifname
+        );
+        bsd::flush_interface(&self.ifname)?;
+        debug!(
+            "All existing IP addresses flushed from interface {}",
             self.ifname
         );
 
