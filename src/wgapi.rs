@@ -22,11 +22,11 @@ pub struct WGApi<API = Kernel> {
 
 impl<API> WGApi<API> {
     /// Create new instance of `WGApi`.
-    pub fn new(ifname: String) -> Result<Self, WireguardInterfaceError> {
+    pub fn new<S: Into<String>>(ifname: S) -> Result<Self, WireguardInterfaceError> {
         #[cfg(feature = "check_dependencies")]
         check_external_dependencies()?;
         Ok(WGApi {
-            ifname,
+            ifname: ifname.into(),
             device_handle: None,
             _api: PhantomData,
         })

@@ -12,9 +12,7 @@ keywords = ["wireguard", "network", "vpn"]
 categories = ["network-programming"]
 
 [dependencies]
-boringtun = { path = "../boringtun/boringtun", default-features = false, features = [
-    "device",
-] }
+boringtun = { path = "boringtun/boringtun", default-features = false, features = ["device"] }
 base64 = "0.22"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
