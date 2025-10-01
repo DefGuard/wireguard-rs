@@ -382,7 +382,7 @@ dependencies = [
 
 [[package]]
 name = "defguard_wireguard_rs"
-version = "0.7.8"
+version = "0.8.0"
 dependencies = [
  "base64",
  "boringtun",
