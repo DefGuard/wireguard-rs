@@ -18,13 +18,12 @@ env:
 jobs:
   test:
     runs-on: [self-hosted, Linux, X64]
-    container: rust:1-slim
-
+    container: public.ecr.aws/docker/library/rust:1
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          submodules: "recursive"
+          submodules: recursive
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
