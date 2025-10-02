@@ -1,5 +1,8 @@
-#[cfg(target_os = "macos")]
-use std::io::{Read, Write, stdin, stdout};
+use std::{
+    io::{Read, Write, stdin, stdout},
+    net::SocketAddr,
+    str::FromStr,
+};
 
 use defguard_wireguard_rs::{
     InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, host::Peer, key::Key,
@@ -76,6 +79,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-#[cfg(not(target_os = "macos"))]
-fn main() {}
