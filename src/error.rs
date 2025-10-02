@@ -41,4 +41,6 @@ pub enum WireguardInterfaceError {
     ServiceRemovalFailed(String),
     #[error("Socket is closed: {0}")]
     SocketClosed(String),
+    #[error("BoringTun {0}")]
+    BoringTun(#[from] boringtun::device::Error),
 }

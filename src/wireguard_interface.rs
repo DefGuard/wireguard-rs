@@ -7,7 +7,7 @@ use crate::{Host, InterfaceConfiguration, IpAddrMask, Key, Peer, error::Wireguar
 /// Specific interface being managed is identified by name.
 pub trait WireguardInterfaceApi {
     /// Creates a new WireGuard interface.
-    fn create_interface(&self) -> Result<(), WireguardInterfaceError>;
+    fn create_interface(&mut self) -> Result<(), WireguardInterfaceError>;
 
     /// Assigns IP address to an existing interface.
     fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError>;

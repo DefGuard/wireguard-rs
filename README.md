@@ -9,8 +9,8 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 
 ## Supported platforms
 
-* **Native OS Kernel**: Linux, FreeBSD (and pfSense/OPNSense), Windows
-* Userspace using [wireguard-go](https://github.com/WireGuard/wireguard-go) - Linux, **macOS**, FreeBSD
+* Native OS Kernel: Linux, FreeBSD (and pfSense/OPNSense), NetBSD, Windows
+* Userspace: Linux, macOS, FreeBSD, NetBSD
 
 ### Unique features
 
@@ -21,12 +21,8 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
   * **fwmark** handling
 
 ### Windows support
-Please note that [WireGuard](https://www.wireguard.com/install/) needs to be installed on Windows with commands `wg` and `wireguard` available to be called from the command line.
 
-### Note on `wireguard-go`
-If you intend to use the userspace WireGuard implementation you should note that currently the library assumes 
-that the `wireguard-go` binary will be available at runtime. There are some sanity checks when instantiating the API, 
-but installing it is outside the scope of this project.
+Please note that [WireGuard](https://www.wireguard.com/install/) needs to be installed on Windows with commands `wg` and `wireguard` available to be called from the command line.
 
 ## Examples
 
@@ -44,12 +40,6 @@ Find us on Matrix: [#defguard:teonite.com](https://matrix.to/#/#defguard:teonite
 ## Contribution
 
 Please review the [Contributing guide](https://defguard.gitbook.io/defguard/for-developers/contributing) for information on how to get started contributing to the project. You might also find our [environment setup guide](https://defguard.gitbook.io/defguard/for-developers/dev-env-setup) handy.
-
-# Built and sponsored by
-
-<p align="center">
-      <a href="https://teonite.com/services/rust/" target="_blank"><img src="https://drive.google.com/uc?export=view&id=1z0fxSsZztoaeVWxHw2MbPbuOHMe3OsqN" alt="build by teonite" /></a>
-</p>
 
 # Legal
 WireGuard® is [registered trademarks](https://www.wireguard.com/trademark-policy/) of Jason A. Donenfeld.
