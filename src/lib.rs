@@ -20,7 +20,7 @@
 //! } else {
 //!     "utun3".into()
 //! };
-//! let wgapi = WGApi::<Userspace>::new(ifname.clone())?;
+//! let mut wgapi = WGApi::<Userspace>::new(ifname.clone())?;
 //!
 //! // Create host interfaces
 //! wgapi.create_interface()?;
