@@ -182,14 +182,14 @@ impl WGApi<Kernel> {
         wireguard_nt::Adapter::create(&wireguard, "WireGuard", "Defguard", None)
             .expect("Failed to create wireguard adapter!")
     });
-
-    let endpoint = match "185.33.37.134:7301".parse() {
-        Ok(endpoint) => endpoint,
-        Err(err) => {
-            eprintln!("Endpoint error: {err:?}");
-            return;
-        }
-    };
+    // let endpoint = match "185.33.37.134:7301".parse() {
+    //     Ok(endpoint) => endpoint,
+    //     Err(err) => {
+    //         eprintln!("Endpoint error: {err:?}");
+    //         return;
+    //     }
+    // };
+    let endpoint = config.peers[0].endpoint.unwrap();
     let allowed_ips = &[
         "10.2.0.0/24",
         "10.3.0.0/24",
