@@ -20,6 +20,7 @@ use crate::{
 };
 
 use base64::{Engine as _, engine::general_purpose};
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
@@ -189,19 +190,39 @@ impl WGApi<Kernel> {
     //         return;
     //     }
     // };
-    let endpoint = config.peers[0].endpoint.unwrap();
-    let allowed_ips = &[
-        "10.2.0.0/24",
-        "10.3.0.0/24",
-        "10.4.0.0/24",
-        "185.33.37.32/27",
-        "10.7.0.0/16",
-        "fd00::/64",
-    ];
-    let allowed_ips: Vec<_> = allowed_ips
-        .iter()
-        .map(|ip| ip.parse().unwrap())
-        .collect();
+    // let endpoint = config.peers[0].endpoint.unwrap();
+    // let allowed_ips = &[
+    //     "10.2.0.0/24",
+    //     "10.3.0.0/24",
+    //     "10.4.0.0/24",
+    //     "185.33.37.32/27",
+    //     "10.7.0.0/16",
+    //     "fd00::/64",
+    // ];
+    let peers = config.peers.iter().map(|peer| wireguard_nt::SetPeer {
+            public_key: Some(peer.public_key.0),
+            //Disable additional AES encryption
+            preshared_key: peer.preshared_key.as_ref().map(|key| key.0),
+            //Send a keepalive packet every 25 seconds
+            keep_alive: peer.persistent_keepalive_interval,
+            //Route all traffic through the WireGuard interface
+            // allowed_ips: vec!["0.0.0.0/0".parse().unwrap()],
+            // allowed_ips: peer.allowed_ips.iter().map(|ip| if ip.ip.is_ipv4() {
+            //     IpNet::V4(Ipv4Net::new(ip.ip, ip.mask()).unwrap())
+            // } else {
+            //     IpNet::V6(Ipv6Net::new(ip.ip, ip.mask()).unwrap())
+            // }).collect(),
+            allowed_ips: peer.allowed_ips.iter().map(|ip| match ip.ip {
+                IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
+                IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
+            }).collect(),
+            //The peer's ip address
+            endpoint: peer.endpoint.unwrap(),
+    }).collect();
+    // let allowed_ips: Vec<_> = allowed_ips
+    //     .iter()
+    //     .map(|ip| ip.parse().unwrap())
+    //     .collect();
     // let allowed_ips = config.peers[0].allowed_ips
     let interface = wireguard_nt::SetInterface {
         listen_port: Some(config.port as u16),
@@ -209,18 +230,19 @@ impl WGApi<Kernel> {
         public_key: None,
         private_key: Some(key_from_str(&config.prvkey)),
         //Add a peer
-        peers: vec![wireguard_nt::SetPeer {
-            public_key: Some(config.peers[0].public_key.0),
-            //Disable additional AES encryption
-            preshared_key: config.peers[0].preshared_key.as_ref().map(|key| key.0),
-            //Send a keepalive packet every 21 seconds
-            keep_alive: Some(25),
-            //Route all traffic through the WireGuard interface
-            // allowed_ips: vec!["0.0.0.0/0".parse().unwrap()],
-            allowed_ips,
-            //The peer's ip address
-            endpoint,
-        }],
+        // peers: vec![wireguard_nt::SetPeer {
+        //     public_key: Some(config.peers[0].public_key.0),
+        //     //Disable additional AES encryption
+        //     preshared_key: config.peers[0].preshared_key.as_ref().map(|key| key.0),
+        //     //Send a keepalive packet every 21 seconds
+        //     keep_alive: Some(25),
+        //     //Route all traffic through the WireGuard interface
+        //     // allowed_ips: vec!["0.0.0.0/0".parse().unwrap()],
+        //     allowed_ips,
+        //     //The peer's ip address
+        //     endpoint,
+        // }],
+        peers,
     };
 
     //Set the config our adapter will use
