@@ -28,7 +28,7 @@ fn hex_value(char: u8) -> Option<u8> {
 
 /// WireGuard key representation in binary form.
 #[derive(Clone, Default)]
-pub struct Key([u8; KEY_LENGTH]);
+pub struct Key(pub [u8; KEY_LENGTH]);
 
 impl Key {
     /// Create a new key from buffer.

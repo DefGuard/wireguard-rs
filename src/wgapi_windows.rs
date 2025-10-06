@@ -1,4 +1,5 @@
 use std::{
+    thread,
     env,
     fs::File,
     io::{BufRead, BufReader, Cursor, Write},
@@ -17,6 +18,238 @@ use crate::{
     net::IpAddrMask,
     wgapi::{Kernel, WGApi},
 };
+
+use base64::{Engine as _, engine::general_purpose};
+use std::ffi::OsStr;
+use std::os::windows::ffi::OsStrExt;
+use std::ptr;
+
+use std::iter::once;
+use windows::{
+    core::{self, PCSTR, PCWSTR, PSTR, PWSTR},
+    Win32::{
+        Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
+        NetworkManagement::IpHelper::{
+            self, GetAdaptersAddresses, DNS_INTERFACE_SETTINGS,
+            DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_NAMESERVER,
+            GAA_FLAG_INCLUDE_PREFIX, IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
+        },
+        System::Com::CLSIDFromString,
+    },
+};
+
+fn key_from_str(key: &str) -> [u8; 32] {
+    general_purpose::STANDARD
+        .decode(&key)
+        .expect("valid base64")
+        .try_into()
+        .expect("Failed to convert vec to [u8; 32]")
+}
+
+fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
+    let s = s.trim_start_matches('{').trim_end_matches('}');
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 5 {
+        return Err(core::Error::empty()); // Or a more specific error
+    }
+
+    let data1 = u32::from_str_radix(parts[0], 16).map_err(|_| core::Error::empty())?;
+    let data2 = u16::from_str_radix(parts[1], 16).map_err(|_| core::Error::empty())?;
+    let data3 = u16::from_str_radix(parts[2], 16).map_err(|_| core::Error::empty())?;
+
+    let mut data4 = [0u8; 8];
+
+    let d4a = u16::from_str_radix(parts[3], 16).map_err(|_| core::Error::empty())?;
+    data4[0] = ((d4a >> 8) & 0xFF) as u8;
+    data4[1] = (d4a & 0xFF) as u8;
+
+    let d4b = parts[4];
+    if d4b.len() != 12 {
+        return Err(core::Error::empty());
+    }
+    for i in 0..6 {
+        let byte_str = &d4b[i * 2..i * 2 + 2];
+        data4[i + 2] = u8::from_str_radix(byte_str, 16).map_err(|_| core::Error::empty())?;
+    }
+
+    Ok(windows::core::GUID {
+        data1,
+        data2,
+        data3,
+        data4,
+    })
+}
+
+fn set_dns(adapter_name: &str, dns_servers: &str) -> core::Result<()> {
+    // Get the GUID for the adapter
+    let mut guid = None;
+
+    let mut buffer_len = 0u32;
+    let mut result = unsafe {
+        GetAdaptersAddresses(
+            0,
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            None,
+            &mut buffer_len,
+        )
+    };
+
+    let mut buffer = vec![0u8; buffer_len as usize];
+
+    loop {
+        result = unsafe {
+            GetAdaptersAddresses(
+                0,
+                GAA_FLAG_INCLUDE_PREFIX,
+                None,
+                Some(buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH),
+                &mut buffer_len,
+            )
+        };
+
+        if result == ERROR_BUFFER_OVERFLOW.0 {
+            buffer.resize(buffer_len as usize, 0);
+            continue;
+        } else if result != NO_ERROR.0 {
+            return Err(core::Error::empty());
+        }
+        println!("Found {buffer_len} adapters");
+        break;
+    }
+
+    let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    while !current.is_null() {
+        let adapter = unsafe { &*current };
+
+        let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
+
+        if friendly_name == adapter_name {
+            println!("Found adapter {adapter_name}");
+            let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
+
+            // let wide_guid: Vec<u16> = adapter_name_str.encode_utf16().chain(once(0)).collect();
+            // // let interface_guid = core::GUID::default();
+            // unsafe {
+            //     // CLSIDFromString(PCWSTR(wide_guid.as_ptr()), &mut interface_guid)?;
+            //     CLSIDFromString(PCWSTR(wide_guid.as_ptr()))?;
+            // }
+            // guid = Some(interface_guid);
+            guid = Some(guid_from_string(&adapter_name_str)?);
+            println!("Interface GUID: {guid:?}");
+            break;
+        }
+
+        current = unsafe { adapter.Next };
+    }
+
+    let Some(interface_guid) = guid else {
+        return Err(core::Error::empty()); // Or a custom error
+    };
+
+    // Prepare DNS settings
+    let mut wide_dns: Vec<u16> = dns_servers.encode_utf16().chain(once(0)).collect();
+
+    let mut settings = DNS_INTERFACE_SETTINGS {
+        Version: DNS_INTERFACE_SETTINGS_VERSION1,
+        Flags: DNS_SETTING_NAMESERVER as u64,
+        // NameServer: PCWSTR(wide_dns.as_ptr()),
+        NameServer: PWSTR(wide_dns.as_mut_ptr()),
+        ..Default::default()
+    };
+
+    // Set the DNS settings
+    let result = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
+
+    if result != NO_ERROR {
+        return Err(core::Error::empty());
+    }
+
+    Ok(())
+}
+
+struct Params {
+    // interface
+    private_key: &'static str,
+    address: &'static str,
+    address_prefix: u8,
+
+    // peer
+    peer_public_key: &'static str,
+    preshared_key: &'static str,
+    allowed_ips: &'static [&'static str],
+    endpoint: &'static str,
+}
+
+impl WGApi<Kernel> {
+    fn conf_interface(config: InterfaceConfiguration) {
+
+    // Load the wireguard dll file so that we can call the underlying C functions
+    // Unsafe because we are loading an arbitrary dll file
+    // let wireguard = unsafe { wireguard_nt::load_from_path("lib/wireguard-nt/bin/amd64/wireguard.dll") }
+    let wireguard = unsafe { wireguard_nt::load_from_path("C:/Users/Jacek/Documents/workspace/client/wireguard-rs/lib/wireguard-nt/bin/amd64/wireguard.dll") }
+        .expect("Failed to load wireguard dll");
+
+    // Try to open an adapter from the given pool with the name "Defguard"
+    let adapter = wireguard_nt::Adapter::open(&wireguard, "Defguard").unwrap_or_else(|_| {
+        wireguard_nt::Adapter::create(&wireguard, "WireGuard", "Defguard", None)
+            .expect("Failed to create wireguard adapter!")
+    });
+
+    // let endpoint = match params.endpoint.parse() {
+    let endpoint = match params.endpoint.parse() {
+        Ok(endpoint) => endpoint,
+        Err(err) => {
+            eprintln!("Endpoint error: {err:?}");
+            return;
+        }
+    };
+    let allowed_ips: Vec<_> = params
+        .allowed_ips
+        .iter()
+        .map(|ip| ip.parse().unwrap())
+        .collect();
+    let interface = wireguard_nt::SetInterface {
+        listen_port: Some(config.port as u16),
+        //Generated from the private key if not specified
+        public_key: None,
+        private_key: Some(key_from_str(&config.prvkey)),
+        //Add a peer
+        peers: vec![wireguard_nt::SetPeer {
+            public_key: Some(config.peers[0].public_key.0),
+            //Disable additional AES encryption
+            preshared_key: config.peers[0].preshared_key.as_ref().map(|key| key.0),
+            //Send a keepalive packet every 21 seconds
+            keep_alive: Some(25),
+            //Route all traffic through the WireGuard interface
+            // allowed_ips: vec!["0.0.0.0/0".parse().unwrap()],
+            allowed_ips,
+            //The peer's ip address
+            endpoint,
+        }],
+    };
+
+    //Set the config our adapter will use
+    //This lets it know about the peers and keys
+    adapter.set_config(&interface).unwrap();
+
+    // let internal_ip = "10.6.0.2".parse().unwrap();
+    let internal_ip = params.address.parse().unwrap();
+    let internal_prefix_length = params.address_prefix;
+    let internal_ipnet = ipnet::Ipv4Net::new(internal_ip, internal_prefix_length).unwrap();
+    //Set up the routing table with the allowed ips for our peers,
+    //and assign an ip to the interface
+    adapter
+        .set_default_route(&[internal_ipnet.into()], &interface)
+        .unwrap();
+    adapter.up().expect("Failed to bring the adapter UP");
+    set_dns("WireGuard", "10.4.0.1").expect("Setting DNS failed");
+    println!("Adapter ready");
+    thread::sleep(Duration::MAX);
+    //drop(adapter)
+    //The adapter closes its resources when dropped
+    }
+}
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
 impl WireguardInterfaceApi for WGApi<Kernel> {
@@ -40,6 +273,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
+
+        let cloned = config.clone();
+        thread::spawn(|| Self::conf_interface(cloned));
+        return Ok(());
 
         // Interface is created here so that there is no need to pass private key only for Windows
         let file_name = format!("{}.conf", &self.ifname);
