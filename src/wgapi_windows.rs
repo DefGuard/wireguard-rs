@@ -171,7 +171,6 @@ fn set_dns(adapter_name: &str, dns_servers: &str) -> core::Result<()> {
 
 impl WGApi<Kernel> {
     fn conf_interface(config: InterfaceConfiguration) {
-
     // Load the wireguard dll file so that we can call the underlying C functions
     // Unsafe because we are loading an arbitrary dll file
     // let wireguard = unsafe { wireguard_nt::load_from_path("lib/wireguard-nt/bin/amd64/wireguard.dll") }
@@ -183,87 +182,41 @@ impl WGApi<Kernel> {
         wireguard_nt::Adapter::create(&wireguard, "WireGuard", "Defguard", None)
             .expect("Failed to create wireguard adapter!")
     });
-    // let endpoint = match "185.33.37.134:7301".parse() {
-    //     Ok(endpoint) => endpoint,
-    //     Err(err) => {
-    //         eprintln!("Endpoint error: {err:?}");
-    //         return;
-    //     }
-    // };
-    // let endpoint = config.peers[0].endpoint.unwrap();
-    // let allowed_ips = &[
-    //     "10.2.0.0/24",
-    //     "10.3.0.0/24",
-    //     "10.4.0.0/24",
-    //     "185.33.37.32/27",
-    //     "10.7.0.0/16",
-    //     "fd00::/64",
-    // ];
     let peers = config.peers.iter().map(|peer| wireguard_nt::SetPeer {
             public_key: Some(peer.public_key.0),
-            //Disable additional AES encryption
             preshared_key: peer.preshared_key.as_ref().map(|key| key.0),
-            //Send a keepalive packet every 25 seconds
             keep_alive: peer.persistent_keepalive_interval,
-            //Route all traffic through the WireGuard interface
-            // allowed_ips: vec!["0.0.0.0/0".parse().unwrap()],
-            // allowed_ips: peer.allowed_ips.iter().map(|ip| if ip.ip.is_ipv4() {
-            //     IpNet::V4(Ipv4Net::new(ip.ip, ip.mask()).unwrap())
-            // } else {
-            //     IpNet::V6(Ipv6Net::new(ip.ip, ip.mask()).unwrap())
-            // }).collect(),
             allowed_ips: peer.allowed_ips.iter().map(|ip| match ip.ip {
                 IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
                 IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
             }).collect(),
-            //The peer's ip address
             endpoint: peer.endpoint.unwrap(),
     }).collect();
-    // let allowed_ips: Vec<_> = allowed_ips
-    //     .iter()
-    //     .map(|ip| ip.parse().unwrap())
-    //     .collect();
-    // let allowed_ips = config.peers[0].allowed_ips
     let interface = wireguard_nt::SetInterface {
         listen_port: Some(config.port as u16),
-        //Generated from the private key if not specified
         public_key: None,
         private_key: Some(key_from_str(&config.prvkey)),
-        //Add a peer
-        // peers: vec![wireguard_nt::SetPeer {
-        //     public_key: Some(config.peers[0].public_key.0),
-        //     //Disable additional AES encryption
-        //     preshared_key: config.peers[0].preshared_key.as_ref().map(|key| key.0),
-        //     //Send a keepalive packet every 21 seconds
-        //     keep_alive: Some(25),
-        //     //Route all traffic through the WireGuard interface
-        //     // allowed_ips: vec!["0.0.0.0/0".parse().unwrap()],
-        //     allowed_ips,
-        //     //The peer's ip address
-        //     endpoint,
-        // }],
         peers,
     };
 
-    //Set the config our adapter will use
-    //This lets it know about the peers and keys
     adapter.set_config(&interface).unwrap();
 
-    // let internal_ip = "10.6.0.2".parse().unwrap();
     let internal_ip = "10.6.0.69".parse().unwrap();
     let internal_prefix_length = 24;
     let internal_ipnet = ipnet::Ipv4Net::new(internal_ip, internal_prefix_length).unwrap();
-    //Set up the routing table with the allowed ips for our peers,
-    //and assign an ip to the interface
+    let addresses: Vec<_> = config.addresses.iter().map(|ip| match ip.ip {
+        IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
+        IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
+    }).collect();
     adapter
-        .set_default_route(&[internal_ipnet.into()], &interface)
+        // .set_default_route(&[internal_ipnet.into()], &interface)
+        .set_default_route(&addresses, &interface)
         .unwrap();
     adapter.up().expect("Failed to bring the adapter UP");
     set_dns("WireGuard", "10.4.0.1").expect("Setting DNS failed");
     println!("Adapter ready");
+    // TODO The adapter closes its resources when dropped
     thread::sleep(Duration::MAX);
-    //drop(adapter)
-    //The adapter closes its resources when dropped
     }
 }
 
