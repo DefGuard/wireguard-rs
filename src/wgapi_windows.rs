@@ -168,19 +168,6 @@ fn set_dns(adapter_name: &str, dns_servers: &str) -> core::Result<()> {
     Ok(())
 }
 
-struct Params {
-    // interface
-    private_key: &'static str,
-    address: &'static str,
-    address_prefix: u8,
-
-    // peer
-    peer_public_key: &'static str,
-    preshared_key: &'static str,
-    allowed_ips: &'static [&'static str],
-    endpoint: &'static str,
-}
-
 impl WGApi<Kernel> {
     fn conf_interface(config: InterfaceConfiguration) {
 
@@ -196,19 +183,26 @@ impl WGApi<Kernel> {
             .expect("Failed to create wireguard adapter!")
     });
 
-    // let endpoint = match params.endpoint.parse() {
-    let endpoint = match params.endpoint.parse() {
+    let endpoint = match "185.33.37.134:7301".parse() {
         Ok(endpoint) => endpoint,
         Err(err) => {
             eprintln!("Endpoint error: {err:?}");
             return;
         }
     };
-    let allowed_ips: Vec<_> = params
-        .allowed_ips
+    let allowed_ips = &[
+        "10.2.0.0/24",
+        "10.3.0.0/24",
+        "10.4.0.0/24",
+        "185.33.37.32/27",
+        "10.7.0.0/16",
+        "fd00::/64",
+    ];
+    let allowed_ips: Vec<_> = allowed_ips
         .iter()
         .map(|ip| ip.parse().unwrap())
         .collect();
+    // let allowed_ips = config.peers[0].allowed_ips
     let interface = wireguard_nt::SetInterface {
         listen_port: Some(config.port as u16),
         //Generated from the private key if not specified
@@ -234,8 +228,8 @@ impl WGApi<Kernel> {
     adapter.set_config(&interface).unwrap();
 
     // let internal_ip = "10.6.0.2".parse().unwrap();
-    let internal_ip = params.address.parse().unwrap();
-    let internal_prefix_length = params.address_prefix;
+    let internal_ip = "10.6.0.69".parse().unwrap();
+    let internal_prefix_length = 24;
     let internal_ipnet = ipnet::Ipv4Net::new(internal_ip, internal_prefix_length).unwrap();
     //Set up the routing table with the allowed ips for our peers,
     //and assign an ip to the interface
