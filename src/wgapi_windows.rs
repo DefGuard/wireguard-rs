@@ -32,7 +32,7 @@ use windows::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
         NetworkManagement::IpHelper::{
             self, GetAdaptersAddresses, DNS_INTERFACE_SETTINGS,
-            DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_NAMESERVER,
+            DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_NAMESERVER, DNS_SETTING_IPV6,
             GAA_FLAG_INCLUDE_PREFIX, IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
         },
         System::Com::CLSIDFromString,
@@ -81,7 +81,7 @@ fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
     })
 }
 
-fn set_dns(adapter_name: &str, dns_servers: &str) -> core::Result<()> {
+fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
     // Get the GUID for the adapter
     let mut guid = None;
 
@@ -149,28 +149,93 @@ fn set_dns(adapter_name: &str, dns_servers: &str) -> core::Result<()> {
     };
 
     // Prepare DNS settings
-    let mut wide_dns: Vec<u16> = dns_servers.encode_utf16().chain(once(0)).collect();
+    let ipv4_servers: Vec<String> = dns_servers
+            .iter()
+            .filter_map(|ip| ip.is_ipv4().then(|| ip.to_string()))
+            .collect();
+        let ipv6_servers: Vec<String> = dns_servers
+            .iter()
+            .filter_map(|ip| ip.is_ipv6().then(|| ip.to_string()))
+            .collect();
 
-    let mut settings = DNS_INTERFACE_SETTINGS {
-        Version: DNS_INTERFACE_SETTINGS_VERSION1,
-        Flags: DNS_SETTING_NAMESERVER as u64,
+    // let mut wide_dns: Vec<u16> = dns_servers.encode_utf16().chain(once(0)).collect();
+
+    // let mut settings = DNS_INTERFACE_SETTINGS {
+    //     Version: DNS_INTERFACE_SETTINGS_VERSION1,
+    //     Flags: DNS_SETTING_NAMESERVER as u64,
+    //     // NameServer: PCWSTR(wide_dns.as_ptr()),
+    //     NameServer: PWSTR(wide_dns.as_mut_ptr()),
+    //     ..Default::default()
+    // };
+
+    // // Set the DNS settings
+    // let result = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
+
+    // if result != NO_ERROR {
+    //     return Err(core::Error::empty());
+    // }
+
+    if !ipv4_servers.is_empty() {
+        let dns_str = ipv4_servers.join(",");
+        let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
+        let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+
+        let settings = DNS_INTERFACE_SETTINGS {
+            Version: DNS_INTERFACE_SETTINGS_VERSION1,
+            Flags: DNS_SETTING_NAMESERVER as u64,
+            NameServer: name_server,
+            ..Default::default()
+        };
+        // NameServer: PWSTR(wide_dns.as_mut_ptr()),
         // NameServer: PCWSTR(wide_dns.as_ptr()),
-        NameServer: PWSTR(wide_dns.as_mut_ptr()),
-        ..Default::default()
-    };
+        // settings.Version = DNS_INTERFACE_SETTINGS_VERSION1;
+        // settings.Flags = DNS_SETTING_NAMESERVER as u64;
+        // settings.NameServer = name_server;
 
-    // Set the DNS settings
-    let result = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
-
-    if result != NO_ERROR {
-        return Err(core::Error::empty());
+        let status = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
+        // if status != 0 {
+        //     return Err(Error::new(
+        //         HRESULT(status as i32),
+        //         "Failed to set IPv4 DNS servers".into(),
+        //     ));
+        // }
+        if status != NO_ERROR {
+            return Err(core::Error::empty());
+        }
     }
+    if !ipv6_servers.is_empty() {
+        let dns_str = ipv4_servers.join(",");
+        let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
+        let name_server = windows::core::PWSTR(wide.as_mut_ptr());
 
+        let settings = DNS_INTERFACE_SETTINGS {
+            Version: DNS_INTERFACE_SETTINGS_VERSION1,
+            Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6) as u64,
+            NameServer: name_server,
+            ..Default::default()
+        };
+        // NameServer: PWSTR(wide_dns.as_mut_ptr()),
+        // NameServer: PCWSTR(wide_dns.as_ptr()),
+        // settings.Version = DNS_INTERFACE_SETTINGS_VERSION1;
+        // settings.Flags = DNS_SETTING_NAMESERVER as u64;
+        // settings.NameServer = name_server;
+
+        let status = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
+        // if status != 0 {
+        //     return Err(Error::new(
+        //         HRESULT(status as i32),
+        //         "Failed to set IPv4 DNS servers".into(),
+        //     ));
+        // }
+        if status != NO_ERROR {
+            return Err(core::Error::empty());
+        }
+    }
     Ok(())
 }
 
 impl WGApi<Kernel> {
-    fn conf_interface(config: InterfaceConfiguration) {
+    fn conf_interface(config: InterfaceConfiguration, dns: Vec<IpAddr>) {
     // Load the wireguard dll file so that we can call the underlying C functions
     // Unsafe because we are loading an arbitrary dll file
     // let wireguard = unsafe { wireguard_nt::load_from_path("lib/wireguard-nt/bin/amd64/wireguard.dll") }
@@ -193,7 +258,7 @@ impl WGApi<Kernel> {
             endpoint: peer.endpoint.unwrap(),
     }).collect();
     let interface = wireguard_nt::SetInterface {
-        listen_port: Some(config.port as u16),
+        listen_port: Some(config.port as u16), // TODO safety
         public_key: None,
         private_key: Some(key_from_str(&config.prvkey)),
         peers,
@@ -201,19 +266,15 @@ impl WGApi<Kernel> {
 
     adapter.set_config(&interface).unwrap();
 
-    let internal_ip = "10.6.0.69".parse().unwrap();
-    let internal_prefix_length = 24;
-    let internal_ipnet = ipnet::Ipv4Net::new(internal_ip, internal_prefix_length).unwrap();
     let addresses: Vec<_> = config.addresses.iter().map(|ip| match ip.ip {
         IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
         IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
     }).collect();
     adapter
-        // .set_default_route(&[internal_ipnet.into()], &interface)
         .set_default_route(&addresses, &interface)
         .unwrap();
     adapter.up().expect("Failed to bring the adapter UP");
-    set_dns("WireGuard", "10.4.0.1").expect("Setting DNS failed");
+    set_dns("WireGuard", &dns).expect("Setting DNS failed");
     println!("Adapter ready");
     // TODO The adapter closes its resources when dropped
     thread::sleep(Duration::MAX);
@@ -243,8 +304,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        let cloned = config.clone();
-        thread::spawn(|| Self::conf_interface(cloned));
+        let config = config.clone();
+        let dns = dns.iter().cloned().collect();
+        thread::spawn(move || Self::conf_interface(config, dns));
         return Ok(());
 
         // Interface is created here so that there is no need to pass private key only for Windows
