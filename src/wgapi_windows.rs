@@ -39,19 +39,11 @@ use windows::{
     },
 };
 
-fn key_from_str(key: &str) -> [u8; 32] {
-    general_purpose::STANDARD
-        .decode(&key)
-        .expect("valid base64")
-        .try_into()
-        .expect("Failed to convert vec to [u8; 32]")
-}
-
 fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
     let s = s.trim_start_matches('{').trim_end_matches('}');
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 5 {
-        return Err(core::Error::empty()); // Or a more specific error
+        return Err(core::Error::empty());
     }
 
     let data1 = u32::from_str_radix(parts[0], 16).map_err(|_| core::Error::empty())?;
@@ -82,7 +74,6 @@ fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
 }
 
 fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
-    // Get the GUID for the adapter
     let mut guid = None;
 
     let mut buffer_len = 0u32;
@@ -128,14 +119,6 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
         if friendly_name == adapter_name {
             println!("Found adapter {adapter_name}");
             let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
-
-            // let wide_guid: Vec<u16> = adapter_name_str.encode_utf16().chain(once(0)).collect();
-            // // let interface_guid = core::GUID::default();
-            // unsafe {
-            //     // CLSIDFromString(PCWSTR(wide_guid.as_ptr()), &mut interface_guid)?;
-            //     CLSIDFromString(PCWSTR(wide_guid.as_ptr()))?;
-            // }
-            // guid = Some(interface_guid);
             guid = Some(guid_from_string(&adapter_name_str)?);
             println!("Interface GUID: {guid:?}");
             break;
@@ -145,35 +128,12 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
     }
 
     let Some(interface_guid) = guid else {
-        return Err(core::Error::empty()); // Or a custom error
+        return Err(core::Error::empty());
     };
 
-    // Prepare DNS settings
-    let ipv4_servers: Vec<String> = dns_servers
-            .iter()
-            .filter_map(|ip| ip.is_ipv4().then(|| ip.to_string()))
-            .collect();
-        let ipv6_servers: Vec<String> = dns_servers
-            .iter()
-            .filter_map(|ip| ip.is_ipv6().then(|| ip.to_string()))
-            .collect();
-
-    // let mut wide_dns: Vec<u16> = dns_servers.encode_utf16().chain(once(0)).collect();
-
-    // let mut settings = DNS_INTERFACE_SETTINGS {
-    //     Version: DNS_INTERFACE_SETTINGS_VERSION1,
-    //     Flags: DNS_SETTING_NAMESERVER as u64,
-    //     // NameServer: PCWSTR(wide_dns.as_ptr()),
-    //     NameServer: PWSTR(wide_dns.as_mut_ptr()),
-    //     ..Default::default()
-    // };
-
-    // // Set the DNS settings
-    // let result = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
-
-    // if result != NO_ERROR {
-    //     return Err(core::Error::empty());
-    // }
+    let (ipv4_ips, ipv6_ips): (Vec<&IpAddr>, Vec<&IpAddr>) = dns_servers.iter().partition(|ip| ip.is_ipv4());
+    let ipv4_servers: Vec<String> = ipv4_ips.iter().map(|ip| ip.to_string()).collect();
+    let ipv6_servers: Vec<String> = ipv6_ips.iter().map(|ip| ip.to_string()).collect();
 
     if !ipv4_servers.is_empty() {
         let dns_str = ipv4_servers.join(",");
@@ -186,19 +146,8 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             NameServer: name_server,
             ..Default::default()
         };
-        // NameServer: PWSTR(wide_dns.as_mut_ptr()),
-        // NameServer: PCWSTR(wide_dns.as_ptr()),
-        // settings.Version = DNS_INTERFACE_SETTINGS_VERSION1;
-        // settings.Flags = DNS_SETTING_NAMESERVER as u64;
-        // settings.NameServer = name_server;
 
         let status = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
-        // if status != 0 {
-        //     return Err(Error::new(
-        //         HRESULT(status as i32),
-        //         "Failed to set IPv4 DNS servers".into(),
-        //     ));
-        // }
         if status != NO_ERROR {
             return Err(core::Error::empty());
         }
@@ -214,19 +163,8 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             NameServer: name_server,
             ..Default::default()
         };
-        // NameServer: PWSTR(wide_dns.as_mut_ptr()),
-        // NameServer: PCWSTR(wide_dns.as_ptr()),
-        // settings.Version = DNS_INTERFACE_SETTINGS_VERSION1;
-        // settings.Flags = DNS_SETTING_NAMESERVER as u64;
-        // settings.NameServer = name_server;
 
         let status = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
-        // if status != 0 {
-        //     return Err(Error::new(
-        //         HRESULT(status as i32),
-        //         "Failed to set IPv4 DNS servers".into(),
-        //     ));
-        // }
         if status != NO_ERROR {
             return Err(core::Error::empty());
         }
@@ -236,17 +174,18 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
 
 impl WGApi<Kernel> {
     fn conf_interface(config: InterfaceConfiguration, dns: Vec<IpAddr>) {
-    // Load the wireguard dll file so that we can call the underlying C functions
-    // Unsafe because we are loading an arbitrary dll file
-    // let wireguard = unsafe { wireguard_nt::load_from_path("lib/wireguard-nt/bin/amd64/wireguard.dll") }
+    // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
+    // TODO system path
     let wireguard = unsafe { wireguard_nt::load_from_path("C:/Users/Jacek/Documents/workspace/client/wireguard-rs/lib/wireguard-nt/bin/amd64/wireguard.dll") }
         .expect("Failed to load wireguard dll");
 
-    // Try to open an adapter from the given pool with the name "Defguard"
-    let adapter = wireguard_nt::Adapter::open(&wireguard, "Defguard").unwrap_or_else(|_| {
+    // Try to open the adapter. If it's not present create it.
+    let adapter = wireguard_nt::Adapter::open(&wireguard, &config.name).unwrap_or_else(|_| {
         wireguard_nt::Adapter::create(&wireguard, "WireGuard", "Defguard", None)
             .expect("Failed to create wireguard adapter!")
     });
+
+    // Prepare peers
     let peers = config.peers.iter().map(|peer| wireguard_nt::SetPeer {
             public_key: Some(peer.public_key.0),
             preshared_key: peer.preshared_key.as_ref().map(|key| key.0),
@@ -257,15 +196,17 @@ impl WGApi<Kernel> {
             }).collect(),
             endpoint: peer.endpoint.unwrap(),
     }).collect();
+
+    // Configure the interface
     let interface = wireguard_nt::SetInterface {
         listen_port: Some(config.port as u16), // TODO safety
-        public_key: None,
-        private_key: Some(key_from_str(&config.prvkey)),
+        public_key: None,  // derived from private key
+        private_key: Some(Key::from_str(&config.prvkey).unwrap().as_array()),
         peers,
     };
-
     adapter.set_config(&interface).unwrap();
 
+    // Set adapter addresses
     let addresses: Vec<_> = config.addresses.iter().map(|ip| match ip.ip {
         IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
         IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
@@ -273,9 +214,14 @@ impl WGApi<Kernel> {
     adapter
         .set_default_route(&addresses, &interface)
         .unwrap();
-    adapter.up().expect("Failed to bring the adapter UP");
+
+    // Configure adapter DNS servers
+    // TODO adapter_name - what if we have multiple wireguard adapters?
     set_dns("WireGuard", &dns).expect("Setting DNS failed");
-    println!("Adapter ready");
+
+    // Bring the adapter up
+    adapter.up().expect("Failed to bring the adapter UP");
+
     // TODO The adapter closes its resources when dropped
     thread::sleep(Duration::MAX);
     }
