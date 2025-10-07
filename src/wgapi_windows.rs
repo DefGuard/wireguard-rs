@@ -1,13 +1,5 @@
 use std::{
-    thread,
-    env,
-    fs::File,
-    io::{BufRead, BufReader, Cursor, Write},
-    net::{IpAddr, SocketAddr},
-    process::Command,
-    str::FromStr,
-    thread::sleep,
-    time::{Duration, SystemTime},
+    collections::HashMap, io::{BufRead, BufReader, Cursor}, net::{IpAddr, SocketAddr}, process::Command, str::FromStr, sync::{mpsc::{self, Sender}, LazyLock, Mutex}, thread, time::{Duration, SystemTime}
 };
 
 use crate::{
@@ -19,25 +11,21 @@ use crate::{
     wgapi::{Kernel, WGApi},
 };
 
-use base64::{Engine as _, engine::general_purpose};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use std::ffi::OsStr;
-use std::os::windows::ffi::OsStrExt;
-use std::ptr;
-
-use std::iter::once;
 use windows::{
-    core::{self, PCSTR, PCWSTR, PSTR, PWSTR},
+    core::{self, PCSTR, PCWSTR, PSTR},
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
         NetworkManagement::IpHelper::{
-            self, GetAdaptersAddresses, DNS_INTERFACE_SETTINGS,
+            GetAdaptersAddresses, DNS_INTERFACE_SETTINGS,
             DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_NAMESERVER, DNS_SETTING_IPV6,
             GAA_FLAG_INCLUDE_PREFIX, IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
         },
-        System::Com::CLSIDFromString,
     },
 };
+
+static ADAPTERS: LazyLock<Mutex<HashMap<String, Sender<()>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
     let s = s.trim_start_matches('{').trim_end_matches('}');
@@ -124,7 +112,7 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             break;
         }
 
-        current = unsafe { adapter.Next };
+        current = adapter.Next;
     }
 
     let Some(interface_guid) = guid else {
@@ -173,15 +161,15 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
 }
 
 impl WGApi<Kernel> {
-    fn conf_interface(config: InterfaceConfiguration, dns: Vec<IpAddr>) {
+    fn conf_interface(ifname: String, config: InterfaceConfiguration, dns: Vec<IpAddr>) {
     // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
     // TODO system path
     let wireguard = unsafe { wireguard_nt::load_from_path("C:/Users/Jacek/Documents/workspace/client/wireguard-rs/lib/wireguard-nt/bin/amd64/wireguard.dll") }
         .expect("Failed to load wireguard dll");
 
     // Try to open the adapter. If it's not present create it.
-    let adapter = wireguard_nt::Adapter::open(&wireguard, &config.name).unwrap_or_else(|_| {
-        wireguard_nt::Adapter::create(&wireguard, "WireGuard", &config.name, None)
+    let adapter = wireguard_nt::Adapter::open(&wireguard, &ifname).unwrap_or_else(|_| {
+        wireguard_nt::Adapter::create(&wireguard, "WireGuard", &ifname, None)
             .expect("Failed to create wireguard adapter!")
     });
 
@@ -223,7 +211,11 @@ impl WGApi<Kernel> {
     adapter.up().expect("Failed to bring the adapter UP");
 
     // TODO The adapter closes its resources when dropped
-    thread::sleep(Duration::MAX);
+    // thread::sleep(Duration::MAX);
+    let (tx, rx) = mpsc::channel();
+    ADAPTERS.lock().unwrap().insert(ifname.to_string(), tx);
+    rx.recv();
+    // TODO log adapter down message
     }
 }
 
@@ -252,7 +244,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         let config = config.clone();
         let dns = dns.iter().cloned().collect();
-        thread::spawn(move || Self::conf_interface(config, dns));
+        let ifname = self.ifname.clone();
+        thread::spawn(move || Self::conf_interface(ifname, config, dns));
 
         info!(
             "Interface {} has been successfully configured.",
@@ -267,24 +260,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
-
-        let command_output = Command::new("wireguard")
-            .arg("/uninstalltunnelservice")
-            .arg(&self.ifname)
-            .output()
-            .map_err(|err| {
-                error!("Failed to remove interface. Error: {err}");
-                WireguardInterfaceError::CommandExecutionFailed(err)
-            })?;
-
-        if !command_output.status.success() {
-            let message = format!(
-                "Failed to remove WireGuard tunnel service: {:?}",
-                command_output.stdout
-            );
-            return Err(WireguardInterfaceError::ServiceRemovalFailed(message));
+        if let Some(sender) = ADAPTERS.lock().unwrap().remove(&self.ifname) {
+            // TODO error handling
+            sender.send(()).unwrap();
+        } else {
+            // TODO
         }
-
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
     }
