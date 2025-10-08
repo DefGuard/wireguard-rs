@@ -203,7 +203,6 @@ impl WGApi<Kernel> {
     adapter
         .set_default_route(&addresses, &interface)
         .unwrap();
-
     // Configure adapter DNS servers
     // TODO adapter_name - what if we have multiple wireguard adapters?
     set_dns("WireGuard", &dns).expect("Setting DNS failed");
@@ -217,6 +216,42 @@ impl WGApi<Kernel> {
     ADAPTERS.lock().unwrap().insert(ifname.to_string(), tx);
     rx.recv();
     // TODO log adapter down message
+    }
+}
+
+impl From<wireguard_nt::WireguardPeer> for Peer {
+    fn from(peer: wireguard_nt::WireguardPeer) -> Self {
+        Self {
+            public_key: Key::new(peer.public_key),
+            preshared_key: Some(Key::new(peer.preshared_key)),
+            protocol_version: None,
+            endpoint: Some(peer.endpoint),
+            tx_bytes: peer.tx_bytes,
+            rx_bytes: peer.rx_bytes,
+            last_handshake: peer.last_handshake,
+            persistent_keepalive_interval: Some(peer.persistent_keepalive),
+            allowed_ips: peer
+                .allowed_ips
+                .iter()
+                .map(|ip| IpAddrMask::new(ip.addr(), ip.prefix_len()))
+                .collect(),
+        }
+    }
+}
+
+impl From<wireguard_nt::WireguardInterface> for Host {
+    fn from(iface: wireguard_nt::WireguardInterface) -> Self {
+        let mut peers = HashMap::new();
+        for peer in iface.peers {
+            peers.insert(Key::new(peer.public_key), peer.into());
+        }
+        Self {
+            listen_port: iface.listen_port,
+            private_key: Some(Key::new(iface.private_key)),
+            // TODO
+            fwmark: None,
+            peers,
+        }
     }
 }
 
@@ -286,7 +321,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
-
         let output = Command::new("wg")
             .arg("show")
             .arg(&self.ifname)
