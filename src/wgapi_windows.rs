@@ -24,6 +24,7 @@ use windows::{
     },
 };
 
+static DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
 static ADAPTERS: LazyLock<Mutex<HashMap<String, Sender<()>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -164,7 +165,7 @@ impl WGApi<Kernel> {
     fn conf_interface(ifname: String, config: InterfaceConfiguration, dns: Vec<IpAddr>) {
     // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
     // TODO system path
-    let wireguard = unsafe { wireguard_nt::load_from_path("C:/Users/Jacek/Documents/workspace/client/wireguard-rs/lib/wireguard-nt/bin/amd64/wireguard.dll") }
+    let wireguard = unsafe { wireguard_nt::load_from_path(DLL_PATH) }
         .expect("Failed to load wireguard dll");
 
     // Try to open the adapter. If it's not present create it.
