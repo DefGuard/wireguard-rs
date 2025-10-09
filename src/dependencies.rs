@@ -6,7 +6,7 @@ use crate::error::WireguardInterfaceError;
 const COMMANDS: [&str; 2] = ["resolvconf", "ip"];
 
 #[cfg(target_os = "windows")]
-const COMMANDS: [&str; 1] = [("wireguard.exe")];
+const COMMANDS: [&str; 0] = [];
 
 #[cfg(target_os = "macos")]
 const COMMANDS: [&str; 2] = ["wireguard-go", "networksetup"];

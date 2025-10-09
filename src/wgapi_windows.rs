@@ -23,9 +23,11 @@ use windows::{
         },
     },
 };
+use wireguard_nt::Adapter;
 
 static DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
-static ADAPTERS: LazyLock<Mutex<HashMap<String, Sender<()>>>> =
+// static ADAPTERS: LazyLock<Mutex<HashMap<String, Sender<()>>>> =
+static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
@@ -212,10 +214,11 @@ impl WGApi<Kernel> {
 
     // TODO The adapter closes its resources when dropped
     // thread::sleep(Duration::MAX);
-    let (tx, rx) = mpsc::channel();
-    ADAPTERS.lock().unwrap().insert(ifname.to_string(), tx);
-    rx.recv();
+    // let (tx, rx) = mpsc::channel();
+    ADAPTERS.lock().unwrap().insert(ifname.to_string(), adapter);
+    // rx.recv();
     // TODO log adapter down message
+    warn!("conf_interface: adapter names: {:?}", ADAPTERS.lock().unwrap().keys());
     }
 }
 
@@ -282,7 +285,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let dns = dns.iter().cloned().collect();
         let ifname = self.ifname.clone();
         thread::spawn(move || Self::conf_interface(ifname, config, dns));
-
+        thread::sleep(Duration::from_secs(3));
         info!(
             "Interface {} has been successfully configured.",
             self.ifname
@@ -296,11 +299,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
-        if let Some(sender) = ADAPTERS.lock().unwrap().remove(&self.ifname) {
+        if let Some(adapter) = ADAPTERS.lock().unwrap().remove(&self.ifname) {
             // TODO error handling
-            sender.send(()).unwrap();
+            // sender.send(()).unwrap();
+            drop(adapter);
         } else {
-            // TODO
+            // TODO error handling
         }
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
@@ -321,6 +325,13 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
+        warn!("read_interface_data: adapter names: {:?}", ADAPTERS.lock().unwrap().keys());
+        if let Some(adapter) = ADAPTERS.lock().unwrap().get(&self.ifname) {
+            return Ok(adapter.get_config().into())
+        } else {
+            return Err(WireguardInterfaceError::Interface(self.ifname.clone()));
+        }
+
         let output = Command::new("wg")
             .arg("show")
             .arg(&self.ifname)
