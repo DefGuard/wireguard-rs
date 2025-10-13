@@ -355,7 +355,24 @@ impl Host {
                 WgDeviceAttrs::Peers(nlas) => {
                     for nla in nlas {
                         let peer = Peer::from_nlas(nla);
-                        self.peers.insert(peer.public_key.clone(), peer);
+                        // On some systems, a dual-stack (IPv4 + IPv6) configuration creates separate peer entries
+                        // for each address family. These entries share the same public key, so inserting a new
+                        // peer would overwrite the existing one. To avoid this, we first check if the peer
+                        // already exists and, if it does, update its statistics instead of replacing it.
+                        // https://github.com/DefGuard/client/issues/617
+                        if let Some(existing_peer) = self.peers.get_mut(&peer.public_key) {
+                            existing_peer.rx_bytes += peer.rx_bytes;
+                            existing_peer.tx_bytes += peer.tx_bytes;
+                            existing_peer.last_handshake =
+                                match (existing_peer.last_handshake, peer.last_handshake) {
+                                    (Some(x), Some(y)) => Some(x.max(y)),
+                                    (Some(x), None) => Some(x),
+                                    (None, Some(y)) => Some(y),
+                                    (None, None) => None,
+                                };
+                        } else {
+                            self.peers.insert(peer.public_key.clone(), peer);
+                        }
                     }
                 }
                 _ => (),
