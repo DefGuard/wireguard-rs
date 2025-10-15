@@ -27,7 +27,7 @@ static DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
 static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
+fn guid_from_str(s: &str) -> core::Result<windows::core::GUID> {
     let s = s.trim_start_matches('{').trim_end_matches('}');
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 5 {
@@ -104,7 +104,7 @@ fn get_adapter_guid(adapter_name: &str) -> core::Result<GUID> {
         if friendly_name == adapter_name {
             debug!("Found adapter {adapter_name}");
             let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
-            guid = Some(guid_from_string(&adapter_name_str)?);
+            guid = Some(guid_from_str(&adapter_name_str)?);
             debug!("Interface GUID: {guid:?}, adapter_name: {:?}, adapter_name_str: {adapter_name_str}", adapter.AdapterName.0);
             break;
         }
@@ -159,59 +159,6 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
         }
     }
     Ok(())
-}
-
-impl WGApi<Kernel> {
-    fn conf_interface(ifname: &str, config: &InterfaceConfiguration, dns: &[IpAddr]) {
-    // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
-    // TODO preload this
-    let wireguard = unsafe { wireguard_nt::load_from_path(DLL_PATH) }
-        .expect("Failed to load wireguard dll");
-
-    // Try to open the adapter. If it's not present create it.
-    let adapter = wireguard_nt::Adapter::open(&wireguard, &ifname).unwrap_or_else(|_| {
-        wireguard_nt::Adapter::create(&wireguard, "WireGuard", &ifname, None)
-            .expect("Failed to create wireguard adapter!")
-    });
-
-    // Prepare peers
-    let peers = config.peers.iter().map(|peer| wireguard_nt::SetPeer {
-            public_key: Some(peer.public_key.0),
-            preshared_key: peer.preshared_key.as_ref().map(|key| key.0),
-            keep_alive: peer.persistent_keepalive_interval,
-            allowed_ips: peer.allowed_ips.iter().map(|ip| match ip.ip {
-                IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
-                IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
-            }).collect(),
-            endpoint: peer.endpoint.unwrap(),
-    }).collect();
-
-    // Configure the interface
-    let interface = wireguard_nt::SetInterface {
-        listen_port: Some(config.port as u16), // TODO safety
-        public_key: None,  // derived from private key
-        private_key: Some(Key::from_str(&config.prvkey).unwrap().as_array()),
-        peers,
-    };
-    adapter.set_config(&interface).unwrap();
-
-    // Set adapter addresses
-    let addresses: Vec<_> = config.addresses.iter().map(|ip| match ip.ip {
-        IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
-        IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
-    }).collect();
-    adapter
-        .set_default_route(&addresses, &interface)
-        .unwrap();
-    // Configure adapter DNS servers
-    // TODO adapter_name - what if we have multiple wireguard adapters?
-    set_dns("WireGuard", &dns).expect("Setting DNS failed");
-
-    // Bring the adapter up
-    adapter.up().expect("Failed to bring the adapter UP");
-
-    ADAPTERS.lock().unwrap().insert(ifname.to_string(), adapter);
-    }
 }
 
 impl From<wireguard_nt::WireguardPeer> for Peer {
@@ -273,7 +220,54 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        Self::conf_interface(&self.ifname, &config, dns);
+        // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
+        // TODO preload this
+        let wireguard = unsafe { wireguard_nt::load_from_path(DLL_PATH) }
+            .expect("Failed to load wireguard dll");
+
+        // Try to open the adapter. If it's not present create it.
+        let adapter = wireguard_nt::Adapter::open(&wireguard, &self.ifname).unwrap_or_else(|_| {
+            wireguard_nt::Adapter::create(&wireguard, "WireGuard", &self.ifname, None)
+                .expect("Failed to create wireguard adapter!")
+        });
+
+        // Prepare peers
+        let peers = config.peers.iter().map(|peer| wireguard_nt::SetPeer {
+                public_key: Some(peer.public_key.0),
+                preshared_key: peer.preshared_key.as_ref().map(|key| key.0),
+                keep_alive: peer.persistent_keepalive_interval,
+                allowed_ips: peer.allowed_ips.iter().map(|ip| match ip.ip {
+                    IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
+                    IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
+                }).collect(),
+                endpoint: peer.endpoint.unwrap(),
+        }).collect();
+
+        // Configure the interface
+        let interface = wireguard_nt::SetInterface {
+            listen_port: Some(config.port as u16), // TODO safety
+            public_key: None,  // derived from private key
+            private_key: Some(Key::from_str(&config.prvkey).unwrap().as_array()),
+            peers,
+        };
+        adapter.set_config(&interface).unwrap();
+
+        // Set adapter addresses
+        let addresses: Vec<_> = config.addresses.iter().map(|ip| match ip.ip {
+            IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
+            IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
+        }).collect();
+        adapter
+            .set_default_route(&addresses, &interface)
+            .unwrap();
+        // Configure adapter DNS servers
+        // TODO adapter_name - what if we have multiple wireguard adapters?
+        set_dns("WireGuard", &dns).expect("Setting DNS failed");
+
+        // Bring the adapter up
+        adapter.up().expect("Failed to bring the adapter UP");
+        ADAPTERS.lock().unwrap().insert(self.ifname.clone(), adapter);
+
         info!(
             "Interface {} has been successfully configured.",
             self.ifname
