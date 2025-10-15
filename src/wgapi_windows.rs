@@ -118,14 +118,17 @@ fn get_adapter_guid(adapter_name: &str) -> core::Result<GUID> {
     Ok(guid)
 }
 
-fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
+fn set_dns(adapter_name: &str, dns_servers: &[IpAddr], search_domains: &[&str]) -> core::Result<()> {
     let guid = get_adapter_guid(adapter_name)?;
-    let (ipv4_ips, ipv6_ips): (Vec<&IpAddr>, Vec<&IpAddr>) = dns_servers.iter().partition(|ip| ip.is_ipv4());
-    let ipv4_servers: Vec<String> = ipv4_ips.iter().map(|ip| ip.to_string()).collect();
-    let ipv6_servers: Vec<String> = ipv6_ips.iter().map(|ip| ip.to_string()).collect();
+    let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) = dns_servers.iter().partition(|ip| ip.is_ipv4());
+    let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
+    let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
 
-    if !ipv4_servers.is_empty() {
-        let dns_str = ipv4_servers.join(",");
+    let mut search_domains_vec: Vec<u16> = search_domains.join(",").encode_utf16().chain(std::iter::once(0)).collect();
+    let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
+
+    if !ipv4_dns_servers.is_empty() {
+        let dns_str = ipv4_dns_servers.join(",");
         let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
         let name_server = windows::core::PWSTR(wide.as_mut_ptr());
 
@@ -133,6 +136,7 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             Version: DNS_INTERFACE_SETTINGS_VERSION1,
             Flags: DNS_SETTING_NAMESERVER as u64,
             NameServer: name_server,
+            SearchList: search_domains_wide,
             ..Default::default()
         };
 
@@ -141,8 +145,8 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             return Err(core::Error::empty());
         }
     }
-    if !ipv6_servers.is_empty() {
-        let dns_str = ipv6_servers.join(",");
+    if !ipv6_dns_servers.is_empty() {
+        let dns_str = ipv6_dns_servers.join(",");
         let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
         let name_server = windows::core::PWSTR(wide.as_mut_ptr());
 
@@ -150,6 +154,7 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             Version: DNS_INTERFACE_SETTINGS_VERSION1,
             Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6) as u64,
             NameServer: name_server,
+            SearchList: search_domains_wide,
             ..Default::default()
         };
 
@@ -262,7 +267,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .unwrap();
         // Configure adapter DNS servers
         // TODO adapter_name - what if we have multiple wireguard adapters?
-        set_dns("WireGuard", &dns).expect("Setting DNS failed");
+        set_dns("WireGuard", dns, search_domains).expect("Setting DNS failed");
 
         // Bring the adapter up
         adapter.up().expect("Failed to bring the adapter UP");
