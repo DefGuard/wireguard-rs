@@ -61,7 +61,7 @@ fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
     })
 }
 
-fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
+fn get_adapter_guid(adapter_name: &str) -> core::Result<GUID> {
     // Get buffer size to hold the adapters
     let mut buffer_size: u32 = 0;
     let mut result = unsafe {
@@ -112,10 +112,14 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
         current = adapter.Next;
     }
 
-    let Some(interface_guid) = guid else {
+    let Some(guid) = guid else {
         return Err(core::Error::empty());
     };
+    Ok(guid)
+}
 
+fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
+    let guid = get_adapter_guid(adapter_name)?;
     let (ipv4_ips, ipv6_ips): (Vec<&IpAddr>, Vec<&IpAddr>) = dns_servers.iter().partition(|ip| ip.is_ipv4());
     let ipv4_servers: Vec<String> = ipv4_ips.iter().map(|ip| ip.to_string()).collect();
     let ipv6_servers: Vec<String> = ipv6_ips.iter().map(|ip| ip.to_string()).collect();
@@ -132,13 +136,13 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             ..Default::default()
         };
 
-        let status = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
+        let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
         if status != NO_ERROR {
             return Err(core::Error::empty());
         }
     }
     if !ipv6_servers.is_empty() {
-        let dns_str = ipv4_servers.join(",");
+        let dns_str = ipv6_servers.join(",");
         let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
         let name_server = windows::core::PWSTR(wide.as_mut_ptr());
 
@@ -149,7 +153,7 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
             ..Default::default()
         };
 
-        let status = unsafe { SetInterfaceDnsSettings(interface_guid, &settings) };
+        let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
         if status != NO_ERROR {
             return Err(core::Error::empty());
         }
