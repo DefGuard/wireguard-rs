@@ -18,7 +18,7 @@ use windows::{
         },
         Networking::WinSock::AF_UNSPEC,
     },
-    core::{self, GUID, PCSTR, PCWSTR, PSTR},
+    core::{GUID, PCSTR, PCWSTR, PSTR},
 };
 use wireguard_nt::Adapter;
 
@@ -32,7 +32,7 @@ use crate::{
 };
 
 static DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
-static ADAPTER_NAME: &str = "WireGuard";
+static ADAPTER_POOL_NAME: &str = "WireGuard";
 static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -52,6 +52,8 @@ pub enum WindowsError {
     FromUtf16Error(#[from] FromUtf16Error),
     #[error(transparent)]
     FromUtf8Error(#[from] FromUtf8Error),
+    #[error("Failed to load library: {0}")]
+    LibLoadingError(String),
 }
 
 fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
@@ -216,13 +218,16 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
         // TODO preload this
         let wireguard = unsafe { wireguard_nt::load_from_path(DLL_PATH) }
-            .expect("Failed to load wireguard dll");
+            .map_err(|err| WindowsError::LibLoadingError(err.to_string()))?;
 
         // Try to open the adapter. If it's not present create it.
-        let adapter = wireguard_nt::Adapter::open(&wireguard, &self.ifname).unwrap_or_else(|_| {
-            wireguard_nt::Adapter::create(&wireguard, "WireGuard", &self.ifname, None)
-                .expect("Failed to create wireguard adapter!")
-        });
+        let adapter = match wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
+            Ok(adapter) => adapter,
+            Err(_) => {
+                wireguard_nt::Adapter::create(&wireguard, ADAPTER_POOL_NAME, &self.ifname, None)
+                    .map_err(WindowsError::from)?
+            }
+        };
 
         // Prepare peers
         let peers = config
@@ -248,10 +253,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let interface = wireguard_nt::SetInterface {
             listen_port: Some(config.port as u16), // TODO safety
             public_key: None,                      // derived from private key
-            private_key: Some(Key::from_str(&config.prvkey).unwrap().as_array()),
+            private_key: Some(Key::from_str(&config.prvkey)?.as_array()),
             peers,
         };
-        adapter.set_config(&interface).unwrap();
+        adapter.set_config(&interface).map_err(WindowsError::from)?;
 
         // Set adapter addresses
         let addresses: Vec<_> = config
@@ -264,16 +269,16 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .collect();
         adapter
             .set_default_route(&addresses, &interface)
-            .map_err(WindowsError::from);
+            .map_err(WindowsError::from)?;
         // Configure adapter DNS servers
         // TODO adapter_name - what if we have multiple wireguard adapters?
         self.configure_dns(dns, search_domains)?;
 
         // Bring the adapter up
-        adapter.up().expect("Failed to bring the adapter UP");
+        adapter.up().map_err(WindowsError::from)?;
         ADAPTERS
             .lock()
-            .unwrap()
+            .expect("Failed to lock ADAPTERS")
             .insert(self.ifname.clone(), adapter);
 
         info!(
@@ -289,11 +294,16 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
-        if let Some(adapter) = ADAPTERS.lock().unwrap().remove(&self.ifname) {
+        if let Some(adapter) = ADAPTERS
+            .lock()
+            .expect("Failed to lock ADAPTERS")
+            .remove(&self.ifname)
+        {
             drop(adapter);
         } else {
-            // TODO error handling
+            Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
         }
+
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
     }
@@ -313,7 +323,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
-        let adapters = ADAPTERS.lock().unwrap();
+        let adapters = ADAPTERS.lock().expect("Failed to lock ADAPTERS");
         let Some(adapter) = adapters.get(&self.ifname) else {
             return Err(WireguardInterfaceError::Interface(self.ifname.clone()));
         };
@@ -331,7 +341,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname
         );
-        let guid = get_adapter_guid(ADAPTER_NAME)?;
+        let guid = get_adapter_guid(ADAPTER_POOL_NAME)?;
         let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) =
             dns.iter().partition(|ip| ip.is_ipv4());
         let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
