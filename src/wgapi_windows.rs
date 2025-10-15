@@ -13,14 +13,12 @@ use crate::{
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use windows::{
-    core::{self, PCSTR, PCWSTR, PSTR},
+    core::{self, GUID, PCSTR, PCWSTR, PSTR},
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
         NetworkManagement::IpHelper::{
-            GetAdaptersAddresses, DNS_INTERFACE_SETTINGS,
-            DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_NAMESERVER, DNS_SETTING_IPV6,
-            GAA_FLAG_INCLUDE_PREFIX, IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
-        },
+            GetAdaptersAddresses, SetInterfaceDnsSettings, DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, IP_ADAPTER_ADDRESSES_LH
+        }, Networking::WinSock::AF_UNSPEC,
     },
 };
 use wireguard_nt::Adapter;
@@ -64,33 +62,61 @@ fn guid_from_string(s: &str) -> core::Result<windows::core::GUID> {
 }
 
 fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
-    let mut guid = None;
-
-    let mut buffer_len = 0u32;
-    let mut buffer = vec![0u8; buffer_len as usize];
-
-    loop {
-        let result = unsafe {
-            GetAdaptersAddresses(
-                0,
-                GAA_FLAG_INCLUDE_PREFIX,
-                None,
-                Some(buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH),
-                &mut buffer_len,
-            )
-        };
-
-        if result == ERROR_BUFFER_OVERFLOW.0 {
-            buffer.resize(buffer_len as usize, 0);
-            continue;
-        } else if result != NO_ERROR.0 {
-            return Err(core::Error::empty());
-        }
-        println!("Found {buffer_len} adapters");
-        break;
+    // Get buffer size to hold the adapters
+    let mut buffer_size: u32 = 0;
+    let mut result = unsafe {
+        GetAdaptersAddresses(
+            AF_UNSPEC.0 as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            None,
+            &mut buffer_size,
+        )
+    };
+    if result != ERROR_BUFFER_OVERFLOW.0 {
+        return Err(core::Error::empty());
     }
 
+    // Actually get the adapters
+    let mut buffer: Vec<u8> = vec![0; buffer_size as usize];
+    let addresses = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+    result = unsafe {
+        GetAdaptersAddresses(
+            AF_UNSPEC.0 as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            Some(addresses),
+            &mut buffer_size,
+        )
+    };
+    if result != NO_ERROR.0 {
+        return Err(core::Error::empty());
+    }
+
+    // loop {
+    //     let result = unsafe {
+    //         GetAdaptersAddresses(
+    //             0,
+    //             GAA_FLAG_INCLUDE_PREFIX,
+    //             None,
+    //             Some(buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH),
+    //             &mut buffer_len,
+    //         )
+    //     };
+
+    //     if result == ERROR_BUFFER_OVERFLOW.0 {
+    //         buffer.resize(buffer_len as usize, 0);
+    //         continue;
+    //     } else if result != NO_ERROR.0 {
+    //         return Err(core::Error::empty());
+    //     }
+    //     println!("Found {buffer_len} adapters");
+    //     break;
+    // }
+
+    // Iterate over adapters to find our interface
     let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    let mut guid: Option<GUID> = None;
     while !current.is_null() {
         let adapter = unsafe { &*current };
 
