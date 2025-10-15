@@ -26,7 +26,6 @@ use windows::{
 use wireguard_nt::Adapter;
 
 static DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
-// static ADAPTERS: LazyLock<Mutex<HashMap<String, Sender<()>>>> =
 static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -164,9 +163,9 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
 }
 
 impl WGApi<Kernel> {
-    fn conf_interface(ifname: String, config: InterfaceConfiguration, dns: Vec<IpAddr>) {
+    fn conf_interface(ifname: &str, config: &InterfaceConfiguration, dns: &[IpAddr]) {
     // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
-    // TODO system path
+    // TODO preload this
     let wireguard = unsafe { wireguard_nt::load_from_path(DLL_PATH) }
         .expect("Failed to load wireguard dll");
 
@@ -212,13 +211,7 @@ impl WGApi<Kernel> {
     // Bring the adapter up
     adapter.up().expect("Failed to bring the adapter UP");
 
-    // TODO The adapter closes its resources when dropped
-    // thread::sleep(Duration::MAX);
-    // let (tx, rx) = mpsc::channel();
     ADAPTERS.lock().unwrap().insert(ifname.to_string(), adapter);
-    // rx.recv();
-    // TODO log adapter down message
-    warn!("conf_interface: adapter names: {:?}", ADAPTERS.lock().unwrap().keys());
     }
 }
 
@@ -281,11 +274,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        let config = config.clone();
-        let dns = dns.iter().cloned().collect();
-        let ifname = self.ifname.clone();
-        thread::spawn(move || Self::conf_interface(ifname, config, dns));
-        thread::sleep(Duration::from_secs(3));
+        Self::conf_interface(&self.ifname, &config, dns);
         info!(
             "Interface {} has been successfully configured.",
             self.ifname
