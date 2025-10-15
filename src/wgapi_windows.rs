@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap, io::{BufRead, BufReader, Cursor}, net::{IpAddr, SocketAddr}, process::Command, str::FromStr, sync::{mpsc::{self, Sender}, LazyLock, Mutex}, thread, time::{Duration, SystemTime}
+    collections::HashMap, net::IpAddr, str::FromStr, sync::{LazyLock, Mutex},
 };
 
 use crate::{
@@ -67,20 +67,10 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
     let mut guid = None;
 
     let mut buffer_len = 0u32;
-    let mut result = unsafe {
-        GetAdaptersAddresses(
-            0,
-            GAA_FLAG_INCLUDE_PREFIX,
-            None,
-            None,
-            &mut buffer_len,
-        )
-    };
-
     let mut buffer = vec![0u8; buffer_len as usize];
 
     loop {
-        result = unsafe {
+        let result = unsafe {
             GetAdaptersAddresses(
                 0,
                 GAA_FLAG_INCLUDE_PREFIX,
@@ -289,8 +279,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
         if let Some(adapter) = ADAPTERS.lock().unwrap().remove(&self.ifname) {
-            // TODO error handling
-            // sender.send(()).unwrap();
             drop(adapter);
         } else {
             // TODO error handling
@@ -314,74 +302,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
-        warn!("read_interface_data: adapter names: {:?}", ADAPTERS.lock().unwrap().keys());
-        if let Some(adapter) = ADAPTERS.lock().unwrap().get(&self.ifname) {
-            return Ok(adapter.get_config().into())
-        } else {
+        let adapters = ADAPTERS.lock().unwrap();
+        let Some(adapter) = adapters.get(&self.ifname) else {
             return Err(WireguardInterfaceError::Interface(self.ifname.clone()));
-        }
-
-        let output = Command::new("wg")
-            .arg("show")
-            .arg(&self.ifname)
-            .arg("dump")
-            .output()
-            .map_err(|err| {
-                error!("Failed to read interface. Error: {err}");
-                WireguardInterfaceError::CommandExecutionFailed(err)
-            })?;
-
-        let reader = BufReader::new(Cursor::new(output.stdout));
-        let mut host = Host::default();
-        let lines = reader.lines();
-
-        for (index, line_result) in lines.enumerate() {
-            let line = match &line_result {
-                Ok(line) => line,
-                Err(_err) => {
-                    continue;
-                }
-            };
-
-            let data: Vec<&str> = line.split("\t").collect();
-
-            // First line contains [Interface] section data, every other line is a separate [Peer]
-            if index == 0 {
-                // Interface data: private key, public key, listen port, fwmark
-                host.private_key = Key::from_str(data[0]).ok();
-                host.listen_port = data[2].parse().unwrap_or_default();
-
-                if data[3] != "off" {
-                    host.fwmark = Some(data[3].parse().unwrap());
-                }
-            } else {
-                // Peer data: public key, preshared key, endpoint, allowed ips, latest handshake, transfer-rx, transfer-tx, persistent-keepalive
-                if let Ok(public_key) = Key::from_str(data[0]) {
-                    let mut peer = Peer::new(public_key.clone());
-
-                    if data[1] != "(none)" {
-                        peer.preshared_key = Key::from_str(data[0]).ok();
-                    }
-
-                    peer.endpoint = SocketAddr::from_str(data[2]).ok();
-
-                    for allowed_ip in data[3].split(",") {
-                        let addr = IpAddrMask::from_str(allowed_ip.trim())?;
-                        peer.allowed_ips.push(addr);
-                    }
-
-                    let handshake = peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
-                    *handshake += Duration::from_secs(data[4].parse().unwrap_or_default());
-
-                    peer.rx_bytes = data[5].parse().unwrap_or_default();
-                    peer.tx_bytes = data[6].parse().unwrap_or_default();
-                    peer.persistent_keepalive_interval = data[7].parse().ok();
-
-                    host.peers.insert(public_key.clone(), peer);
-                }
-            }
-        }
-
+        };
+        let host = adapter.get_config().into();
         debug!("Read interface data: {host:?}");
         Ok(host)
     }
