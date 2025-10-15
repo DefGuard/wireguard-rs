@@ -93,27 +93,6 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
         return Err(core::Error::empty());
     }
 
-    // loop {
-    //     let result = unsafe {
-    //         GetAdaptersAddresses(
-    //             0,
-    //             GAA_FLAG_INCLUDE_PREFIX,
-    //             None,
-    //             Some(buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH),
-    //             &mut buffer_len,
-    //         )
-    //     };
-
-    //     if result == ERROR_BUFFER_OVERFLOW.0 {
-    //         buffer.resize(buffer_len as usize, 0);
-    //         continue;
-    //     } else if result != NO_ERROR.0 {
-    //         return Err(core::Error::empty());
-    //     }
-    //     println!("Found {buffer_len} adapters");
-    //     break;
-    // }
-
     // Iterate over adapters to find our interface
     let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
     let mut guid: Option<GUID> = None;
@@ -123,10 +102,10 @@ fn set_dns(adapter_name: &str, dns_servers: &[IpAddr]) -> core::Result<()> {
         let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
 
         if friendly_name == adapter_name {
-            println!("Found adapter {adapter_name}");
+            debug!("Found adapter {adapter_name}");
             let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
             guid = Some(guid_from_string(&adapter_name_str)?);
-            println!("Interface GUID: {guid:?}");
+            debug!("Interface GUID: {guid:?}, adapter_name: {:?}, adapter_name_str: {adapter_name_str}", adapter.AdapterName.0);
             break;
         }
 
