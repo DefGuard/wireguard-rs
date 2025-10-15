@@ -2,10 +2,12 @@ use std::{
     collections::HashMap,
     net::IpAddr,
     str::FromStr,
+    string::{FromUtf8Error, FromUtf16Error},
     sync::{LazyLock, Mutex},
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use thiserror::Error;
 use windows::{
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
@@ -30,33 +32,57 @@ use crate::{
 };
 
 static DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
+static ADAPTER_NAME: &str = "WireGuard";
 static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn guid_from_str(s: &str) -> core::Result<windows::core::GUID> {
+#[derive(Debug, Error)]
+pub enum WindowsError {
+    #[error("Empty interface array")]
+    EmptyInterfaceArrayError,
+    #[error("Invalid adapter id: {0}")]
+    InvalidAdapterId(String),
+    #[error("Non-zero return value: {0}")]
+    NonZeroReturnValue(u32),
+    #[error("Adapter not found: {0}")]
+    AdapterNotFound(String),
+    #[error(transparent)]
+    WireguardNtError(#[from] wireguard_nt::Error),
+    #[error(transparent)]
+    FromUtf16Error(#[from] FromUtf16Error),
+    #[error(transparent)]
+    FromUtf8Error(#[from] FromUtf8Error),
+}
+
+fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
     let s = s.trim_start_matches('{').trim_end_matches('}');
     let parts: Vec<&str> = s.split('-').collect();
     if parts.len() != 5 {
-        return Err(core::Error::empty());
+        return Err(WindowsError::InvalidAdapterId(s.to_string()));
     }
 
-    let data1 = u32::from_str_radix(parts[0], 16).map_err(|_| core::Error::empty())?;
-    let data2 = u16::from_str_radix(parts[1], 16).map_err(|_| core::Error::empty())?;
-    let data3 = u16::from_str_radix(parts[2], 16).map_err(|_| core::Error::empty())?;
+    let data1 = u32::from_str_radix(parts[0], 16)
+        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
+    let data2 = u16::from_str_radix(parts[1], 16)
+        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
+    let data3 = u16::from_str_radix(parts[2], 16)
+        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
 
     let mut data4 = [0u8; 8];
 
-    let d4a = u16::from_str_radix(parts[3], 16).map_err(|_| core::Error::empty())?;
+    let d4a = u16::from_str_radix(parts[3], 16)
+        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
     data4[0] = ((d4a >> 8) & 0xFF) as u8;
     data4[1] = (d4a & 0xFF) as u8;
 
     let d4b = parts[4];
     if d4b.len() != 12 {
-        return Err(core::Error::empty());
+        return Err(WindowsError::InvalidAdapterId(s.to_string()));
     }
     for i in 0..6 {
         let byte_str = &d4b[i * 2..i * 2 + 2];
-        data4[i + 2] = u8::from_str_radix(byte_str, 16).map_err(|_| core::Error::empty())?;
+        data4[i + 2] = u8::from_str_radix(byte_str, 16)
+            .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
     }
 
     Ok(windows::core::GUID {
@@ -67,7 +93,7 @@ fn guid_from_str(s: &str) -> core::Result<windows::core::GUID> {
     })
 }
 
-fn get_adapter_guid(adapter_name: &str) -> core::Result<GUID> {
+fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     // Get buffer size to hold the adapters
     let mut buffer_size: u32 = 0;
     let mut result = unsafe {
@@ -80,7 +106,7 @@ fn get_adapter_guid(adapter_name: &str) -> core::Result<GUID> {
         )
     };
     if result != ERROR_BUFFER_OVERFLOW.0 {
-        return Err(core::Error::empty());
+        return Err(WindowsError::EmptyInterfaceArrayError);
     }
 
     // Actually get the adapters
@@ -96,7 +122,7 @@ fn get_adapter_guid(adapter_name: &str) -> core::Result<GUID> {
         )
     };
     if result != NO_ERROR.0 {
-        return Err(core::Error::empty());
+        return Err(WindowsError::NonZeroReturnValue(result));
     }
 
     // Iterate over adapters to find our interface
@@ -121,67 +147,11 @@ fn get_adapter_guid(adapter_name: &str) -> core::Result<GUID> {
         current = adapter.Next;
     }
 
-    let Some(guid) = guid else {
-        return Err(core::Error::empty());
-    };
-    Ok(guid)
-}
-
-fn set_dns(
-    adapter_name: &str,
-    dns_servers: &[IpAddr],
-    search_domains: &[&str],
-) -> core::Result<()> {
-    let guid = get_adapter_guid(adapter_name)?;
-    let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) =
-        dns_servers.iter().partition(|ip| ip.is_ipv4());
-    let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
-    let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
-
-    let mut search_domains_vec: Vec<u16> = search_domains
-        .join(",")
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
-    let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
-
-    if !ipv4_dns_servers.is_empty() {
-        let dns_str = ipv4_dns_servers.join(",");
-        let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
-        let name_server = windows::core::PWSTR(wide.as_mut_ptr());
-
-        let settings = DNS_INTERFACE_SETTINGS {
-            Version: DNS_INTERFACE_SETTINGS_VERSION1,
-            Flags: DNS_SETTING_NAMESERVER as u64,
-            NameServer: name_server,
-            SearchList: search_domains_wide,
-            ..Default::default()
-        };
-
-        let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
-        if status != NO_ERROR {
-            return Err(core::Error::empty());
-        }
+    if let Some(guid) = guid {
+        Ok(guid)
+    } else {
+        Err(WindowsError::AdapterNotFound(adapter_name.to_string()))
     }
-    if !ipv6_dns_servers.is_empty() {
-        let dns_str = ipv6_dns_servers.join(",");
-        let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
-        let name_server = windows::core::PWSTR(wide.as_mut_ptr());
-
-        let settings = DNS_INTERFACE_SETTINGS {
-            Version: DNS_INTERFACE_SETTINGS_VERSION1,
-            Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6) as u64,
-            NameServer: name_server,
-            SearchList: search_domains_wide,
-            ..Default::default()
-        };
-
-        let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
-        if status != NO_ERROR {
-            return Err(core::Error::empty());
-        }
-    }
-    Ok(())
 }
 
 impl From<wireguard_nt::WireguardPeer> for Peer {
@@ -265,9 +235,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 allowed_ips: peer
                     .allowed_ips
                     .iter()
-                    .map(|ip| match ip.ip {
-                        IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
-                        IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
+                    .filter_map(|ip| match ip.ip {
+                        IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
+                        IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
                     })
                     .collect(),
                 endpoint: peer.endpoint.unwrap(),
@@ -287,15 +257,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let addresses: Vec<_> = config
             .addresses
             .iter()
-            .map(|ip| match ip.ip {
-                IpAddr::V4(addr) => IpNet::V4(Ipv4Net::new(addr, ip.cidr).unwrap()),
-                IpAddr::V6(addr) => IpNet::V6(Ipv6Net::new(addr, ip.cidr).unwrap()),
+            .filter_map(|ip| match ip.ip {
+                IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
+                IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
             })
             .collect();
-        adapter.set_default_route(&addresses, &interface).unwrap();
+        adapter
+            .set_default_route(&addresses, &interface)
+            .map_err(WindowsError::from);
         // Configure adapter DNS servers
         // TODO adapter_name - what if we have multiple wireguard adapters?
-        set_dns("WireGuard", dns, search_domains).expect("Setting DNS failed");
+        self.configure_dns(dns, search_domains)?;
 
         // Bring the adapter up
         adapter.up().expect("Failed to bring the adapter UP");
@@ -353,12 +325,62 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn configure_dns(
         &self,
         dns: &[IpAddr],
-        _search_domains: &[&str],
+        search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
         debug!(
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname
         );
+        let guid = get_adapter_guid(ADAPTER_NAME)?;
+        let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) =
+            dns.iter().partition(|ip| ip.is_ipv4());
+        let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
+        let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
+
+        let mut search_domains_vec: Vec<u16> = search_domains
+            .join(",")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
+
+        if !ipv4_dns_servers.is_empty() {
+            let dns_str = ipv4_dns_servers.join(",");
+            let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
+            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+
+            let settings = DNS_INTERFACE_SETTINGS {
+                Version: DNS_INTERFACE_SETTINGS_VERSION1,
+                Flags: DNS_SETTING_NAMESERVER as u64,
+                NameServer: name_server,
+                SearchList: search_domains_wide,
+                ..Default::default()
+            };
+
+            let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
+            if status != NO_ERROR {
+                Err(WindowsError::NonZeroReturnValue(status.0))?;
+            }
+        }
+        if !ipv6_dns_servers.is_empty() {
+            let dns_str = ipv6_dns_servers.join(",");
+            let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
+            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+
+            let settings = DNS_INTERFACE_SETTINGS {
+                Version: DNS_INTERFACE_SETTINGS_VERSION1,
+                Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6) as u64,
+                NameServer: name_server,
+                SearchList: search_domains_wide,
+                ..Default::default()
+            };
+
+            let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
+            if status != NO_ERROR {
+                Err(WindowsError::NonZeroReturnValue(status.0))?;
+            }
+        }
+
         Ok(())
     }
 }
