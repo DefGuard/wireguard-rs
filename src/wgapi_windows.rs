@@ -201,8 +201,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
 
         // Try to open the adapter. If it's not present create it.
+        let wireguard = WIREGUARD.lock().expect("Failed to lock WIREGUARD");
         let adapter = match wireguard_nt::Adapter::open(
-            &WIREGUARD.lock().expect("Failed to lock WIREGUARD"),
+            &wireguard,
             &self.ifname,
         ) {
             Ok(adapter) => {
@@ -212,7 +213,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             Err(_) => {
                 debug!("Adapter {} does not exist, creating", self.ifname);
                 wireguard_nt::Adapter::create(
-                    &WIREGUARD.lock().expect("Failed to lock WIREGUARD"),
+                    &wireguard,
                     ADAPTER_POOL_NAME,
                     &self.ifname,
                     None,
