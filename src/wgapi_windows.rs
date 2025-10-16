@@ -20,7 +20,7 @@ use windows::{
     },
     core::{GUID, PCSTR, PCWSTR, PSTR},
 };
-use wireguard_nt::Adapter;
+use wireguard_nt::{Adapter, Wireguard};
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
@@ -31,7 +31,12 @@ use crate::{
     wgapi::{Kernel, WGApi},
 };
 
-static DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
+// Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
+static WIREGUARD: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
+    Mutex::new(
+        unsafe { wireguard_nt::load_from_path("resources-windows/binaries/wireguard.dll") }.expect("Failed to load wireguard.dll"),
+    )
+});
 static ADAPTER_POOL_NAME: &str = "WireGuard";
 static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -52,8 +57,6 @@ pub enum WindowsError {
     FromUtf16Error(#[from] FromUtf16Error),
     #[error(transparent)]
     FromUtf8Error(#[from] FromUtf8Error),
-    #[error("Failed to load library: {0}")]
-    LibLoadingError(String),
 }
 
 fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
@@ -215,18 +218,19 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
-        // TODO preload this
-        let wireguard = unsafe { wireguard_nt::load_from_path(DLL_PATH) }
-            .map_err(|err| WindowsError::LibLoadingError(err.to_string()))?;
-
         // Try to open the adapter. If it's not present create it.
-        let adapter = match wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
+        let adapter = match wireguard_nt::Adapter::open(
+            &WIREGUARD.lock().expect("Failed to lock WIREGUARD"),
+            &self.ifname,
+        ) {
             Ok(adapter) => adapter,
-            Err(_) => {
-                wireguard_nt::Adapter::create(&wireguard, ADAPTER_POOL_NAME, &self.ifname, None)
-                    .map_err(WindowsError::from)?
-            }
+            Err(_) => wireguard_nt::Adapter::create(
+                &WIREGUARD.lock().expect("Failed to lock WIREGUARD"),
+                ADAPTER_POOL_NAME,
+                &self.ifname,
+                None,
+            )
+            .map_err(WindowsError::from)?
         };
 
         // Prepare peers
