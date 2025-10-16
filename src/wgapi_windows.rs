@@ -78,6 +78,7 @@ fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
 /// Returns the GUID of a network adapter given its name.
 /// Example adapter name: "Ethernet", "WireGuard".
 fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
+    debug!("Finding adapter {adapter_name}");
     // Get `buffer_size` to hold the adapters
     let mut buffer_size: u32 = 0;
     let mut result = unsafe {
@@ -126,7 +127,7 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
         if friendly_name == adapter_name {
             let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
             guid = Some(guid_from_str(&adapter_name_str)?);
-            debug!("Found adapter {adapter_name}, GUID: {guid:?}");
+            info!("Found adapter {adapter_name}, GUID: {guid:?}");
             break;
         }
 
@@ -204,17 +205,24 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             &WIREGUARD.lock().expect("Failed to lock WIREGUARD"),
             &self.ifname,
         ) {
-            Ok(adapter) => adapter,
-            Err(_) => wireguard_nt::Adapter::create(
-                &WIREGUARD.lock().expect("Failed to lock WIREGUARD"),
-                ADAPTER_POOL_NAME,
-                &self.ifname,
-                None,
-            )
-            .map_err(WindowsError::from)?,
+            Ok(adapter) => {
+                debug!("Found existing adapter {}", self.ifname);
+                adapter
+            },
+            Err(_) => {
+                debug!("Adapter {} does not exist, creating", self.ifname);
+                wireguard_nt::Adapter::create(
+                    &WIREGUARD.lock().expect("Failed to lock WIREGUARD"),
+                    ADAPTER_POOL_NAME,
+                    &self.ifname,
+                    None,
+                )
+                .map_err(WindowsError::from)?
+            }
         };
 
         // Prepare peers
+        debug!("Preparing peers for adapter {}", self.ifname);
         let peers = config
             .peers
             .iter()
@@ -235,6 +243,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .collect();
 
         // Configure the interface
+        debug!("Applying configuration for adapter {}", self.ifname);
         let interface = wireguard_nt::SetInterface {
             listen_port: Some(config.port as u16),
             public_key: None, // derived from private key
@@ -244,6 +253,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         adapter.set_config(&interface).map_err(WindowsError::from)?;
 
         // Set adapter addresses
+        debug!("Assigning addresses to adapter {}: {:?}", self.ifname, config.addresses);
         let addresses: Vec<_> = config
             .addresses
             .iter()
@@ -255,10 +265,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         adapter
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
+
         // Configure adapter DNS servers
         self.configure_dns(dns, search_domains)?;
 
         // Bring the adapter up
+        debug!("Bringing up adapter {}", self.ifname);
         adapter.up().map_err(WindowsError::from)?;
         ADAPTERS
             .lock()
@@ -375,6 +387,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             }
         }
 
+        info!(
+            "Configured DNS for interface {}, using address: {dns:?}",
+            self.ifname
+        );
         Ok(())
     }
 }
