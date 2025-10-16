@@ -3,7 +3,6 @@ use std::{
     ffi::OsString,
     net::IpAddr,
     str::FromStr,
-    string::{FromUtf8Error, FromUtf16Error},
     sync::{LazyLock, Mutex},
 };
 
@@ -58,13 +57,15 @@ pub enum WindowsError {
     #[error(transparent)]
     WireguardNtError(#[from] wireguard_nt::Error),
     #[error(transparent)]
-    FromUtf16Error(#[from] FromUtf16Error),
+    FromUtf16Error(#[from] std::string::FromUtf16Error),
     #[error(transparent)]
-    FromUtf8Error(#[from] FromUtf8Error),
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
     #[error(transparent)]
     WindowsCoreError(#[from] windows::core::Error),
 }
 
+/// Converts a string representation of a GUID into a `windows::core::GUID`.
+/// Example guid string: "{6B29FC40-CA47-1067-B31D-00DD010662DA}".
 fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
     let wide: Vec<u16> = OsString::from(s)
         .encode_wide()
@@ -74,8 +75,10 @@ fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
     Ok(guid)
 }
 
+/// Returns the GUID of a network adapter given its name.
+/// Example adapter name: "Ethernet", "WireGuard".
 fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
-    // Get buffer size to hold the adapters
+    // Get `buffer_size` to hold the adapters
     let mut buffer_size: u32 = 0;
     let mut result = unsafe {
         GetAdaptersAddresses(
@@ -106,7 +109,7 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
         return Err(WindowsError::NonZeroReturnValue(result));
     }
 
-    // Iterate over adapters to find our interface
+    // Find our adapter
     let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
     let mut guid: Option<GUID> = None;
     while !current.is_null() {
