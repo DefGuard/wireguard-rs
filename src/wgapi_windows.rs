@@ -166,7 +166,6 @@ impl From<wireguard_nt::WireguardInterface> for Host {
         Self {
             listen_port: iface.listen_port,
             private_key: Some(Key::new(iface.private_key)),
-            // TODO
             fwmark: None,
             peers,
         }
@@ -198,23 +197,15 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Try to open the adapter. If it's not present create it.
         let wireguard = WIREGUARD.lock().expect("Failed to lock WIREGUARD");
-        let adapter = match wireguard_nt::Adapter::open(
-            &wireguard,
-            &self.ifname,
-        ) {
+        let adapter = match wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
             Ok(adapter) => {
                 debug!("Found existing adapter {}", self.ifname);
                 adapter
-            },
+            }
             Err(_) => {
                 debug!("Adapter {} does not exist, creating", self.ifname);
-                wireguard_nt::Adapter::create(
-                    &wireguard,
-                    ADAPTER_POOL_NAME,
-                    &self.ifname,
-                    None,
-                )
-                .map_err(WindowsError::from)?
+                wireguard_nt::Adapter::create(&wireguard, ADAPTER_POOL_NAME, &self.ifname, None)
+                    .map_err(WindowsError::from)?
             }
         };
 
@@ -250,7 +241,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         adapter.set_config(&interface).map_err(WindowsError::from)?;
 
         // Set adapter addresses
-        debug!("Assigning addresses to adapter {}: {:?}", self.ifname, config.addresses);
+        debug!(
+            "Assigning addresses to adapter {}: {:?}",
+            self.ifname, config.addresses
+        );
         let addresses: Vec<_> = config
             .addresses
             .iter()
