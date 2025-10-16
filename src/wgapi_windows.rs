@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    ffi::OsString,
     net::IpAddr,
     str::FromStr,
     string::{FromUtf8Error, FromUtf16Error},
@@ -7,6 +8,7 @@ use std::{
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use std::os::windows::ffi::OsStrExt;
 use thiserror::Error;
 use windows::{
     Win32::{
@@ -17,6 +19,7 @@ use windows::{
             IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
         },
         Networking::WinSock::AF_UNSPEC,
+        System::Com::CLSIDFromString,
     },
     core::{GUID, PCSTR, PCWSTR, PSTR},
 };
@@ -34,7 +37,8 @@ use crate::{
 // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
 static WIREGUARD: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
     Mutex::new(
-        unsafe { wireguard_nt::load_from_path("resources-windows/binaries/wireguard.dll") }.expect("Failed to load wireguard.dll"),
+        unsafe { wireguard_nt::load_from_path("resources-windows/binaries/wireguard.dll") }
+            .expect("Failed to load wireguard.dll"),
     )
 });
 static ADAPTER_POOL_NAME: &str = "WireGuard";
@@ -57,45 +61,17 @@ pub enum WindowsError {
     FromUtf16Error(#[from] FromUtf16Error),
     #[error(transparent)]
     FromUtf8Error(#[from] FromUtf8Error),
+    #[error(transparent)]
+    WindowsCoreError(#[from] windows::core::Error),
 }
 
 fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
-    let s = s.trim_start_matches('{').trim_end_matches('}');
-    let parts: Vec<&str> = s.split('-').collect();
-    if parts.len() != 5 {
-        return Err(WindowsError::InvalidAdapterId(s.to_string()));
-    }
-
-    let data1 = u32::from_str_radix(parts[0], 16)
-        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
-    let data2 = u16::from_str_radix(parts[1], 16)
-        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
-    let data3 = u16::from_str_radix(parts[2], 16)
-        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
-
-    let mut data4 = [0u8; 8];
-
-    let d4a = u16::from_str_radix(parts[3], 16)
-        .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
-    data4[0] = ((d4a >> 8) & 0xFF) as u8;
-    data4[1] = (d4a & 0xFF) as u8;
-
-    let d4b = parts[4];
-    if d4b.len() != 12 {
-        return Err(WindowsError::InvalidAdapterId(s.to_string()));
-    }
-    for i in 0..6 {
-        let byte_str = &d4b[i * 2..i * 2 + 2];
-        data4[i + 2] = u8::from_str_radix(byte_str, 16)
-            .map_err(|_| WindowsError::InvalidAdapterId(s.to_string()))?;
-    }
-
-    Ok(windows::core::GUID {
-        data1,
-        data2,
-        data3,
-        data4,
-    })
+    let wide: Vec<u16> = OsString::from(s)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let guid = unsafe { CLSIDFromString(PCWSTR(wide.as_ptr())).map_err(WindowsError::from)? };
+    Ok(guid)
 }
 
 fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
@@ -134,6 +110,7 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
     let mut guid: Option<GUID> = None;
     while !current.is_null() {
+        // TODO safety
         let adapter = unsafe { &*current };
 
         let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
@@ -230,7 +207,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 &self.ifname,
                 None,
             )
-            .map_err(WindowsError::from)?
+            .map_err(WindowsError::from)?,
         };
 
         // Prepare peers
@@ -255,8 +232,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Configure the interface
         let interface = wireguard_nt::SetInterface {
-            listen_port: Some(config.port as u16), // TODO safety
-            public_key: None,                      // derived from private key
+            listen_port: Some(config.port as u16),
+            public_key: None, // derived from private key
             private_key: Some(Key::from_str(&config.prvkey)?.as_array()),
             peers,
         };
@@ -275,7 +252,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
         // Configure adapter DNS servers
-        // TODO adapter_name - what if we have multiple wireguard adapters?
         self.configure_dns(dns, search_domains)?;
 
         // Bring the adapter up
