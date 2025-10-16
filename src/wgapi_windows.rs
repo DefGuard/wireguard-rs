@@ -216,8 +216,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .peers
             .iter()
             .map(|peer| wireguard_nt::SetPeer {
-                public_key: Some(peer.public_key.0),
-                preshared_key: peer.preshared_key.as_ref().map(|key| key.0),
+                public_key: Some(peer.public_key.as_array()),
+                preshared_key: peer.preshared_key.as_ref().map(|key| key.as_array()),
                 keep_alive: peer.persistent_keepalive_interval,
                 allowed_ips: peer
                     .allowed_ips
