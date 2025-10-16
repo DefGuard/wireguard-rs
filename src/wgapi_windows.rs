@@ -134,11 +134,7 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
         current = adapter.Next;
     }
 
-    if let Some(guid) = guid {
-        Ok(guid)
-    } else {
-        Err(WindowsError::AdapterNotFound(adapter_name.to_string()))
-    }
+    guid.ok_or_else(|| WindowsError::AdapterNotFound(adapter_name.to_string()))
 }
 
 impl From<wireguard_nt::WireguardPeer> for Peer {
