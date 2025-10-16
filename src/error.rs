@@ -41,6 +41,7 @@ pub enum WireguardInterfaceError {
     ServiceRemovalFailed(String),
     #[error("Socket is closed: {0}")]
     SocketClosed(String),
+    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
     #[error("BoringTun {0}")]
     BoringTun(#[from] boringtun::device::Error),
 }

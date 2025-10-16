@@ -1,6 +1,7 @@
 //! Shared multi-platform management API abstraction
 use std::marker::PhantomData;
 
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use boringtun::device::DeviceHandle;
 
 #[cfg(feature = "check_dependencies")]
@@ -16,6 +17,7 @@ pub struct Userspace;
 /// to detect the correct API implementation for most common platforms.
 pub struct WGApi<API = Kernel> {
     pub(super) ifname: String,
+    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
     pub(super) device_handle: Option<DeviceHandle>,
     pub(super) _api: PhantomData<API>,
 }
@@ -27,6 +29,7 @@ impl<API> WGApi<API> {
         check_external_dependencies()?;
         Ok(WGApi {
             ifname: ifname.into(),
+            #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
             device_handle: None,
             _api: PhantomData,
         })
