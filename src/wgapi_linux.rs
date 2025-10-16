@@ -12,7 +12,7 @@ use crate::{
 /// Communicates with kernel module using `Netlink` IPC protocol.
 /// Requires Linux kernel version 5.6+.
 impl WireguardInterfaceApi for WGApi<Kernel> {
-    fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
+    fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         debug!("Creating interface {}", self.ifname);
         netlink::create_interface(&self.ifname)?;
         debug!("Interface {} created successfully", self.ifname);

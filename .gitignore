@@ -3,3 +3,4 @@
 .vscode/
 .direnv
 .envrc
+.DS_Store

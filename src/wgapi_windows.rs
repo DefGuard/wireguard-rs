@@ -174,7 +174,7 @@ impl From<wireguard_nt::WireguardInterface> for Host {
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
 impl WireguardInterfaceApi for WGApi<Kernel> {
-    fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
+    fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         info!("Opening/creating interface {}", self.ifname);
         Ok(())
     }

@@ -47,4 +47,7 @@ pub enum WireguardInterfaceError {
     #[cfg(target_os = "windows")]
     #[error(transparent)]
     WindowsError(#[from] WindowsError),
+    #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+    #[error("BoringTun {0}")]
+    BoringTun(#[from] boringtun::device::Error),
 }

@@ -3,16 +3,17 @@ use std::{
     io::{self, BufRead, BufReader, ErrorKind, Read, Write},
     net::{IpAddr, Shutdown},
     os::unix::net::UnixStream,
-    process::Command,
     time::Duration,
 };
+
+use boringtun::device::{DeviceConfig, DeviceHandle};
 
 #[cfg(target_os = "linux")]
 use crate::netlink;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::utils::clear_dns;
 use crate::{
-    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, check_command_output_status,
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     error::WireguardInterfaceError,
     utils::{add_peer_routing, configure_dns},
     wgapi::{Userspace, WGApi},
@@ -21,22 +22,19 @@ use crate::{
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::{bsd, utils::resolve};
 
-const USERSPACE_EXECUTABLE: &str = "wireguard-go";
+const SOCKET_TIMEOUT: Duration = Duration::new(3, 0);
 
-/// Manages interfaces created with `wireguard-go`.
-///
-/// We assume that `wireguard-go` executable is managed externally and available in `PATH`.
-/// Currently works on Unix platforms.
+/// Manages interfaces created with BoringTun.
 impl WGApi<Userspace> {
     fn socket_path(&self) -> String {
         format!("/var/run/wireguard/{}.sock", self.ifname)
     }
 
-    /// Create UNIX socket to communicate with `wireguard-go`.
+    /// Create UNIX socket to communicate with BoringTun.
     fn socket(&self) -> io::Result<UnixStream> {
         let path = self.socket_path();
         let socket = UnixStream::connect(path)?;
-        socket.set_read_timeout(Some(Duration::new(3, 0)))?;
+        socket.set_read_timeout(Some(SOCKET_TIMEOUT))?;
         Ok(socket)
     }
 
@@ -47,7 +45,7 @@ impl WGApi<Userspace> {
             let line = match line_result {
                 Ok(line) => line,
                 Err(err) => {
-                    error!("Error parsing errno buffer line: {err}, continuing with next line...");
+                    error!("Error parsing errno buffer line: {err}, continuing with next line.");
                     continue;
                 }
             };
@@ -92,13 +90,19 @@ impl WGApi<Userspace> {
 }
 
 impl WireguardInterfaceApi for WGApi<Userspace> {
-    fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
-        debug!("Creating userspace interface {}", self.ifname);
-        let output = Command::new(USERSPACE_EXECUTABLE)
-            .arg(&self.ifname)
-            .output()?;
-        check_command_output_status(output)?;
+    fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
+        let config = DeviceConfig::default();
+        let device_handle = match DeviceHandle::new(&self.ifname, config) {
+            Ok(handle) => handle,
+            Err(err) => {
+                error!("Failed to initialize tunnel: {err}");
+                return Err(err.into());
+            }
+        };
+
         debug!("Userspace interface {} created successfully", self.ifname);
+        self.device_handle = Some(device_handle);
+
         Ok(())
     }
 
