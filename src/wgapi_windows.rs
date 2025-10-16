@@ -110,19 +110,20 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
     let mut guid: Option<GUID> = None;
     while !current.is_null() {
-        // TODO safety
+        // SAFETY:
+        // `current` comes from the linked list allocated and initialized by
+        // `GetAdaptersAddresses`. The pointer is valid, properly aligned,
+        // non-null (checked above), and the backing `buffer` lives for the
+        // duration of this loop. No concurrent mutation occurs, so aliasing
+        // rules are respected.
         let adapter = unsafe { &*current };
 
         let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
 
         if friendly_name == adapter_name {
-            debug!("Found adapter {adapter_name}");
             let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
             guid = Some(guid_from_str(&adapter_name_str)?);
-            debug!(
-                "Interface GUID: {guid:?}, adapter_name: {:?}, adapter_name_str: {adapter_name_str}",
-                adapter.AdapterName.0
-            );
+            debug!("Found adapter {adapter_name}, GUID: {guid:?}");
             break;
         }
 
