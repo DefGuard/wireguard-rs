@@ -33,10 +33,11 @@ use crate::{
     wgapi::{Kernel, WGApi},
 };
 
+static WIREGUARD_DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
 // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
-static WIREGUARD: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
+static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
     Mutex::new(
-        unsafe { wireguard_nt::load_from_path("resources-windows/binaries/wireguard.dll") }
+        unsafe { wireguard_nt::load_from_path(WIREGUARD_DLL_PATH) }
             .expect("Failed to load wireguard.dll"),
     )
 });
@@ -68,7 +69,7 @@ pub enum WindowsError {
 
 /// Converts a string representation of a GUID into a `windows::core::GUID`.
 /// Example guid string: "{6B29FC40-CA47-1067-B31D-00DD010662DA}".
-fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
+fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     let wide: Vec<u16> = OsString::from(s)
         .encode_wide()
         .chain(std::iter::once(0))
@@ -102,7 +103,7 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     }
 
     // Allocate the buffer and actually get the adapters
-    let mut buffer: Vec<u8> = vec![0; buffer_size as usize];
+    let mut buffer = vec![0u8; buffer_size as usize];
     let addresses = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
     result = unsafe {
         GetAdaptersAddresses(
@@ -202,7 +203,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
 
         // Try to open the adapter. If it's not present create it.
-        let wireguard = WIREGUARD.lock().expect("Failed to lock WIREGUARD");
+        let wireguard = WIREGUARD_DLL.lock().expect("Failed to lock WIREGUARD_DLL");
         let adapter = match wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
             Ok(adapter) => {
                 debug!("Found existing adapter {}", self.ifname);
