@@ -81,9 +81,12 @@ fn guid_from_str(s: &str) -> Result<windows::core::GUID, WindowsError> {
 /// Example adapter name: "Ethernet", "WireGuard".
 fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     debug!("Finding adapter {adapter_name}");
-    // Get `buffer_size` to hold the adapters
+    // We have to call `GetAdaptersAddresses` twice - first call to just get the `buffer_size` to hold the adapters.
+    // Before the second call we allocate the buffer with `buffer_size` capacity so that the call can actually
+    // store the adapters in the buffer.
     let mut buffer_size: u32 = 0;
     let mut result = unsafe {
+        // Sets the `buffer_size`
         GetAdaptersAddresses(
             AF_UNSPEC.0 as u32,
             GAA_FLAG_INCLUDE_PREFIX,
@@ -92,11 +95,13 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
             &mut buffer_size,
         )
     };
+
+    // We expect the overflow here, since `buffer_size = 0`. No overflow means no adapters.
     if result != ERROR_BUFFER_OVERFLOW.0 {
         return Err(WindowsError::EmptyInterfaceArrayError);
     }
 
-    // Actually get the adapters
+    // Allocate the buffer and actually get the adapters
     let mut buffer: Vec<u8> = vec![0; buffer_size as usize];
     let addresses = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
     result = unsafe {
@@ -125,7 +130,6 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
         let adapter = unsafe { &*current };
 
         let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
-
         if friendly_name == adapter_name {
             let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
             guid = Some(guid_from_str(&adapter_name_str)?);
