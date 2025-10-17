@@ -62,6 +62,8 @@ pub enum WindowsError {
     FromUtf8Error(#[from] std::string::FromUtf8Error),
     #[error(transparent)]
     WindowsCoreError(#[from] windows::core::Error),
+    #[error("Missing peer endpoint for peer {0}")]
+    MissingPeerEndpoint(String),
 }
 
 /// Converts a string representation of a GUID into a `windows::core::GUID`.
@@ -211,24 +213,29 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Prepare peers
         debug!("Preparing peers for adapter {}", self.ifname);
-        let peers = config
+        let peers: Result<Vec<_>, WindowsError> = config
             .peers
             .iter()
-            .map(|peer| wireguard_nt::SetPeer {
-                public_key: Some(peer.public_key.as_array()),
-                preshared_key: peer.preshared_key.as_ref().map(|key| key.as_array()),
-                keep_alive: peer.persistent_keepalive_interval,
-                allowed_ips: peer
-                    .allowed_ips
-                    .iter()
-                    .filter_map(|ip| match ip.ip {
-                        IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
-                        IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
-                    })
-                    .collect(),
-                endpoint: peer.endpoint.unwrap(),
+            .map(|peer| {
+                Ok(wireguard_nt::SetPeer {
+                    public_key: Some(peer.public_key.as_array()),
+                    preshared_key: peer.preshared_key.as_ref().map(|key| key.as_array()),
+                    keep_alive: peer.persistent_keepalive_interval,
+                    allowed_ips: peer
+                        .allowed_ips
+                        .iter()
+                        .filter_map(|ip| match ip.ip {
+                            IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
+                            IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
+                        })
+                        .collect(),
+                    endpoint: peer.endpoint.ok_or_else(|| {
+                        WindowsError::MissingPeerEndpoint(peer.public_key.to_string())
+                    })?,
+                })
             })
             .collect();
+        let peers = peers?;
 
         // Configure the interface
         debug!("Applying configuration for adapter {}", self.ifname);
