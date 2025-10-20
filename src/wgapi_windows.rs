@@ -41,8 +41,6 @@ static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
             .expect("Failed to load wireguard.dll"),
     )
 });
-static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Error)]
 pub enum WindowsError {
@@ -191,7 +189,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     }
 
     fn configure_interface(
-        &self,
+        &mut self,
         config: &InterfaceConfiguration,
         dns: &[IpAddr],
         search_domains: &[&str],
@@ -274,10 +272,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // Bring the adapter up
         debug!("Bringing up adapter {}", self.ifname);
         adapter.up().map_err(WindowsError::from)?;
-        ADAPTERS
-            .lock()
-            .expect("Failed to lock ADAPTERS")
-            .insert(self.ifname.clone(), adapter);
+        self.adapter = Some(adapter);
 
         info!(
             "Interface {} has been successfully configured.",
@@ -290,18 +285,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         Ok(())
     }
 
-    fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
+    fn remove_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
-        if let Some(adapter) = ADAPTERS
-            .lock()
-            .expect("Failed to lock ADAPTERS")
-            .remove(&self.ifname)
-        {
-            drop(adapter);
-        } else {
-            Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
-        }
-
+        self.adapter = None;
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
     }
@@ -321,9 +307,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
-        let adapters = ADAPTERS.lock().expect("Failed to lock ADAPTERS");
-        let Some(adapter) = adapters.get(&self.ifname) else {
-            return Err(WireguardInterfaceError::Interface(self.ifname.clone()));
+        let Some(ref adapter) = self.adapter else {
+            Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
         };
         let host = adapter.get_config().into();
         debug!("Read interface data: {host:?}");

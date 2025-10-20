@@ -32,7 +32,7 @@ pub trait WireguardInterfaceApi {
 
     #[cfg(target_os = "windows")]
     fn configure_interface(
-        &self,
+        &mut self,
         config: &InterfaceConfiguration,
         dns: &[IpAddr],
         search_domains: &[&str],
@@ -41,7 +41,11 @@ pub trait WireguardInterfaceApi {
     /// Removes the WireGuard interface being managed.
     ///
     /// Meant to be used in `drop` method for a given API struct.
+    #[cfg(not(target_os = "windows"))]
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError>;
+
+    #[cfg(target_os = "windows")]
+    fn remove_interface(&mut self) -> Result<(), WireguardInterfaceError>;
 
     /// Adds a peer or updates peer configuration.
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError>;

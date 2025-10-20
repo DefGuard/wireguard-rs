@@ -3,6 +3,8 @@ use std::marker::PhantomData;
 
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use boringtun::device::DeviceHandle;
+#[cfg(target_os = "windows")]
+use wireguard_nt::Adapter;
 
 #[cfg(feature = "check_dependencies")]
 use crate::dependencies::check_external_dependencies;
@@ -19,6 +21,8 @@ pub struct WGApi<API = Kernel> {
     pub(super) ifname: String,
     #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
     pub(super) device_handle: Option<DeviceHandle>,
+    #[cfg(target_os = "windows")]
+    pub(super) adapter: Option<Adapter>,
     pub(super) _api: PhantomData<API>,
 }
 
@@ -31,6 +35,8 @@ impl<API> WGApi<API> {
             ifname: ifname.into(),
             #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
             device_handle: None,
+            #[cfg(target_os = "windows")]
+            adapter: None,
             _api: PhantomData,
         })
     }
