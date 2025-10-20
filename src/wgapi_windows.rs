@@ -67,10 +67,7 @@ pub enum WindowsError {
 /// Converts a string representation of a GUID into a `windows::core::GUID`.
 /// Example guid string: "{6B29FC40-CA47-1067-B31D-00DD010662DA}".
 fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
-    let wide: Vec<u16> = OsString::from(s)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let wide = str_to_wide_null_terminated(s);
     let guid = unsafe { CLSIDFromString(PCWSTR(wide.as_ptr())).map_err(WindowsError::from)? };
     Ok(guid)
 }
@@ -174,6 +171,11 @@ impl From<wireguard_nt::WireguardInterface> for Host {
             peers,
         }
     }
+}
+
+/// Converts an str to wide (u16), null-terminated
+fn str_to_wide_null_terminated(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
@@ -330,16 +332,13 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
         let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
 
-        let mut search_domains_vec: Vec<u16> = search_domains
-            .join(",")
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
+        let mut search_domains_vec: Vec<u16> = str_to_wide_null_terminated(&search_domains
+            .join(","));
         let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
 
         if !ipv4_dns_servers.is_empty() {
             let dns_str = ipv4_dns_servers.join(",");
-            let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
             let name_server = windows::core::PWSTR(wide.as_mut_ptr());
 
             let settings = DNS_INTERFACE_SETTINGS {
@@ -357,7 +356,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
         if !ipv6_dns_servers.is_empty() {
             let dns_str = ipv6_dns_servers.join(",");
-            let mut wide: Vec<u16> = dns_str.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
             let name_server = windows::core::PWSTR(wide.as_mut_ptr());
 
             let settings = DNS_INTERFACE_SETTINGS {
