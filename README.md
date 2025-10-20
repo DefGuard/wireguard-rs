@@ -22,7 +22,35 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 
 ### Windows support
 
-Please note that [WireGuard](https://www.wireguard.com/install/) needs to be installed on Windows with commands `wg` and `wireguard` available to be called from the command line.
+Please note that [WireGuard-NT](https://git.zx2c4.com/wireguard-nt/about/) [dll file](https://download.wireguard.com/wireguard-nt/) has to be placed under `resources-windows/binaries/wireguard.dll` relative path.
+
+#### Windows development
+
+For windows development you'll need:
+
+1. The `stable-x86_64-pc-windows-gnu` rust toolchain. Use rustup to change the toolchain:
+
+```
+rustup install stable-x86_64-pc-windows-gnu
+rustup default stable-x86_64-pc-windows-gnu
+```
+
+2. Install [MSYS2](https://www.msys2.org/)
+
+3. Then run this in the MSYS2 terminal:
+
+```
+pacman -S --needed base-devel mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-nasm
+```
+
+4. Finally add msys to your PATH:
+
+```
+# cmd
+set PATH=C:\msys64\ucrt64\bin;%PATH%
+# power-shell
+$env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
+```
 
 ## Examples
 
