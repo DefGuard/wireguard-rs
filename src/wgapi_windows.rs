@@ -41,7 +41,6 @@ static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
             .expect("Failed to load wireguard.dll"),
     )
 });
-static ADAPTER_POOL_NAME: &str = "WireGuard";
 static ADAPTERS: LazyLock<Mutex<HashMap<String, Adapter>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -211,7 +210,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             }
             Err(_) => {
                 debug!("Adapter {} does not exist, creating", self.ifname);
-                wireguard_nt::Adapter::create(&wireguard, ADAPTER_POOL_NAME, &self.ifname, None)
+                wireguard_nt::Adapter::create(&wireguard, &self.ifname, &self.ifname, None)
                     .map_err(WindowsError::from)?
             }
         };
@@ -340,7 +339,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname
         );
-        let guid = get_adapter_guid(ADAPTER_POOL_NAME)?;
+        let guid = get_adapter_guid(&self.ifname)?;
         let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) =
             dns.iter().partition(|ip| ip.is_ipv4());
         let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
