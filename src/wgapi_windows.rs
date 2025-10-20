@@ -1,13 +1,11 @@
 use std::{
     collections::HashMap,
-    ffi::OsString,
     net::IpAddr,
     str::FromStr,
     sync::{LazyLock, Mutex},
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use std::os::windows::ffi::OsStrExt;
 use thiserror::Error;
 use windows::{
     Win32::{
@@ -22,7 +20,7 @@ use windows::{
     },
     core::{GUID, PCSTR, PCWSTR, PSTR},
 };
-use wireguard_nt::{Adapter, Wireguard};
+use wireguard_nt::Wireguard;
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
