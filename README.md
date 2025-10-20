@@ -52,6 +52,8 @@ set PATH=C:\msys64\ucrt64\bin;%PATH%
 $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
 ```
 
+More info can be found [here](https://stackoverflow.com/a/79640980).
+
 ## Examples
 
 * Client: https://github.com/DefGuard/wireguard-rs/blob/main/examples/client.rs
