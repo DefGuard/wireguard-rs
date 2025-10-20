@@ -330,8 +330,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
         let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
 
-        let mut search_domains_vec: Vec<u16> = str_to_wide_null_terminated(&search_domains
-            .join(","));
+        let mut search_domains_vec: Vec<u16> =
+            str_to_wide_null_terminated(&search_domains.join(","));
         let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
 
         if !ipv4_dns_servers.is_empty() {
