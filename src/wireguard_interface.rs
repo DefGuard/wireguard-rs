@@ -24,18 +24,9 @@ pub trait WireguardInterfaceApi {
     }
 
     /// Updates configuration of an existing WireGuard interface.
-    #[cfg(not(target_os = "windows"))]
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
-    ) -> Result<(), WireguardInterfaceError>;
-
-    #[cfg(target_os = "windows")]
-    fn configure_interface(
-        &mut self,
-        config: &InterfaceConfiguration,
-        dns: &[IpAddr],
-        search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError>;
 
     /// Removes the WireGuard interface being managed.

@@ -179,25 +179,7 @@ fn str_to_wide_null_terminated(s: &str) -> Vec<u16> {
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
 impl WireguardInterfaceApi for WGApi<Kernel> {
     fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
-        info!("Opening/creating interface {}", self.ifname);
-        Ok(())
-    }
-
-    fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
-        debug!("Assigning address {address} to interface {}", self.ifname);
-        Ok(())
-    }
-
-    fn configure_interface(
-        &mut self,
-        config: &InterfaceConfiguration,
-        dns: &[IpAddr],
-        search_domains: &[&str],
-    ) -> Result<(), WireguardInterfaceError> {
-        debug!(
-            "Configuring interface {} with config: {config:?}",
-            self.ifname
-        );
+        debug!("Opening/creating interface {}", self.ifname);
 
         // Try to open the adapter. If it's not present create it.
         let wireguard = WIREGUARD_DLL.lock().expect("Failed to lock WIREGUARD_DLL");
@@ -211,6 +193,30 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 wireguard_nt::Adapter::create(&wireguard, &self.ifname, &self.ifname, None)
                     .map_err(WindowsError::from)?
             }
+        };
+        self.adapter = Some(adapter);
+
+        info!("Opened/created interface {}", self.ifname);
+        Ok(())
+    }
+
+    fn assign_address(&self, address: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
+        debug!("Assigning address {address} to interface {}", self.ifname);
+        Ok(())
+    }
+
+    fn configure_interface(
+        &self,
+        config: &InterfaceConfiguration,
+    ) -> Result<(), WireguardInterfaceError> {
+        debug!(
+            "Configuring interface {} with config: {config:?}",
+            self.ifname
+        );
+
+        // Retrieve the adapter - should be created by calling `Self::create_interface` first.
+        let Some(ref adapter) = self.adapter else {
+            Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
         };
 
         // Prepare peers
@@ -266,13 +272,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
 
-        // Configure adapter DNS servers
-        self.configure_dns(dns, search_domains)?;
-
         // Bring the adapter up
         debug!("Bringing up adapter {}", self.ifname);
         adapter.up().map_err(WindowsError::from)?;
-        self.adapter = Some(adapter);
 
         info!(
             "Interface {} has been successfully configured.",
@@ -307,6 +309,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
+
+        // Retrieve the adapter - should be created by calling `Self::create_interface` first.
         let Some(ref adapter) = self.adapter else {
             Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
         };
