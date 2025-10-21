@@ -47,7 +47,7 @@ pub enum WireguardInterfaceError {
     #[cfg(target_os = "windows")]
     #[error(transparent)]
     WindowsError(#[from] WindowsError),
-    #[cfg(target_family = "unix")]
+    #[cfg(unix)]
     #[error("BoringTun {0}")]
     BoringTun(#[from] boringtun::device::Error),
 }

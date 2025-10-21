@@ -24,7 +24,7 @@ serde_test = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
-[target.'cfg(any(target_family = "unix"))'.dependencies]
+[target.'cfg(unix)'.dependencies]
 boringtun = { path = "boringtun/boringtun", default-features = false, features = [
     "device",
 ] }
