@@ -67,7 +67,7 @@ mod dependencies;
 mod wgapi_freebsd;
 #[cfg(target_os = "linux")]
 mod wgapi_linux;
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 mod wgapi_userspace;
 #[cfg(target_family = "windows")]
 mod wgapi_windows;
