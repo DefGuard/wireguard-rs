@@ -22,7 +22,7 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 
 ### Windows support
 
-Please note that [WireGuard-NT](https://git.zx2c4.com/wireguard-nt/about/) [dll file](https://download.wireguard.com/wireguard-nt/) has to be placed under `resources-windows/binaries/wireguard.dll` relative path.
+Please note that [WireGuard-NT](https://git.zx2c4.com/wireguard-nt/about/) [dll file](https://download.wireguard.com/wireguard-nt/) has to be placed under `resources-windows/binaries/wireguard.dll` path relative to your binary.
 
 #### Windows development
 
