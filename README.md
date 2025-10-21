@@ -26,7 +26,7 @@ Please note that [WireGuard-NT](https://git.zx2c4.com/wireguard-nt/about/) [dll 
 
 #### Windows development
 
-For windows development you'll need:
+For Windows development you'll need:
 
 1. The `stable-x86_64-pc-windows-gnu` rust toolchain. Use rustup to change the toolchain:
 
