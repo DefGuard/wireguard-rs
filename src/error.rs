@@ -2,6 +2,9 @@
 
 use thiserror::Error;
 
+#[cfg(target_os = "windows")]
+use crate::wgapi_windows::WindowsError;
+
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum WireguardInterfaceError {
@@ -41,6 +44,10 @@ pub enum WireguardInterfaceError {
     ServiceRemovalFailed(String),
     #[error("Socket is closed: {0}")]
     SocketClosed(String),
+    #[cfg(target_os = "windows")]
+    #[error(transparent)]
+    WindowsError(#[from] WindowsError),
+    #[cfg(unix)]
     #[error("BoringTun {0}")]
     BoringTun(#[from] boringtun::device::Error),
 }

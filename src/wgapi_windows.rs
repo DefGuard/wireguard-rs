@@ -1,13 +1,26 @@
 use std::{
-    env,
-    fs::File,
-    io::{BufRead, BufReader, Cursor, Write},
-    net::{IpAddr, SocketAddr},
-    process::Command,
+    collections::HashMap,
+    net::IpAddr,
     str::FromStr,
-    thread::sleep,
-    time::{Duration, SystemTime},
+    sync::{LazyLock, Mutex},
 };
+
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use thiserror::Error;
+use windows::{
+    Win32::{
+        Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
+        NetworkManagement::IpHelper::{
+            DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6,
+            DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
+            IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
+        },
+        Networking::WinSock::AF_UNSPEC,
+        System::Com::CLSIDFromString,
+    },
+    core::{GUID, PCSTR, PCWSTR, PSTR},
+};
+use wireguard_nt::Wireguard;
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
@@ -18,10 +31,172 @@ use crate::{
     wgapi::{Kernel, WGApi},
 };
 
+static WIREGUARD_DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
+// Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
+static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
+    Mutex::new(
+        unsafe { wireguard_nt::load_from_path(WIREGUARD_DLL_PATH) }
+            .expect("Failed to load wireguard.dll"),
+    )
+});
+
+#[derive(Debug, Error)]
+pub enum WindowsError {
+    #[error("Empty interface array")]
+    EmptyInterfaceArrayError,
+    #[error("Invalid adapter id: {0}")]
+    InvalidAdapterId(String),
+    #[error("Non-zero return value: {0}")]
+    NonZeroReturnValue(u32),
+    #[error("Adapter not found: {0}")]
+    AdapterNotFound(String),
+    #[error(transparent)]
+    WireguardNtError(#[from] wireguard_nt::Error),
+    #[error(transparent)]
+    FromUtf16Error(#[from] std::string::FromUtf16Error),
+    #[error(transparent)]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
+    #[error(transparent)]
+    WindowsCoreError(#[from] windows::core::Error),
+    #[error("Missing peer endpoint for peer {0}")]
+    MissingPeerEndpoint(String),
+}
+
+/// Converts a string representation of a GUID into a `windows::core::GUID`.
+/// Example guid string: "{6B29FC40-CA47-1067-B31D-00DD010662DA}".
+fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
+    let wide = str_to_wide_null_terminated(s);
+    let guid = unsafe { CLSIDFromString(PCWSTR(wide.as_ptr())).map_err(WindowsError::from)? };
+    Ok(guid)
+}
+
+/// Returns the GUID of a network adapter given its name.
+/// Example adapter name: "Ethernet", "WireGuard".
+fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
+    debug!("Finding adapter {adapter_name}");
+    // We have to call `GetAdaptersAddresses` twice - first call to just get the `buffer_size` to hold the adapters.
+    // Before the second call we allocate the buffer with `buffer_size` capacity so that the call can actually
+    // store the adapters in the buffer.
+    let mut buffer_size: u32 = 0;
+    let mut result = unsafe {
+        // Sets the `buffer_size`
+        GetAdaptersAddresses(
+            AF_UNSPEC.0 as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            None,
+            &mut buffer_size,
+        )
+    };
+
+    // We expect the overflow here, since `buffer_size = 0`. No overflow means no adapters.
+    if result != ERROR_BUFFER_OVERFLOW.0 {
+        return Err(WindowsError::EmptyInterfaceArrayError);
+    }
+
+    // Allocate the buffer and actually get the adapters
+    let mut buffer = vec![0u8; buffer_size as usize];
+    let addresses = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+    result = unsafe {
+        GetAdaptersAddresses(
+            AF_UNSPEC.0 as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            Some(addresses),
+            &mut buffer_size,
+        )
+    };
+    if result != NO_ERROR.0 {
+        return Err(WindowsError::NonZeroReturnValue(result));
+    }
+
+    // Find our adapter
+    let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    let mut guid: Option<GUID> = None;
+    while !current.is_null() {
+        // SAFETY:
+        // `current` comes from the linked list allocated and initialized by
+        // `GetAdaptersAddresses`. The pointer is valid, properly aligned,
+        // non-null (checked above), and the backing `buffer` lives for the
+        // duration of this loop. No concurrent mutation occurs, so aliasing
+        // rules are respected.
+        let adapter = unsafe { &*current };
+
+        let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
+        if friendly_name == adapter_name {
+            let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
+            guid = Some(guid_from_str(&adapter_name_str)?);
+            info!("Found adapter {adapter_name}, GUID: {guid:?}");
+            break;
+        }
+
+        current = adapter.Next;
+    }
+
+    guid.ok_or_else(|| WindowsError::AdapterNotFound(adapter_name.to_string()))
+}
+
+impl From<wireguard_nt::WireguardPeer> for Peer {
+    fn from(peer: wireguard_nt::WireguardPeer) -> Self {
+        Self {
+            public_key: Key::new(peer.public_key),
+            preshared_key: Some(Key::new(peer.preshared_key)),
+            protocol_version: None,
+            endpoint: Some(peer.endpoint),
+            tx_bytes: peer.tx_bytes,
+            rx_bytes: peer.rx_bytes,
+            last_handshake: peer.last_handshake,
+            persistent_keepalive_interval: Some(peer.persistent_keepalive),
+            allowed_ips: peer
+                .allowed_ips
+                .iter()
+                .map(|ip| IpAddrMask::new(ip.addr(), ip.prefix_len()))
+                .collect(),
+        }
+    }
+}
+
+impl From<wireguard_nt::WireguardInterface> for Host {
+    fn from(iface: wireguard_nt::WireguardInterface) -> Self {
+        let mut peers = HashMap::new();
+        for peer in iface.peers {
+            peers.insert(Key::new(peer.public_key), peer.into());
+        }
+        Self {
+            listen_port: iface.listen_port,
+            private_key: Some(Key::new(iface.private_key)),
+            fwmark: None,
+            peers,
+        }
+    }
+}
+
+/// Converts an str to wide (u16), null-terminated
+fn str_to_wide_null_terminated(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
 impl WireguardInterfaceApi for WGApi<Kernel> {
-    fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
-        info!("Opening/creating interface {}", self.ifname);
+    fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
+        debug!("Opening/creating interface {}", self.ifname);
+
+        // Try to open the adapter. If it's not present create it.
+        let wireguard = WIREGUARD_DLL.lock().expect("Failed to lock WIREGUARD_DLL");
+        let adapter = match wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
+            Ok(adapter) => {
+                debug!("Found existing adapter {}", self.ifname);
+                adapter
+            }
+            Err(_) => {
+                debug!("Adapter {} does not exist, creating", self.ifname);
+                wireguard_nt::Adapter::create(&wireguard, &self.ifname, &self.ifname, None)
+                    .map_err(WindowsError::from)?
+            }
+        };
+        self.adapter = Some(adapter);
+
+        info!("Opened/created interface {}", self.ifname);
         Ok(())
     }
 
@@ -33,211 +208,76 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn configure_interface(
         &self,
         config: &InterfaceConfiguration,
-        dns: &[IpAddr],
-        search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
         debug!(
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
 
-        // Interface is created here so that there is no need to pass private key only for Windows
-        let file_name = format!("{}.conf", &self.ifname);
-        let path = env::current_dir()?;
-        let file_path_buf = path.join(&file_name);
-        let file_path = file_path_buf.to_str().unwrap_or_default();
+        // Retrieve the adapter - should be created by calling `Self::create_interface` first.
+        let Some(ref adapter) = self.adapter else {
+            Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
+        };
 
-        debug!("Creating WireGuard configuration file {file_name} in: {file_path}");
+        // Prepare peers
+        debug!("Preparing peers for adapter {}", self.ifname);
+        let peers: Result<Vec<_>, WindowsError> = config
+            .peers
+            .iter()
+            .map(|peer| {
+                Ok(wireguard_nt::SetPeer {
+                    public_key: Some(peer.public_key.as_array()),
+                    preshared_key: peer.preshared_key.as_ref().map(|key| key.as_array()),
+                    keep_alive: peer.persistent_keepalive_interval,
+                    allowed_ips: peer
+                        .allowed_ips
+                        .iter()
+                        .filter_map(|ip| match ip.ip {
+                            IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
+                            IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
+                        })
+                        .collect(),
+                    endpoint: peer.endpoint.ok_or_else(|| {
+                        WindowsError::MissingPeerEndpoint(peer.public_key.to_string())
+                    })?,
+                })
+            })
+            .collect();
+        let peers = peers?;
 
-        let mut file = File::create(&file_name)?;
+        // Configure the interface
+        debug!("Applying configuration for adapter {}", self.ifname);
+        let interface = wireguard_nt::SetInterface {
+            listen_port: Some(config.port as u16),
+            public_key: None, // derived from private key
+            private_key: Some(Key::from_str(&config.prvkey)?.as_array()),
+            peers,
+        };
+        adapter.set_config(&interface).map_err(WindowsError::from)?;
 
+        // Set adapter addresses
         debug!(
-            "WireGuard configuration file {file_name} created in {file_path}. Preparing configuration..."
+            "Assigning addresses to adapter {}: {:?}",
+            self.ifname, config.addresses
         );
-
-        let address = config
+        let addresses: Vec<_> = config
             .addresses
             .iter()
-            .map(|addr| addr.to_string())
-            .collect::<Vec<String>>()
-            .join(",");
-        let mut wireguard_configuration = format!(
-            "[Interface]\nPrivateKey = {}\nAddress = {address}\n",
-            config.prvkey
-        );
+            .filter_map(|ip| match ip.ip {
+                IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
+                IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
+            })
+            .collect();
+        adapter
+            .set_default_route(&addresses, &interface)
+            .map_err(WindowsError::from)?;
 
-        if !dns.is_empty() {
-            // Format:
-            // DNS = <IP>,<IP>
-            // If search domains are present:
-            // DNS = <IP>,<IP>,<domain>,<domain>
-            let dns_addresses = format!(
-                "\nDNS = {}{}",
-                // DNS addresses part
-                dns.iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
-                // Search domains part, optional
-                if !search_domains.is_empty() {
-                    format!(
-                        ",{}",
-                        search_domains
-                            .iter()
-                            .map(|v| v.to_string())
-                            .collect::<Vec<String>>()
-                            .join(",")
-                    )
-                } else {
-                    "".to_string()
-                }
-            );
-            wireguard_configuration.push_str(dns_addresses.as_str());
-        }
-
-        for peer in &config.peers {
-            wireguard_configuration
-                .push_str(format!("\n[Peer]\nPublicKey = {}", peer.public_key).as_str());
-
-            if let Some(preshared_key) = &peer.preshared_key {
-                wireguard_configuration
-                    .push_str(format!("\nPresharedKey = {}", preshared_key).as_str());
-            }
-
-            if let Some(keep_alive) = peer.persistent_keepalive_interval {
-                wireguard_configuration
-                    .push_str(format!("\nPersistentKeepalive = {}", keep_alive).as_str());
-            }
-
-            if let Some(endpoint) = peer.endpoint {
-                wireguard_configuration.push_str(format!("\nEndpoint = {}", endpoint).as_str());
-            }
-
-            if !peer.allowed_ips.is_empty() {
-                let allowed_ips = format!(
-                    "\nAllowedIPs = {}",
-                    peer.allowed_ips
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<String>>()
-                        .join(",")
-                );
-                wireguard_configuration.push_str(allowed_ips.as_str());
-            }
-        }
-
-        debug!(
-            "WireGuard configuration prepared: {wireguard_configuration}, writing to the file at {file_path}..."
-        );
-        file.write_all(wireguard_configuration.as_bytes())?;
-        info!("WireGuard configuration written to file: {file_path}",);
-
-        // Check for existing service and remove it
-        debug!(
-            "Checking for existing wireguard service for interface {}",
-            self.ifname
-        );
-        let output = Command::new("wg")
-            .arg("show")
-            .arg(&self.ifname)
-            .output()
-            .map_err(|err| {
-                error!("Failed to read interface data. Error: {err}");
-                WireguardInterfaceError::ReadInterfaceError(err.to_string())
-            })?;
-        debug!("WireGuard service check output: {output:?}",);
-
-        // Service already exists
-        if output.status.success() {
-            debug!("Service already exists, removing it first");
-            Command::new("wireguard")
-                .arg("/uninstalltunnelservice")
-                .arg(&self.ifname)
-                .output()?;
-
-            debug!("Waiting for service to be removed");
-            let mut counter = 1;
-            loop {
-                // Occasionally the tunnel is still available even though wg show cannot find it, causing /installtunnelservice to fail
-                // This might be excessive as closing the application closes the WireGuard tunnel.
-                sleep(Duration::from_secs(1));
-
-                let output = Command::new("wg")
-                    .arg("show")
-                    .arg(&self.ifname)
-                    .output()
-                    .map_err(|err| {
-                        error!("Failed to read interface data. Error: {err}");
-                        WireguardInterfaceError::ReadInterfaceError(err.to_string())
-                    })?;
-
-                // Service has been removed
-                if !output.status.success() || counter == 5 {
-                    break;
-                }
-
-                counter += 1;
-            }
-            debug!(
-                "Finished waiting for service to be removed, the service is considered to be removed, proceeding further"
-            );
-        }
-
-        debug!("Installing the new service for interface {}", self.ifname);
-        let service_installation_output = Command::new("wireguard")
-            .arg("/installtunnelservice")
-            .arg(file_path)
-            .output()
-            .map_err(|err| {
-                error!("Failed to create interface. Error: {err}");
-                WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
-            })?;
-
-        debug!(
-            "Done installing the new service. Service installation output: {service_installation_output:?}",
-        );
-
-        if !service_installation_output.status.success() {
-            let message = format!(
-                "Failed to install WireGuard tunnel as a Windows service: {:?}",
-                service_installation_output.stdout
-            );
-            return Err(WireguardInterfaceError::ServiceInstallationFailed(message));
-        }
-
-        debug!(
-            "Disabling automatic restart for interface {} tunnel service",
-            self.ifname
-        );
-        let service_update_output = Command::new("sc")
-            .arg("config")
-            .arg(format!("WireGuardTunnel${}", self.ifname))
-            .arg("start=demand")
-            .output()
-            .map_err(|err| {
-                error!("Failed to configure tunnel service. Error: {err}");
-                WireguardInterfaceError::ServiceInstallationFailed(err.to_string())
-            })?;
-
-        debug!(
-            "Done disabling automatic restart for the new service. Service update output: {service_update_output:?}",
-        );
-        if !service_update_output.status.success() {
-            let message = format!(
-                "Failed to configure WireGuard tunnel service: {:?}",
-                service_update_output.stdout
-            );
-            return Err(WireguardInterfaceError::ServiceInstallationFailed(message));
-        }
-
-        // TODO: set maximum transfer unit (MTU)
+        // Bring the adapter up
+        debug!("Bringing up adapter {}", self.ifname);
+        adapter.up().map_err(WindowsError::from)?;
 
         info!(
             "Interface {} has been successfully configured.",
-            self.ifname
-        );
-        debug!(
-            "Interface {} configured with config: {config:?}",
             self.ifname
         );
         Ok(())
@@ -247,26 +287,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         Ok(())
     }
 
-    fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
+    fn remove_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
-
-        let command_output = Command::new("wireguard")
-            .arg("/uninstalltunnelservice")
-            .arg(&self.ifname)
-            .output()
-            .map_err(|err| {
-                error!("Failed to remove interface. Error: {err}");
-                WireguardInterfaceError::CommandExecutionFailed(err)
-            })?;
-
-        if !command_output.status.success() {
-            let message = format!(
-                "Failed to remove WireGuard tunnel service: {:?}",
-                command_output.stdout
-            );
-            return Err(WireguardInterfaceError::ServiceRemovalFailed(message));
-        }
-
+        self.adapter = None;
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
     }
@@ -287,67 +310,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn read_interface_data(&self) -> Result<Host, WireguardInterfaceError> {
         debug!("Reading host info for interface {}", self.ifname);
 
-        let output = Command::new("wg")
-            .arg("show")
-            .arg(&self.ifname)
-            .arg("dump")
-            .output()
-            .map_err(|err| {
-                error!("Failed to read interface. Error: {err}");
-                WireguardInterfaceError::CommandExecutionFailed(err)
-            })?;
-
-        let reader = BufReader::new(Cursor::new(output.stdout));
-        let mut host = Host::default();
-        let lines = reader.lines();
-
-        for (index, line_result) in lines.enumerate() {
-            let line = match &line_result {
-                Ok(line) => line,
-                Err(_err) => {
-                    continue;
-                }
-            };
-
-            let data: Vec<&str> = line.split("\t").collect();
-
-            // First line contains [Interface] section data, every other line is a separate [Peer]
-            if index == 0 {
-                // Interface data: private key, public key, listen port, fwmark
-                host.private_key = Key::from_str(data[0]).ok();
-                host.listen_port = data[2].parse().unwrap_or_default();
-
-                if data[3] != "off" {
-                    host.fwmark = Some(data[3].parse().unwrap());
-                }
-            } else {
-                // Peer data: public key, preshared key, endpoint, allowed ips, latest handshake, transfer-rx, transfer-tx, persistent-keepalive
-                if let Ok(public_key) = Key::from_str(data[0]) {
-                    let mut peer = Peer::new(public_key.clone());
-
-                    if data[1] != "(none)" {
-                        peer.preshared_key = Key::from_str(data[0]).ok();
-                    }
-
-                    peer.endpoint = SocketAddr::from_str(data[2]).ok();
-
-                    for allowed_ip in data[3].split(",") {
-                        let addr = IpAddrMask::from_str(allowed_ip.trim())?;
-                        peer.allowed_ips.push(addr);
-                    }
-
-                    let handshake = peer.last_handshake.get_or_insert(SystemTime::UNIX_EPOCH);
-                    *handshake += Duration::from_secs(data[4].parse().unwrap_or_default());
-
-                    peer.rx_bytes = data[5].parse().unwrap_or_default();
-                    peer.tx_bytes = data[6].parse().unwrap_or_default();
-                    peer.persistent_keepalive_interval = data[7].parse().ok();
-
-                    host.peers.insert(public_key.clone(), peer);
-                }
-            }
-        }
-
+        // Retrieve the adapter - should be created by calling `Self::create_interface` first.
+        let Some(ref adapter) = self.adapter else {
+            Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
+        };
+        let host = adapter.get_config().into();
         debug!("Read interface data: {host:?}");
         Ok(host)
     }
@@ -355,10 +322,61 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn configure_dns(
         &self,
         dns: &[IpAddr],
-        _search_domains: &[&str],
+        search_domains: &[&str],
     ) -> Result<(), WireguardInterfaceError> {
         debug!(
             "Configuring DNS for interface {}, using address: {dns:?}",
+            self.ifname
+        );
+        let guid = get_adapter_guid(&self.ifname)?;
+        let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) =
+            dns.iter().partition(|ip| ip.is_ipv4());
+        let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
+        let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
+
+        let mut search_domains_vec: Vec<u16> =
+            str_to_wide_null_terminated(&search_domains.join(","));
+        let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
+
+        if !ipv4_dns_servers.is_empty() {
+            let dns_str = ipv4_dns_servers.join(",");
+            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
+            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+
+            let settings = DNS_INTERFACE_SETTINGS {
+                Version: DNS_INTERFACE_SETTINGS_VERSION1,
+                Flags: DNS_SETTING_NAMESERVER as u64,
+                NameServer: name_server,
+                SearchList: search_domains_wide,
+                ..Default::default()
+            };
+
+            let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
+            if status != NO_ERROR {
+                Err(WindowsError::NonZeroReturnValue(status.0))?;
+            }
+        }
+        if !ipv6_dns_servers.is_empty() {
+            let dns_str = ipv6_dns_servers.join(",");
+            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
+            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+
+            let settings = DNS_INTERFACE_SETTINGS {
+                Version: DNS_INTERFACE_SETTINGS_VERSION1,
+                Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6) as u64,
+                NameServer: name_server,
+                SearchList: search_domains_wide,
+                ..Default::default()
+            };
+
+            let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
+            if status != NO_ERROR {
+                Err(WindowsError::NonZeroReturnValue(status.0))?;
+            }
+        }
+
+        info!(
+            "Configured DNS for interface {}, using address: {dns:?}",
             self.ifname
         );
         Ok(())
