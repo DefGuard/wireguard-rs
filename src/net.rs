@@ -19,31 +19,31 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct IpAddrMask {
     // IP v4 or v6
-    pub ip: IpAddr,
+    pub address: IpAddr,
     // Classless Inter-Domain Routing
     pub cidr: u8,
 }
 
 impl IpAddrMask {
     #[must_use]
-    pub fn new(ip: IpAddr, cidr: u8) -> Self {
-        Self { ip, cidr }
+    pub fn new(address: IpAddr, cidr: u8) -> Self {
+        Self { address, cidr }
     }
 
     #[must_use]
-    pub fn host(ip: IpAddr) -> Self {
-        let cidr = match ip {
+    pub fn host(address: IpAddr) -> Self {
+        let cidr = match address {
             IpAddr::V4(_) => 32,
             IpAddr::V6(_) => 128,
         };
-        Self { ip, cidr }
+        Self { address, cidr }
     }
 
     /// Returns broadcast address as `IpAddr`.
     /// Note: IPv6 does not really use broadcast.
     #[must_use]
     pub fn broadcast(&self) -> IpAddr {
-        match self.ip {
+        match self.address {
             IpAddr::V4(ip) => {
                 let addr = u32::from(ip);
                 let bits = if self.cidr >= 32 {
@@ -68,7 +68,7 @@ impl IpAddrMask {
     /// Returns network mask as `IpAddr`.
     #[must_use]
     pub fn mask(&self) -> IpAddr {
-        match self.ip {
+        match self.address {
             IpAddr::V4(_) => {
                 let mask = if self.cidr == 0 {
                     0
@@ -91,7 +91,7 @@ impl IpAddrMask {
     /// Returns `true` if the address defines a host, `false` if it is a network.
     #[must_use]
     pub fn is_host(&self) -> bool {
-        if self.ip.is_ipv4() {
+        if self.address.is_ipv4() {
             self.cidr == 32
         } else {
             self.cidr == 128
@@ -102,12 +102,12 @@ impl IpAddrMask {
     #[must_use]
     pub fn to_nlas_allowed_ip(&self) -> WgAllowedIp {
         let mut attrs = Vec::new();
-        attrs.push(WgAllowedIpAttrs::Family(if self.ip.is_ipv4() {
+        attrs.push(WgAllowedIpAttrs::Family(if self.address.is_ipv4() {
             AF_INET
         } else {
             AF_INET6
         }));
-        attrs.push(WgAllowedIpAttrs::IpAddr(self.ip));
+        attrs.push(WgAllowedIpAttrs::IpAddr(self.address));
         attrs.push(WgAllowedIpAttrs::Cidr(self.cidr));
         WgAllowedIp(attrs)
     }
@@ -115,7 +115,7 @@ impl IpAddrMask {
 
 impl fmt::Display for IpAddrMask {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.ip, self.cidr)
+        write!(f, "{}/{}", self.address, self.cidr)
     }
 }
 
@@ -144,11 +144,11 @@ impl FromStr for IpAddrMask {
             if cidr > max_cidr {
                 return Err(IpAddrParseError);
             }
-            Ok(IpAddrMask { ip, cidr })
+            Ok(IpAddrMask { address: ip, cidr })
         } else {
             let ip = ip_str.parse().map_err(|_| IpAddrParseError)?;
             Ok(IpAddrMask {
-                ip,
+                address: ip,
                 cidr: if ip.is_ipv4() { 32 } else { 128 },
             })
         }

@@ -188,7 +188,7 @@ fn setup_default_route(
     addr: &crate::IpAddrMask,
 ) -> Result<(), WireguardInterfaceError> {
     debug!("Found default route in AllowedIPs: {addr:?}");
-    let is_ipv6 = addr.ip.is_ipv6();
+    let is_ipv6 = addr.address.is_ipv6();
     let proto = if is_ipv6 { "-6" } else { "-4" };
     debug!("Using the following IP version: {proto}");
 
@@ -271,9 +271,9 @@ pub(crate) fn add_peer_routing(
     // Gather allowed IPs and default routes
     for peer in peers {
         for addr in &peer.allowed_ips {
-            if addr.ip.is_unspecified() {
+            if addr.address.is_unspecified() {
                 // Default route - store for later
-                if addr.ip.is_ipv4() {
+                if addr.address.is_ipv4() {
                     default_routes.0 = Some(addr);
                 } else {
                     default_routes.1 = Some(addr);
@@ -281,7 +281,7 @@ pub(crate) fn add_peer_routing(
                 continue;
             }
             // Regular route - add to set
-            if addr.ip.is_ipv4() {
+            if addr.address.is_ipv4() {
                 allowed_ips.0.insert(addr);
             } else {
                 allowed_ips.1.insert(addr);
@@ -339,14 +339,14 @@ pub(crate) fn add_peer_routing(
             debug!("Processing route for allowed IP: {addr}, interface: {ifname}");
             // FIXME: currently it is impossible to add another default route, so use the hack from
             // wg-quick for Darwin.
-            if addr.ip.is_unspecified() && addr.cidr == 0 {
+            if addr.address.is_unspecified() && addr.cidr == 0 {
                 debug!(
                     "Found following default route in the allowed IPs: {addr}, interface: \
                     {ifname}, proceeding with default route initial setup."
                 );
                 let default1;
                 let default2;
-                if addr.ip.is_ipv4() {
+                if addr.address.is_ipv4() {
                     // 0.0.0.0/1
                     default1 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1);
                     // 128.0.0.0/1
