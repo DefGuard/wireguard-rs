@@ -102,7 +102,7 @@ impl Key {
 impl IpAddrMask {
     #[must_use]
     fn address_family(&self) -> AddressFamily {
-        match self.ip {
+        match self.address {
             IpAddr::V4(_) => AddressFamily::Inet,
             IpAddr::V6(_) => AddressFamily::Inet6,
         }
@@ -260,18 +260,20 @@ fn set_address(index: u32, address: &IpAddrMask) -> NetlinkResult<()> {
     message.header.index = index;
     message.header.family = address.address_family();
 
-    if address.ip.is_multicast() {
-        if let IpAddr::V6(addr) = address.ip {
+    if address.address.is_multicast() {
+        if let IpAddr::V6(addr) = address.address {
             message.attributes.push(AddressAttribute::Multicast(addr));
         }
     } else {
         message
             .attributes
-            .push(AddressAttribute::Address(address.ip));
+            .push(AddressAttribute::Address(address.address));
 
         // For IPv4 the Local address can be set to the same value as
         // Address.
-        message.attributes.push(AddressAttribute::Local(address.ip));
+        message
+            .attributes
+            .push(AddressAttribute::Local(address.address));
 
         // Set the broadcast address as well (IPv6 does not support
         // broadcast).
@@ -527,7 +529,7 @@ pub(crate) fn add_route(
     };
     header.address_family = address.address_family();
     header.destination_prefix_length = address.cidr;
-    let route_address = match address.ip {
+    let route_address = match address.address {
         IpAddr::V4(ipv4) => RouteAddress::Inet(ipv4),
         IpAddr::V6(ipv6) => RouteAddress::Inet6(ipv6),
     };

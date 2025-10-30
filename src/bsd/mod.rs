@@ -115,7 +115,7 @@ impl IpAddrMask {
                     .and_then(|ipv6| <[u8; 16]>::try_from(ipv6).ok().map(IpAddr::from)),
             }
             .map(|ip| Self {
-                ip,
+                address: ip,
                 cidr: cidr as u8,
             })
         })
@@ -129,7 +129,7 @@ impl<'a> IpAddrMask {
 
         nvlist.append_number(NV_CIDR, u64::from(self.cidr));
 
-        match self.ip {
+        match self.address {
             IpAddr::V4(ipv4) => nvlist.append_bytes(NV_IPV4, ipv4.octets().into()),
             IpAddr::V6(ipv6) => nvlist.append_bytes(NV_IPV6, ipv6.octets().into()),
         }
@@ -340,7 +340,7 @@ pub fn delete_interface(if_name: &str) -> Result<(), IoError> {
 }
 
 pub fn set_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
-    match address.ip {
+    match address.address {
         IpAddr::V4(address) => {
             let ifreq = IfReq::new_with_address(if_name, address);
             ifreq.set_address()
@@ -356,7 +356,7 @@ pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError
     let broadcast = address.broadcast();
     let mask = address.mask();
 
-    match (address.ip, broadcast, mask) {
+    match (address.address, broadcast, mask) {
         (IpAddr::V4(address), IpAddr::V4(broadcast), IpAddr::V4(mask)) => {
             let inaliasreq = InAliasReq::new(if_name, address, broadcast, mask);
             inaliasreq.add_address()
@@ -370,7 +370,7 @@ pub fn assign_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError
 }
 
 pub fn remove_address(if_name: &str, address: &IpAddrMask) -> Result<(), IoError> {
-    match address.ip {
+    match address.address {
         IpAddr::V4(address) => {
             let ifreq = IfReq::new_with_address(if_name, address);
             ifreq.delete_address()
@@ -459,7 +459,7 @@ pub fn get_gateway(ip_version: IpVersion) -> Result<Option<IpAddr>, IoError> {
 /// Add routing gateway.
 pub fn add_gateway(dest: &IpAddrMask, gateway: IpAddr, is_blackhole: bool) -> Result<(), IoError> {
     debug!("Adding gateway: destination {dest}, gateway {gateway}, is blackhole {is_blackhole}.");
-    match (dest.ip, dest.mask(), gateway) {
+    match (dest.address, dest.mask(), gateway) {
         (IpAddr::V4(ip), IpAddr::V4(mask), IpAddr::V4(gw)) => {
             let payload = DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), gw.into());
             let rtmsg = RtMessage::new_for_add_gateway(payload, dest.is_host(), is_blackhole);
@@ -480,7 +480,7 @@ pub fn add_gateway(dest: &IpAddrMask, gateway: IpAddr, is_blackhole: bool) -> Re
 /// Remove routing gateway.
 pub fn delete_gateway(dest: &IpAddrMask) -> Result<(), IoError> {
     debug!("Deleting gateway with destination {dest}.");
-    match (dest.ip, dest.mask()) {
+    match (dest.address, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
             let payload =
                 DestAddrMask::<SockAddrIn>::new(ip.into(), mask.into(), SockAddrIn::default());
@@ -508,7 +508,7 @@ pub fn add_linked_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError>
     if if_index == 0 {
         return Err(IoError::NetworkInterface);
     }
-    match (dest.ip, dest.mask()) {
+    match (dest.address, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
             let link = SockAddrDl::new(if_index);
             let payload = GatewayLink::<SockAddrIn>::new(ip.into(), mask.into(), link);
@@ -535,7 +535,7 @@ pub fn add_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
     if if_index == 0 {
         return Err(IoError::NetworkInterface);
     }
-    match (dest.ip, dest.mask()) {
+    match (dest.address, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
             let payload =
                 DestAddrMask::<SockAddrIn>::new_for_interface(ip.into(), mask.into(), if_name);
@@ -561,7 +561,7 @@ pub fn delete_route(dest: &IpAddrMask, if_name: &str) -> Result<(), IoError> {
     if if_index == 0 {
         return Err(IoError::NetworkInterface);
     }
-    match (dest.ip, dest.mask()) {
+    match (dest.address, dest.mask()) {
         (IpAddr::V4(ip), IpAddr::V4(mask)) => {
             let payload =
                 DestAddrMask::<SockAddrIn>::new_for_interface(ip.into(), mask.into(), if_name);
