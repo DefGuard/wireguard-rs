@@ -232,7 +232,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                     allowed_ips: peer
                         .allowed_ips
                         .iter()
-                        .filter_map(|ip| match ip.ip {
+                        .filter_map(|ip| match ip.address {
                             IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
                             IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
                         })
@@ -248,7 +248,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // Configure the interface
         debug!("Applying configuration for adapter {}", self.ifname);
         let interface = wireguard_nt::SetInterface {
-            listen_port: Some(config.port as u16),
+            listen_port: Some(config.port),
             public_key: None, // derived from private key
             private_key: Some(Key::from_str(&config.prvkey)?.as_array()),
             peers,
@@ -263,7 +263,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let addresses: Vec<_> = config
             .addresses
             .iter()
-            .filter_map(|ip| match ip.ip {
+            .filter_map(|ip| match ip.address {
                 IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
                 IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
             })
