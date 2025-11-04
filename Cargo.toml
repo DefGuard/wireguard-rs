@@ -31,10 +31,9 @@ boringtun = { path = "boringtun/boringtun", default-features = false, features =
 libc = { version = "0.2", default-features = false }
 nix = { version = "0.30", features = ["ioctl", "socket"] }
 
-
 [target.'cfg(target_os = "windows")'.dependencies]
-ipnet = "2.11.0"
-windows = { version = "0.62.1", features = [
+ipnet = "2.11"
+windows = { version = "0.62", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
