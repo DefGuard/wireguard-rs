@@ -38,6 +38,12 @@ windows = { version = "0.62", features = [
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
     "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Rpc",
+    "Win32_System_Variant",
+    "Win32_System_Ole",
+    "Win32_System_Wmi",
+    "Win32_Foundation",
 ]}
 wireguard-nt = "0.5.0"
 

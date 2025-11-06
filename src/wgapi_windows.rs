@@ -1,8 +1,5 @@
 use std::{
-    collections::HashMap,
-    net::IpAddr,
-    str::FromStr,
-    sync::{LazyLock, Mutex},
+    collections::HashMap, ffi::OsStr, net::IpAddr, os::windows::ffi::OsStrExt, ptr::{null, null_mut}, str::FromStr, sync::{LazyLock, Mutex}
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -11,12 +8,10 @@ use windows::{
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
         NetworkManagement::IpHelper::{
-            DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6,
-            DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
-            IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
+            DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIfEntry, IP_ADAPTER_ADDRESSES_LH, MIB_IFROW, SetIfEntry, SetInterfaceDnsSettings
         },
         Networking::WinSock::AF_UNSPEC,
-        System::Com::CLSIDFromString,
+        System::{Com::CLSIDFromString, Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE}, Variant::{VARIANT, VT_I4}, Wmi::{IWbemCallResult, IWbemClassObject, WBEM_GENERIC_FLAG_TYPE}},
     },
     core::{GUID, PCSTR, PCWSTR, PSTR},
 };
@@ -68,6 +63,47 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     let wide = str_to_wide_null_terminated(s);
     let guid = unsafe { CLSIDFromString(PCWSTR(wide.as_ptr())).map_err(WindowsError::from)? };
     Ok(guid)
+}
+
+fn get_adapter_index(adapter_name: &str) -> Result<u32, WindowsError> {
+    let mut buffer_size: u32 = 0;
+    unsafe {
+        GetAdaptersAddresses(
+            AF_UNSPEC.0 as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            None,
+            &mut buffer_size,
+        )
+    };
+    let mut buffer = vec![0u8; buffer_size as usize];
+    let addresses = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+
+    let result = unsafe {
+        GetAdaptersAddresses(
+            AF_UNSPEC.0 as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            Some(addresses),
+            &mut buffer_size,
+        )
+    };
+    if result != 0 {
+        return Err(WindowsError::NonZeroReturnValue(result));
+    }
+
+    let mut current = addresses;
+    while !current.is_null() {
+        let adapter = unsafe { &*current };
+        let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
+        if friendly_name == adapter_name {
+            let if_index = unsafe { adapter.Anonymous1.Anonymous.IfIndex };
+            return Ok(if_index);
+        }
+        current = adapter.Next;
+    }
+
+    Err(WindowsError::AdapterNotFound(adapter_name.to_string()))
 }
 
 /// Returns the GUID of a network adapter given its name.
@@ -136,6 +172,208 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     guid.ok_or_else(|| WindowsError::AdapterNotFound(adapter_name.to_string()))
 }
 
+// fn set_interface_mtu(adapter_name: &str, mtu: u32) -> Result<(), WindowsError> {
+//     // Find interface index via GetAdaptersAddresses
+//     debug!("set_interface_mtu: before get_adapter_buid");
+//     let guid = get_adapter_guid(adapter_name)?;
+//     debug!("set_interface_mtu: after get_adapter_buid");
+
+//     // Convert GUID to string without braces
+//     let guid_str = format!("{:?}", guid);
+//     let guid_str = guid_str.trim_matches(['{', '}']);
+
+//     // Initialize MIB_IFROW with interface name
+//     debug!("set_interface_mtu: before MIB_IFROW init");
+//     let mut row: MIB_IFROW = unsafe { std::mem::zeroed() };
+//     // Wide string name (null terminated)
+//     let name_wide = str_to_wide_null_terminated(guid_str);
+//     row.wszName[..name_wide.len()].copy_from_slice(&name_wide);
+//     debug!("set_interface_mtu: after MIB_IFROW init");
+
+//     // Get current entry to populate the row fields
+//     // TODO use NO_ERROR
+//     debug!("set_interface_mtu: before GetIfEntry");
+//     let res = unsafe { GetIfEntry(&mut row) };
+//     if res != 0 {
+//         error!("Failed to get current interface entry");
+//         return Err(WindowsError::NonZeroReturnValue(res));
+//     }
+//     debug!("set_interface_mtu: after GetIfEntry");
+
+//     // Update MTU
+//     row.dwMtu = mtu;
+
+//     // Commit change
+//     // TODO use NO_ERROR
+//     debug!("set_interface_mtu: before SetIfEntry");
+//     let res = unsafe { SetIfEntry(&row) };
+//     if res != 0 {
+//         error!("Failed to set current interface entry");
+//         return Err(WindowsError::NonZeroReturnValue(res));
+//     }
+//     debug!("set_interface_mtu: after SetIfEntry");
+
+//     Ok(())
+// }
+
+// fn set_interface_mtu(adapter_name: &str, mtu: u32) -> Result<(), WindowsError> {
+//     let if_index = get_adapter_index(adapter_name)?;
+//     let mut row: MIB_IFROW = unsafe { std::mem::zeroed() };
+//     row.dwIndex = if_index;
+
+//     let res = unsafe { GetIfEntry(&mut row) };
+//     if res != 0 {
+//         return Err(WindowsError::NonZeroReturnValue(res));
+//     }
+
+//     row.dwMtu = mtu;
+//     let res = unsafe { SetIfEntry(&row) };
+//     if res != 0 {
+//         return Err(WindowsError::NonZeroReturnValue(res));
+//     }
+
+//     Ok(())
+// }
+
+use windows::{
+    // core::{BSTR, VARIANT, HRESULT},
+    core::{BSTR, HRESULT},
+    Win32::{
+        // Foundation::WBEM_E_NOT_FOUND,
+        System::{
+            Com::{
+                CoInitializeEx, CoCreateInstance, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+                // VARIANT_TRUE, VT_I4, VT_BSTR, VT_NULL,
+            },
+            // Ole::VariantInit,
+            Wmi::{
+                IWbemLocator, IWbemServices, WbemLocator, WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY,
+                WBEM_INFINITE,
+            },
+        },
+    },
+};
+
+fn set_mtu_via_wmi(interface_name: &str, mtu: u32) -> windows::core::Result<()> {
+    unsafe {
+        // Initialize COM
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).unwrap();
+
+        // Create WMI locator
+        // let locator: IWbemLocator = CoCreateInstance(&CLSID_WbemLocator, None, CLSCTX_INPROC_SERVER)?;
+        let locator: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)?;
+
+        // Connect to WMI namespace
+        let empty = BSTR::new();
+        let services: IWbemServices = locator.ConnectServer(
+            &BSTR::from("ROOT\\CIMV2"),
+            &empty,
+            &empty,
+            &empty,
+            0,
+            &empty,
+            None,
+        )?;
+
+        use windows::Win32::System::Com::{
+            CoSetProxyBlanket, RPC_C_AUTHN_LEVEL_DEFAULT,
+            RPC_C_IMP_LEVEL_IMPERSONATE, EOAC_NONE,
+        };
+
+        CoSetProxyBlanket(
+            &services,
+            RPC_C_AUTHN_WINNT,
+            RPC_C_AUTHZ_NONE,
+            None,
+            RPC_C_AUTHN_LEVEL_DEFAULT,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            None,
+            EOAC_NONE,
+        )?;
+
+        // Build WQL query
+        let query = format!("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE Description = '{}'", interface_name);
+        // let mut enumerator = None;
+
+        let enumerator = services.ExecQuery(
+            &BSTR::from("WQL"),
+            &BSTR::from(query),
+            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+            None,
+            // &mut enumerator,
+        )?;
+
+        let mut objs = [None];
+        let mut returned = 0;
+        let hr = enumerator.Next(WBEM_INFINITE as i32, &mut objs, &mut returned);
+
+        if hr.is_err() || returned == 0 {
+            CoUninitialize();
+            // return Err(HRESULT(WBEM_E_NOT_FOUND.0).into());
+            error!("hr: {hr}, returned: {returned}");
+            return Err(HRESULT(0).into());
+        }
+
+        let adapter = objs[0].take().unwrap();
+
+        // Prepare input parameters for SetMTU
+        // let class_obj = Some(null_mut());
+        let mut class_obj: Option<IWbemClassObject> = None;
+        let result = services.GetObject(
+            &BSTR::from("Win32_NetworkAdapterConfiguration"),
+            WBEM_GENERIC_FLAG_TYPE(0),
+            None,
+            Some(&mut class_obj),
+            None,
+        );
+        if result.is_err() {
+            error!("GetObject result: {result:?}");
+        }
+        // let in_params_def = null_mut();
+        // let result = class_obj.unwrap().GetMethod(
+        //     &BSTR::from("SetMTU"),
+        //     0,
+        //     in_params_def,
+        //     null_mut(),
+        // )?;
+        // let in_params = (*in_params_def).unwrap().SpawnInstance(0)?;
+
+        // let mut mtu_variant = VARIANT::default();
+        // *mtu_variant.n1.n2_mut().n3.lVal_mut() = mtu as i32;
+        // mtu_variant.n1.n2_mut().vt = VT_I4.0 as u16;
+        let mut in_params_def= None;
+
+        // Call GetMethod to fill it
+        class_obj.unwrap().GetMethod(
+            &BSTR::from("SetMTU"),
+            0,
+            &mut in_params_def,
+            &mut None,
+        )?;
+        let in_params = in_params_def.unwrap();
+        use windows::Win32::System::Variant::{self, VARIANT, VT_I4};
+        // use windows::core::VARIANT as CoreVariant;
+
+        let mtu: i32 = 1380;
+        let mtu_variant = VARIANT::from(mtu as i32);
+        in_params.Put(&BSTR::from("MTU"), 0, &mtu_variant, 0)?;
+        // Execute method
+        let _out_params = services.ExecMethod(
+            &BSTR::from(format!("Win32_NetworkAdapterConfiguration.Description=\"{}\"", interface_name)),
+            &BSTR::from("SetMTU"),
+            WBEM_GENERIC_FLAG_TYPE(0),
+            None,
+            &in_params,
+            None,
+            None,
+        )?;
+
+        CoUninitialize();
+    }
+
+    Ok(())
+}
+
 impl From<wireguard_nt::WireguardPeer> for Peer {
     fn from(peer: wireguard_nt::WireguardPeer) -> Self {
         Self {
@@ -173,7 +411,7 @@ impl From<wireguard_nt::WireguardInterface> for Host {
 
 /// Converts an str to wide (u16), null-terminated
 fn str_to_wide_null_terminated(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
+    OsStr::new(s).encode_wide().chain(Some(0)).collect()
 }
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
@@ -213,7 +451,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
-
         // Retrieve the adapter - should be created by calling `Self::create_interface` first.
         let Some(ref adapter) = self.adapter else {
             Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
@@ -274,6 +511,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Bring the adapter up
         debug!("Bringing up adapter {}", self.ifname);
+
+        // Set MTU
+        // set_interface_mtu(&self.ifname, mtu)?;
+        // let mtu = config.mtu.unwrap_or(1500);
+        let mtu = 1300;
+        set_mtu_via_wmi(&self.ifname, mtu).unwrap();
         adapter.up().map_err(WindowsError::from)?;
 
         info!(
