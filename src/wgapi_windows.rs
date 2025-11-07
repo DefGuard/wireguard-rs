@@ -14,7 +14,7 @@ use windows::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
         NetworkManagement::{
             IpHelper::{
-                ConvertInterfaceIndexToLuid, DNS_INTERFACE_SETTINGS,
+                ConvertInterfaceGuidToLuid, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
                 GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry,
                 IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW,
@@ -75,47 +75,6 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     let wide = str_to_wide_null_terminated(s);
     let guid = unsafe { CLSIDFromString(PCWSTR(wide.as_ptr())).map_err(WindowsError::from)? };
     Ok(guid)
-}
-
-fn get_adapter_index(adapter_name: &str) -> Result<u32, WindowsError> {
-    let mut buffer_size: u32 = 0;
-    unsafe {
-        GetAdaptersAddresses(
-            AF_UNSPEC.0 as u32,
-            GAA_FLAG_INCLUDE_PREFIX,
-            None,
-            None,
-            &mut buffer_size,
-        )
-    };
-    let mut buffer = vec![0u8; buffer_size as usize];
-    let addresses = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
-
-    let result = unsafe {
-        GetAdaptersAddresses(
-            AF_UNSPEC.0 as u32,
-            GAA_FLAG_INCLUDE_PREFIX,
-            None,
-            Some(addresses),
-            &mut buffer_size,
-        )
-    };
-    if result != 0 {
-        return Err(WindowsError::NonZeroReturnValue(result));
-    }
-
-    let mut current = addresses;
-    while !current.is_null() {
-        let adapter = unsafe { &*current };
-        let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
-        if friendly_name == adapter_name {
-            let if_index = unsafe { adapter.Anonymous1.Anonymous.IfIndex };
-            return Ok(if_index);
-        }
-        current = adapter.Next;
-    }
-
-    Err(WindowsError::AdapterNotFound(adapter_name.to_string()))
 }
 
 /// Returns the GUID of a network adapter given its name.
@@ -187,14 +146,14 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
 /// Sets both IPv4 and IPv6 MTU on specified interface.
 fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError> {
     debug!("Setting interface {interface_name} MTU to {mtu}");
-    let if_index = get_adapter_index(interface_name)?;
+    let guid = get_adapter_guid(interface_name)?;
 
-    // Convert interface index to LUID.
+    // Convert interface GUID to LUID.
     let mut luid = NET_LUID_LH::default();
-    let res = unsafe { ConvertInterfaceIndexToLuid(if_index, &mut luid) };
+    let res = unsafe { ConvertInterfaceGuidToLuid(&guid, &mut luid) };
     if res.0 != 0 {
         error!(
-            "ConvertInterfaceIndexToLuid call failed, error value: {}",
+            "ConvertInterfaceGuidToLuid call failed, error value: {}",
             res.0
         );
         return Err(WindowsError::NonZeroReturnValue(res.0));
