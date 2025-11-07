@@ -254,6 +254,177 @@ use windows::{
     },
 };
 
+fn restart_adapter_via_wmi(interface_name: &str) -> windows::core::Result<()> {
+    unsafe {
+        // Connect to WMI just like in your set_mtu_via_wmi
+        use windows::Win32::System::Com::{
+            CoInitializeEx, CoCreateInstance, CoUninitialize, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED, CoSetProxyBlanket,
+        };
+        use windows::Win32::System::Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE};
+        use windows::Win32::System::Wmi::{
+            IWbemLocator, IWbemServices, WbemLocator, WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY,
+            WBEM_INFINITE,
+        };
+        use windows::Win32::System::Com::{
+            RPC_C_IMP_LEVEL_IMPERSONATE, RPC_C_AUTHN_LEVEL_DEFAULT, EOAC_NONE,
+        };
+        use windows::core::BSTR;
+
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).unwrap();
+
+        let locator: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER).expect("Failed to CoCreateInstance()");
+        let empty = BSTR::new();
+        let services: IWbemServices = locator.ConnectServer(
+            &BSTR::from("ROOT\\CIMV2"),
+            &empty, &empty, &empty,
+            0, &empty, None,
+        ).expect("Failed to locator.ConnectServer()");
+
+        CoSetProxyBlanket(
+            &services,
+            RPC_C_AUTHN_WINNT,
+            RPC_C_AUTHZ_NONE,
+            None,
+            RPC_C_AUTHN_LEVEL_DEFAULT,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            None,
+            EOAC_NONE,
+        )?;
+
+        // Find the adapter
+        let query = format!("SELECT * FROM Win32_NetworkAdapter WHERE NetConnectionID='{}'", interface_name);
+        let enumerator = services.ExecQuery(
+            &BSTR::from("WQL"),
+            &BSTR::from(query),
+            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+            None,
+        ).expect("Failed to services.ExecQuery()");
+
+        let mut objs = [None];
+        let mut returned = 0;
+        enumerator.Next(WBEM_INFINITE as i32, &mut objs, &mut returned).unwrap();
+        if returned == 0 {
+            CoUninitialize();
+            return Err(HRESULT(0).into());
+        }
+        let adapter = objs[0].take().unwrap();
+
+        // Disable it
+        let adapter_index = 12;
+        let adapter_index = get_adapter_index(interface_name).expect("Failed to get_adapter_index()");
+        warn!("adapter_index: {adapter_index}");
+        warn!("disabling adapter");
+        services.ExecMethod(
+            // &BSTR::from(format!("Win32_NetworkAdapter.NetConnectionID=\"{}\"", interface_name)),
+            // &BSTR::from(format!("Win32_NetworkAdapter.Index={adapter_index}")),
+            // &BSTR::from(format!("Win32_NetworkAdapterConfiguration.Index={adapter_index}")),
+            &BSTR::from(format!("Win32_NetworkAdapter.Index={adapter_index}")),
+            &BSTR::from("Disable"),
+            WBEM_GENERIC_FLAG_TYPE(0),
+            None,
+            None,
+            None,
+            None,
+        // ).expect("Failed to disable interface");
+        );
+
+        // Wait briefly for the device to go down
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Enable it again
+        warn!("enabling adapter");
+        services.ExecMethod(
+            &BSTR::from(format!("Win32_NetworkAdapter.Index={adapter_index}")),
+            &BSTR::from("Enable"),
+            WBEM_GENERIC_FLAG_TYPE(0),
+            None,
+            None,
+            None,
+            None,
+        // ).expect("Failed to enable interface");
+        );
+
+        warn!("uninitializing");
+        // CoUninitialize();
+    }
+
+    warn!("done");
+    Ok(())
+}
+
+fn get_wmi_adapter_index_by_guid(interface_name: &str) -> windows::core::Result<i32> {
+    unsafe {
+        use windows::Win32::System::Com::{
+            CoInitializeEx, CoCreateInstance, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+            CoSetProxyBlanket, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, EOAC_NONE,
+        };
+        use windows::Win32::System::Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE};
+        use windows::Win32::System::Wmi::{IWbemLocator, IWbemServices, WbemLocator,
+            WBEM_FLAG_FORWARD_ONLY, WBEM_FLAG_RETURN_IMMEDIATELY, WBEM_INFINITE};
+        use windows::core::BSTR;
+
+        let result = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        if result.0 != 0 {
+            error!("Failed to CoInitializeEx()");
+            return Err(HRESULT(0).into());
+        }
+        let locator: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)?;
+        let empty = BSTR::new();
+        let services: IWbemServices = locator.ConnectServer(
+            &BSTR::from("ROOT\\CIMV2"),
+            &empty, &empty, &empty, 0, &empty, None,
+        )?;
+        CoSetProxyBlanket(
+            &services,
+            RPC_C_AUTHN_WINNT,
+            RPC_C_AUTHZ_NONE,
+            None,
+            RPC_C_AUTHN_LEVEL_DEFAULT,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            None,
+            EOAC_NONE,
+        )?;
+
+        let guid = get_adapter_guid(interface_name).expect("Failed to get_adapter_guid()");
+        let guid_str = format!("{{{:?}}}", guid);
+        let query = format!(
+            "SELECT Index FROM Win32_NetworkAdapterConfiguration WHERE SettingID='{}'",
+            guid_str
+        );
+
+        let enumerator = services.ExecQuery(
+            &BSTR::from("WQL"),
+            &BSTR::from(query),
+            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+            None,
+        )?;
+
+        let mut objs = [None];
+        let mut returned = 0;
+        let result = enumerator.Next(WBEM_INFINITE as i32, &mut objs, &mut returned);
+        if returned == 0 ||  result.0 != 0 {
+            error!("enumerator.Next error");
+            // return Err(windows::core::Error::new(
+            //     windows::core::HRESULT(0x80041002),
+            //     "Adapter not found".into(),
+            // ));
+            return Err(HRESULT(0).into());
+        }
+        let obj = objs[0].take().unwrap();
+        let mut variant = VARIANT::default();
+        let result = obj.Get(&BSTR::from("Index"), 0, &mut variant, None, None).expect("Failed to obj.Get()");
+        let index = variant.Anonymous.Anonymous.Anonymous.lVal;
+        // let index = unsafe { variant.Anonymous.Anonymous.lVal }; // safe because VT_I4
+        // if variant.vt() == VT_I4 {
+
+        // }
+        // let index = unsafe { variant.Anonymous.Anonymous.lVal() }; // safe because VT_I4
+        // let index = i32::try_from(variant).expect("Failed to i32::try_from(variant)");
+        Ok(index)
+    }
+}
+
 fn set_mtu_via_wmi(interface_name: &str, mtu: u32) -> windows::core::Result<()> {
     unsafe {
         // Initialize COM
@@ -292,9 +463,14 @@ fn set_mtu_via_wmi(interface_name: &str, mtu: u32) -> windows::core::Result<()> 
         )?;
 
         // Build WQL query
-        let query = format!("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE Description = '{}'", interface_name);
+        // let query = format!("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE Description = '{}'", interface_name);
+        let guid = get_adapter_guid(interface_name).expect("set_mtu failed to get_adapter_guid");
+        // let query = format!("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE GUID = '{{{:?}}}'", guid);
+        let query = format!("SELECT * FROM Win32_NetworkAdapter WHERE GUID = '{{{:?}}}'", guid);
+        // let query = format!("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE NetConnectionID='{}'", interface_name);
+        
         // let mut enumerator = None;
-
+        warn!("Before enumerator");
         let enumerator = services.ExecQuery(
             &BSTR::from("WQL"),
             &BSTR::from(query),
@@ -302,25 +478,34 @@ fn set_mtu_via_wmi(interface_name: &str, mtu: u32) -> windows::core::Result<()> 
             None,
             // &mut enumerator,
         )?;
+        warn!("After enumerator");
 
         let mut objs = [None];
         let mut returned = 0;
         let hr = enumerator.Next(WBEM_INFINITE as i32, &mut objs, &mut returned);
+        warn!("After enumerator.Next");
 
-        if hr.is_err() || returned == 0 {
+        // if hr.is_err() || returned == 0 {
+        if returned == 0 {
+            error!("No adapter found for {interface_name}");
+            return Err(HRESULT(0).into());
+        }
+        if hr.is_err() {
             CoUninitialize();
             // return Err(HRESULT(WBEM_E_NOT_FOUND.0).into());
             error!("hr: {hr}, returned: {returned}");
             return Err(HRESULT(0).into());
         }
 
-        let adapter = objs[0].take().unwrap();
+        let adapter = objs[0].take().expect("objs[0] is None");
+        warn!("After objs[0].take()");
 
         // Prepare input parameters for SetMTU
         // let class_obj = Some(null_mut());
         let mut class_obj: Option<IWbemClassObject> = None;
         let result = services.GetObject(
             &BSTR::from("Win32_NetworkAdapterConfiguration"),
+            // &BSTR::from("Win32_NetworkAdapter"),
             WBEM_GENERIC_FLAG_TYPE(0),
             None,
             Some(&mut class_obj),
@@ -328,6 +513,7 @@ fn set_mtu_via_wmi(interface_name: &str, mtu: u32) -> windows::core::Result<()> 
         );
         if result.is_err() {
             error!("GetObject result: {result:?}");
+            return Err(HRESULT(0).into());
         }
         // let in_params_def = null_mut();
         // let result = class_obj.unwrap().GetMethod(
@@ -344,31 +530,57 @@ fn set_mtu_via_wmi(interface_name: &str, mtu: u32) -> windows::core::Result<()> 
         let mut in_params_def= None;
 
         // Call GetMethod to fill it
-        class_obj.unwrap().GetMethod(
+        class_obj.expect("class_obj is None").GetMethod(
             &BSTR::from("SetMTU"),
             0,
             &mut in_params_def,
             &mut None,
-        )?;
+        ).expect("failed to GetMethod");
         let in_params = in_params_def.unwrap();
         use windows::Win32::System::Variant::{self, VARIANT, VT_I4};
         // use windows::core::VARIANT as CoreVariant;
 
         let mtu: i32 = 1380;
         let mtu_variant = VARIANT::from(mtu as i32);
-        in_params.Put(&BSTR::from("MTU"), 0, &mtu_variant, 0)?;
+        in_params.Put(&BSTR::from("MTU"), 0, &mtu_variant, 0).expect("Failed to in_params.Put()");
         // Execute method
+        let adapter_index = get_adapter_index(interface_name).expect("Failed to get_adapter_index()");
+        // let adapter_index = 12;
+        warn!("Adapter index: {adapter_index}");
         let _out_params = services.ExecMethod(
-            &BSTR::from(format!("Win32_NetworkAdapterConfiguration.Description=\"{}\"", interface_name)),
+            // &BSTR::from(format!("Win32_NetworkAdapterConfiguration.Description=\"{}\"", interface_name)),
+            // &BSTR::from(format!("Win32_NetworkAdapterConfiguration.NetConnectionID=\"{}\"", interface_name)),
+            // &BSTR::from(format!("Win32_NetworkAdapter.GUID=\"{{{:?}}}\"", guid)),
+            &BSTR::from(format!("Win32_NetworkAdapterConfiguration.Index={adapter_index}")),
             &BSTR::from("SetMTU"),
             WBEM_GENERIC_FLAG_TYPE(0),
             None,
             &in_params,
             None,
             None,
-        )?;
+        ).expect("failed to services.ExecMethod()");
 
         CoUninitialize();
+    }
+
+    Ok(())
+}
+
+fn set_interface_mtu(adapter_name: &str, mtu: u32) -> Result<(), WindowsError> {
+    let if_index = get_adapter_index(adapter_name).expect("failed to get_adapter_index()");
+    let mut row: MIB_IFROW = unsafe { std::mem::zeroed() };
+    row.dwIndex = if_index;
+
+    let res = unsafe { GetIfEntry(&mut row) };
+    if res != 0 {
+        return Err(WindowsError::NonZeroReturnValue(res));
+    }
+
+    row.dwMtu = mtu;
+
+    let res = unsafe { SetIfEntry(&row) };
+    if res != 0 {
+        return Err(WindowsError::NonZeroReturnValue(res));
     }
 
     Ok(())
@@ -516,8 +728,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // set_interface_mtu(&self.ifname, mtu)?;
         // let mtu = config.mtu.unwrap_or(1500);
         let mtu = 1300;
-        set_mtu_via_wmi(&self.ifname, mtu).unwrap();
+        set_interface_mtu(&self.ifname, mtu).expect("failed to set_interface_mtu()");
+        // restart_adapter_via_wmi(&self.ifname).expect("restart_adapter_via_wmi failed");
+        adapter.down().map_err(WindowsError::from)?;
         adapter.up().map_err(WindowsError::from)?;
+        // adapter.down().map_err(WindowsError::from)?;
+        // adapter.up().map_err(WindowsError::from)?;
+        // set_mtu_via_wmi(&self.ifname, mtu).expect("set_mtu_via_wmi failed");
+        // restart_adapter_via_wmi(&self.ifname).expect("restart_adapter_via_wmi failed");
 
         info!(
             "Interface {} has been successfully configured.",
