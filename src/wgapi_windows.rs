@@ -12,12 +12,10 @@ use thiserror::Error;
 use windows::{
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
-        NetworkManagement::IpHelper::{
-            DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6,
-            DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIfEntry,
-            IP_ADAPTER_ADDRESSES_LH, MIB_IFROW, SetIfEntry, SetInterfaceDnsSettings,
-        },
-        Networking::WinSock::{ADDRESS_FAMILY, AF_INET6, AF_UNSPEC},
+        NetworkManagement::{IpHelper::{
+            ConvertInterfaceIndexToLuid, DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry
+        }, Ndis::NET_LUID_LH},
+        Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC},
         System::Com::CLSIDFromString,
     },
     core::{GUID, PCSTR, PCWSTR, PSTR},
@@ -179,159 +177,54 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     guid.ok_or_else(|| WindowsError::AdapterNotFound(adapter_name.to_string()))
 }
 
-// use windows::Win32::Foundation::NO_ERROR;
-use windows::Win32::NetworkManagement::IpHelper::{
-    GetIpInterfaceEntry, MIB_IPINTERFACE_ROW, SetIpInterfaceEntry,
-};
+/// Sets both IPv4 and IPv6 MTU on specified interface.
+fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError> {
+    debug!("Setting interface {interface_name} MTU to {mtu}");
+    let if_index = get_adapter_index(interface_name)?;
 
-// fn set_interface_mtu(adapter_name: &str, mtu: u32) -> Result<(), WindowsError> {
-//     let if_index = get_adapter_index(adapter_name)?;
-
-//     // Set for IPv4
-//     let mut row_ipv4: MIB_IPINTERFACE_ROW = unsafe { std::mem::zeroed() };
-//     // row_ipv4.Family = AF_INET;
-//     row_ipv4.InterfaceIndex = if_index;
-//     let res = unsafe { GetIpInterfaceEntry(&mut row_ipv4) };
-//     if res != NO_ERROR {
-//         return Err(WindowsError::NonZeroReturnValue(res.0));
-//     }
-//     row_ipv4.NlMtu = mtu;
-//     let res = unsafe { SetIpInterfaceEntry(&mut row_ipv4) };
-//     if res != NO_ERROR {
-//         return Err(WindowsError::NonZeroReturnValue(res.0));
-//     }
-
-//     // // Set for IPv6 (skip if not enabled)
-//     // let mut row_ipv6: MIB_IPINTERFACE_ROW = unsafe { std::mem::zeroed() };
-//     // row_ipv6.Family = AF_INET6;
-//     // row_ipv6.InterfaceIndex = if_index;
-//     // let res = unsafe { GetIpInterfaceEntry(&mut row_ipv6) };
-//     // if res != NO_ERROR {
-//     //     // IPv6 may not be enabled; handle accordingly (here: skip silently)
-//     //     // return Err(WindowsError::NonZeroReturnValue(res));
-//     // } else {
-//     //     row_ipv6.Mtu = mtu;
-//     //     let res = unsafe { SetIpInterfaceEntry(&row_ipv6) };
-//     //     if res != NO_ERROR {
-//     //         return Err(WindowsError::NonZeroReturnValue(res));
-//     //     }
-//     // }
-
-//     Ok(())
-
-//     // let if_index = get_adapter_index(adapter_name)?;
-
-//     // // Set for IPv4
-//     // // let mut row_ipv4: MIB_IPINTERFACE_ROW = unsafe { std::mem::zeroed() };
-//     // let mut row_ipv4 = MIB_IPINTERFACE_ROW::default();
-//     // // row_ipv4.Family = AF_INET;
-//     // row_ipv4.InterfaceIndex = if_index;
-//     // let res = unsafe { GetIpInterfaceEntry(&mut row_ipv4) };
-//     // if res != NO_ERROR {
-//     //     error!("Failed to GetIpInterfaceEntry: {}", res.0);
-//     //     return Err(WindowsError::NonZeroReturnValue(res.0));
-//     // }
-//     // row_ipv4.NlMtu = mtu;
-//     // let res = unsafe { SetIpInterfaceEntry(&mut row_ipv4) };
-//     // if res != NO_ERROR {
-//     //     error!("Failed to SetIpInterfaceEntry: {}", res.0);
-//     //     return Err(WindowsError::NonZeroReturnValue(res.0));
-//     // }
-
-//     // // // Set for IPv6 (skip if not enabled)
-//     // // let mut row_ipv6: MIB_IPINTERFACE_ROW = unsafe { std::mem::zeroed() };
-//     // // row_ipv6.Family = AF_INET6;
-//     // // row_ipv6.InterfaceIndex = if_index;
-//     // // let res = unsafe { GetIpInterfaceEntry(&mut row_ipv6) };
-//     // // if res != NO_ERROR {
-//     // //     error!("Non-zero result: {}", res.0);
-//     // //     // IPv6 may not be enabled; handle accordingly (here: skip silently)
-//     // //     // return Err(WindowsError::NonZeroReturnValue(res));
-//     // // } else {
-//     // //     warn!("Setting ipv6 mtu");
-//     // //     row_ipv6.NlMtu = mtu;
-//     // //     let res = unsafe { SetIpInterfaceEntry(&mut row_ipv6) };
-//     // //     if res != NO_ERROR {
-//     // //         return Err(WindowsError::NonZeroReturnValue(res.0));
-//     // //     }
-//     // // }
-
-//     // Ok(())
-// }
-
-// fn set_interface_mtu(adapter_name: &str, mtu: u32) -> Result<(), WindowsError> {
-//     let if_index = get_adapter_index(adapter_name).expect("failed to get_adapter_index()");
-//     let mut row: MIB_IFROW = unsafe { std::mem::zeroed() };
-//     row.dwIndex = if_index;
-
-//     let res = unsafe { GetIfEntry(&mut row) };
-//     if res != 0 {
-//         return Err(WindowsError::NonZeroReturnValue(res));
-//     }
-
-//     row.dwMtu = mtu;
-
-//     let res = unsafe { SetIfEntry(&row) };
-//     if res != 0 {
-//         return Err(WindowsError::NonZeroReturnValue(res));
-//     }
-
-//     Ok(())
-// }
-
-use windows::Win32::NetworkManagement::IpHelper::{
-    ConvertInterfaceIndexToLuid, InitializeIpInterfaceEntry,
-    // GetIpInterfaceEntry, SetIpInterfaceEntry, MIB_IPINTERFACE_ROW,
-};
-use windows::Win32::Networking::WinSock::{AF_INET};
-use windows::Win32::NetworkManagement::Ndis::NET_LUID_LH;
-// use windows::Win32::Foundation::NO_ERROR;
-
-fn set_interface_mtu_both_stacks(adapter_name: &str, mtu: u32) -> Result<(), WindowsError> {
-    // 1) Get the interface index (you already have this helper)
-    let if_index = get_adapter_index(adapter_name)?;
-
-    // 2) Convert to LUID (preferred identifier for IP Interface APIs)
+    // Convert interface index to LUID.
     let mut luid = NET_LUID_LH::default();
     let res = unsafe { ConvertInterfaceIndexToLuid(if_index, &mut luid) };
     if res.0 != 0 {
+        error!("ConvertInterfaceIndexToLuid call failed, error value: {}", res.0);
         return Err(WindowsError::NonZeroReturnValue(res.0));
     }
 
-    // helper to do one family
-    unsafe fn set_mtu_for_family(
+    // Helper function, sets MTU for given IP family.
+    fn set_mtu_for_family(
         luid: NET_LUID_LH,
-        family: u16,            // ADDRESS_FAMILY
+        family: u16,
         mtu: u32,
     ) -> Result<(), WindowsError> {
-        let mut row: MIB_IPINTERFACE_ROW = MIB_IPINTERFACE_ROW::default();
-        // MUST call Initialize before Get/Set
+        let mut row = MIB_IPINTERFACE_ROW::default();
+        // InitializeIpInterfaceEntry has to be called before get/set operations.
         let family = ADDRESS_FAMILY(family);
-        InitializeIpInterfaceEntry(&mut row);
+        unsafe {InitializeIpInterfaceEntry(&mut row) };
         row.InterfaceLuid = luid;
         row.Family = family;
 
-        // Load current, then modify
-        let res = GetIpInterfaceEntry(&mut row);
+        // Load current configuration.
+        let res = unsafe { GetIpInterfaceEntry(&mut row) };
         if res.0 != 0 {
+            error!("GetIpInterfaceEntry call failed, error value: {}", res.0);
             return Err(WindowsError::NonZeroReturnValue(res.0));
         }
 
+        // Modify the configuration and apply.
         row.NlMtu = mtu;
-
-        let res = SetIpInterfaceEntry(&mut row);
+        let res = unsafe { SetIpInterfaceEntry(&mut row) };
         if res.0 != 0 {
+            error!("SetIpInterfaceEntry call failed, error value: {}", res.0);
             return Err(WindowsError::NonZeroReturnValue(res.0));
         }
         Ok(())
     }
 
-    // 3) Apply for IPv4 and IPv6
-    unsafe {
-        set_mtu_for_family(luid, AF_INET.0 as u16,  mtu)?;
-        set_mtu_for_family(luid, AF_INET6.0 as u16, mtu)?;
-    }
+    // Set MTU for both IP addr families.
+    set_mtu_for_family(luid, AF_INET.0,  mtu)?;
+    set_mtu_for_family(luid, AF_INET6.0, mtu)?;
 
+    info!("Set interface {interface_name} MTU to {mtu}");
     Ok(())
 }
 
@@ -474,7 +367,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         debug!("Bringing up adapter {}", self.ifname);
 
         // Set MTU
-        set_interface_mtu_both_stacks(&self.ifname, 1300)?;
+        set_interface_mtu(&self.ifname, 1300)?;
         adapter.down().map_err(WindowsError::from)?;
         // if let Some(mtu) = config.mtu {
         //     set_interface_mtu(&self.ifname, mtu)?;
