@@ -12,9 +12,16 @@ use thiserror::Error;
 use windows::{
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
-        NetworkManagement::{IpHelper::{
-            ConvertInterfaceIndexToLuid, DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry
-        }, Ndis::NET_LUID_LH},
+        NetworkManagement::{
+            IpHelper::{
+                ConvertInterfaceIndexToLuid, DNS_INTERFACE_SETTINGS,
+                DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
+                GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry,
+                IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW,
+                SetInterfaceDnsSettings, SetIpInterfaceEntry,
+            },
+            Ndis::NET_LUID_LH,
+        },
         Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC},
         System::Com::CLSIDFromString,
     },
@@ -186,20 +193,19 @@ fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError>
     let mut luid = NET_LUID_LH::default();
     let res = unsafe { ConvertInterfaceIndexToLuid(if_index, &mut luid) };
     if res.0 != 0 {
-        error!("ConvertInterfaceIndexToLuid call failed, error value: {}", res.0);
+        error!(
+            "ConvertInterfaceIndexToLuid call failed, error value: {}",
+            res.0
+        );
         return Err(WindowsError::NonZeroReturnValue(res.0));
     }
 
     // Helper function, sets MTU for given IP family.
-    fn set_mtu_for_family(
-        luid: NET_LUID_LH,
-        family: u16,
-        mtu: u32,
-    ) -> Result<(), WindowsError> {
+    fn set_mtu_for_family(luid: NET_LUID_LH, family: u16, mtu: u32) -> Result<(), WindowsError> {
         let mut row = MIB_IPINTERFACE_ROW::default();
         // InitializeIpInterfaceEntry has to be called before get/set operations.
         let family = ADDRESS_FAMILY(family);
-        unsafe {InitializeIpInterfaceEntry(&mut row) };
+        unsafe { InitializeIpInterfaceEntry(&mut row) };
         row.InterfaceLuid = luid;
         row.Family = family;
 
@@ -221,7 +227,7 @@ fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError>
     }
 
     // Set MTU for both IP addr families.
-    set_mtu_for_family(luid, AF_INET.0,  mtu)?;
+    set_mtu_for_family(luid, AF_INET.0, mtu)?;
     set_mtu_for_family(luid, AF_INET6.0, mtu)?;
 
     info!("Set interface {interface_name} MTU to {mtu}");
