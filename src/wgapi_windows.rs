@@ -161,14 +161,13 @@ fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError>
 
     // Helper function, sets MTU for given IP family.
     fn set_mtu_for_family(luid: NET_LUID_LH, family: u16, mtu: u32) -> Result<(), WindowsError> {
-        let mut row = MIB_IPINTERFACE_ROW::default();
         // InitializeIpInterfaceEntry has to be called before get/set operations.
-        let family = ADDRESS_FAMILY(family);
+        let mut row = MIB_IPINTERFACE_ROW::default();
         unsafe { InitializeIpInterfaceEntry(&mut row) };
-        row.InterfaceLuid = luid;
-        row.Family = family;
 
         // Load current configuration.
+        row.InterfaceLuid = luid;
+        row.Family = ADDRESS_FAMILY(family);
         let res = unsafe { GetIpInterfaceEntry(&mut row) };
         if res.0 != 0 {
             error!("GetIpInterfaceEntry call failed, error value: {}", res.0);
