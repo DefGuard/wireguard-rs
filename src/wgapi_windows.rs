@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
+    ffi::OsStr,
     net::IpAddr,
+    os::windows::ffi::OsStrExt,
     str::FromStr,
     sync::{LazyLock, Mutex},
 };
@@ -10,12 +12,17 @@ use thiserror::Error;
 use windows::{
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
-        NetworkManagement::IpHelper::{
-            DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6,
-            DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
-            IP_ADAPTER_ADDRESSES_LH, SetInterfaceDnsSettings,
+        NetworkManagement::{
+            IpHelper::{
+                ConvertInterfaceGuidToLuid, DNS_INTERFACE_SETTINGS,
+                DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
+                GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry,
+                IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW,
+                SetInterfaceDnsSettings, SetIpInterfaceEntry,
+            },
+            Ndis::NET_LUID_LH,
         },
-        Networking::WinSock::AF_UNSPEC,
+        Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC},
         System::Com::CLSIDFromString,
     },
     core::{GUID, PCSTR, PCWSTR, PSTR},
@@ -136,6 +143,55 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     guid.ok_or_else(|| WindowsError::AdapterNotFound(adapter_name.to_string()))
 }
 
+/// Sets both IPv4 and IPv6 MTU on specified interface.
+fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError> {
+    debug!("Setting interface {interface_name} MTU to {mtu}");
+    let guid = get_adapter_guid(interface_name)?;
+
+    // Convert interface GUID to LUID.
+    let mut luid = NET_LUID_LH::default();
+    let res = unsafe { ConvertInterfaceGuidToLuid(&guid, &mut luid) };
+    if res.0 != 0 {
+        error!(
+            "ConvertInterfaceGuidToLuid call failed, error value: {}",
+            res.0
+        );
+        return Err(WindowsError::NonZeroReturnValue(res.0));
+    }
+
+    // Helper function, sets MTU for given IP family.
+    fn set_mtu_for_family(luid: NET_LUID_LH, family: u16, mtu: u32) -> Result<(), WindowsError> {
+        // InitializeIpInterfaceEntry has to be called before get/set operations.
+        let mut row = MIB_IPINTERFACE_ROW::default();
+        unsafe { InitializeIpInterfaceEntry(&mut row) };
+
+        // Load current configuration.
+        row.InterfaceLuid = luid;
+        row.Family = ADDRESS_FAMILY(family);
+        let res = unsafe { GetIpInterfaceEntry(&mut row) };
+        if res.0 != 0 {
+            error!("GetIpInterfaceEntry call failed, error value: {}", res.0);
+            return Err(WindowsError::NonZeroReturnValue(res.0));
+        }
+
+        // Modify the configuration and apply.
+        row.NlMtu = mtu;
+        let res = unsafe { SetIpInterfaceEntry(&mut row) };
+        if res.0 != 0 {
+            error!("SetIpInterfaceEntry call failed, error value: {}", res.0);
+            return Err(WindowsError::NonZeroReturnValue(res.0));
+        }
+        Ok(())
+    }
+
+    // Set MTU for both IP addr families.
+    set_mtu_for_family(luid, AF_INET.0, mtu)?;
+    set_mtu_for_family(luid, AF_INET6.0, mtu)?;
+
+    info!("Set interface {interface_name} MTU to {mtu}");
+    Ok(())
+}
+
 impl From<wireguard_nt::WireguardPeer> for Peer {
     fn from(peer: wireguard_nt::WireguardPeer) -> Self {
         Self {
@@ -173,7 +229,7 @@ impl From<wireguard_nt::WireguardInterface> for Host {
 
 /// Converts an str to wide (u16), null-terminated
 fn str_to_wide_null_terminated(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
+    OsStr::new(s).encode_wide().chain(Some(0)).collect()
 }
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
@@ -272,7 +328,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
 
-        // Bring the adapter up
+        // Set MTU
+        if let Some(mtu) = config.mtu {
+            set_interface_mtu(&self.ifname, mtu)?;
+            // Turn it off and on again.
+            adapter.down().map_err(WindowsError::from)?;
+        }
+
+        // Bring the adapter up.
         debug!("Bringing up adapter {}", self.ifname);
         adapter.up().map_err(WindowsError::from)?;
 
