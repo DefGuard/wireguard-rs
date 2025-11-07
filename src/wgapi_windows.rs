@@ -270,6 +270,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Configuring interface {} with config: {config:?}",
             self.ifname
         );
+
         // Retrieve the adapter - should be created by calling `Self::create_interface` first.
         let Some(ref adapter) = self.adapter else {
             Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
@@ -328,19 +329,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
 
-        // Bring the adapter up
-        debug!("Bringing up adapter {}", self.ifname);
-
         // Set MTU
-        set_interface_mtu(&self.ifname, 1300)?;
-        adapter.down().map_err(WindowsError::from)?;
-        // if let Some(mtu) = config.mtu {
-        //     set_interface_mtu(&self.ifname, mtu)?;
-        //     // Turn it off and on again
-        //     adapter.down().map_err(WindowsError::from)?;
-        // }
+        if let Some(mtu) = config.mtu {
+            set_interface_mtu(&self.ifname, mtu)?;
+            // Turn it off and on again.
+            adapter.down().map_err(WindowsError::from)?;
+        }
 
+        // Bring the adapter up.
+        debug!("Bringing up adapter {}", self.ifname);
         adapter.up().map_err(WindowsError::from)?;
+
         info!(
             "Interface {} has been successfully configured.",
             self.ifname
