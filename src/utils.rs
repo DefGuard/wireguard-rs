@@ -59,7 +59,7 @@ fn construct_resolvconf_ifname(base_ifname: &str) -> String {
                                 captures.get(1).map(|matched_iface| {
                                     // Output format: <highest_priority_iface>.<base_ifname>
                                     let constructed_ifname =
-                                        format!("{}.{}", matched_iface.as_str(), base_ifname);
+                                        format!("{}.{base_ifname}", matched_iface.as_str());
                                     debug!(
                                         "Constructed interface name from interface_order: {constructed_ifname}"
                                     );
