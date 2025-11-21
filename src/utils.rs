@@ -1,14 +1,22 @@
 #[cfg(target_os = "macos")]
-use std::io::{BufRead, BufReader, Cursor, Error as IoError};
+use std::io::{Cursor, Error as IoError};
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::net::{SocketAddr, ToSocketAddrs};
 #[cfg(target_os = "linux")]
 use std::{collections::HashSet, fs::OpenOptions};
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use std::{io::Write, process::Stdio};
+use std::{
+    io::{BufRead, BufReader},
+    net::{SocketAddr, ToSocketAddrs},
+};
 #[cfg(not(target_os = "windows"))]
 use std::{net::IpAddr, process::Command};
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use std::{
+    net::{SocketAddr, ToSocketAddrs},
+    path::Path,
+};
 
 #[cfg(not(target_os = "windows"))]
 use crate::Peer;
@@ -25,6 +33,55 @@ use crate::{
 use crate::{IpVersion, check_command_output_status, netlink};
 
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+const IFACE_ORDER_PATH: &str = "/etc/resolvconf/interface-order";
+
+/// Constructs the resolvconf interface name for manipulating DNS settings.
+/// Resolvconf may be symlinked to resolvectl on some systems that use systemd-resolved.
+/// In such cases there is no need to prefix the interface name and this function just returns
+/// the base interface name.
+///
+/// On other systems, especially those that don't use systemd-resolved (Debian 13)
+/// resolvconf may be a binary from the "resolvconf" package. In such cases, this function
+/// reads the interface-order file to find a highest priority interface prefix and constructs
+/// the full interface name prefixing the base interface name with the found prefix.
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+fn construct_resolvconf_ifname(base_ifname: &str) -> String {
+    let iface_order = Path::new(IFACE_ORDER_PATH);
+    if iface_order.exists() {
+        // Check if resolvconf command is a symlink or a binary
+        if let Ok(Some(resolvconf_path)) = get_command_path("resolvconf") {
+            if let Ok(metadata) = std::fs::symlink_metadata(&resolvconf_path) {
+                if !metadata.file_type().is_symlink() {
+                    // It's a binary, proceed to read interface_order file
+                    let iface_regex = regex::Regex::new(r"^([A-Za-z0-9-]+)\*$").unwrap();
+                    if let Ok(file) = std::fs::File::open(iface_order) {
+                        let reader = BufReader::new(file);
+                        if let Some(constructed_ifname) = reader.lines().map_while(Result::ok).find_map(|line| {
+                            let iface = line.trim();
+                            iface_regex.captures(iface).and_then(|captures| {
+                                captures.get(1).map(|matched_iface| {
+                                    // Output format: <highest_priority_iface>.<base_ifname>
+                                    let constructed_ifname =
+                                        format!("{}.{}", matched_iface.as_str(), base_ifname);
+                                    debug!(
+                                        "Constructed interface name from interface_order: {constructed_ifname}"
+                                    );
+                                    constructed_ifname
+                                })
+                            })
+                        }) {
+                            return constructed_ifname;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    base_ifname.into()
+}
+
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 pub(crate) fn configure_dns(
     ifname: &str,
     dns: &[IpAddr],
@@ -36,7 +93,8 @@ pub(crate) fn configure_dns(
         domains: {search_domains:?}"
     );
     let mut cmd = Command::new("resolvconf");
-    let mut args = vec!["-a", ifname, "-m", "0"];
+    let ifname = construct_resolvconf_ifname(ifname);
+    let mut args = vec!["-a", &ifname, "-m", "0"];
     // Set the exclusive flag if no search domains are provided,
     // making the DNS servers a preferred route for any domain
     if search_domains.is_empty() {
@@ -170,7 +228,8 @@ pub(crate) fn configure_dns(
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
     debug!("Removing DNS configuration for interface {ifname}");
-    let args = ["-d", ifname, "-f"];
+    let ifname = construct_resolvconf_ifname(ifname);
+    let args = ["-d", &ifname, "-f"];
     debug!("Executing resolvconf with args: {args:?}");
     let mut cmd = Command::new("resolvconf");
     let output = cmd.args(args).output()?;
@@ -536,4 +595,34 @@ pub(crate) fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError>
         .map_err(|_| error())?
         .next()
         .ok_or_else(error)
+}
+
+pub(crate) fn get_command_path(
+    command: &str,
+) -> Result<Option<std::path::PathBuf>, WireguardInterfaceError> {
+    use std::env;
+
+    debug!("Searching for command {command} in PATH");
+    let paths = env::var_os("PATH").ok_or_else(|| {
+        WireguardInterfaceError::MissingDependency("Environment variable `PATH` not found".into())
+    })?;
+    debug!("PATH variable: {paths:?}");
+
+    Ok(env::split_paths(&paths).find_map(|dir| {
+        let full_path = dir.join(command);
+        match full_path.try_exists() {
+            Ok(true) => {
+                debug!("Command {command} found in {dir:?}");
+                Some(full_path)
+            }
+            Ok(false) => {
+                debug!("Command {command} not found in {dir:?}");
+                None
+            }
+            Err(err) => {
+                warn!("Error while checking for {command} in {dir:?}: {err}");
+                None
+            }
+        }
+    }))
 }

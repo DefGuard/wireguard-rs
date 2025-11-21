@@ -397,6 +397,7 @@ dependencies = [
  "netlink-packet-wireguard",
  "netlink-sys",
  "nix",
+ "regex",
  "serde",
  "serde_test",
  "thiserror 2.0.17",
