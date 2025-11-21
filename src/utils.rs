@@ -2,6 +2,8 @@
 use std::io::{Cursor, Error as IoError};
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use std::net::{Ipv4Addr, Ipv6Addr};
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::{collections::HashSet, fs::OpenOptions};
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
@@ -12,11 +14,6 @@ use std::{
 };
 #[cfg(not(target_os = "windows"))]
 use std::{net::IpAddr, process::Command};
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::{
-    net::{SocketAddr, ToSocketAddrs},
-    path::Path,
-};
 
 #[cfg(not(target_os = "windows"))]
 use crate::Peer;
