@@ -34,6 +34,9 @@ netlink-packet-utils = "0.6"
 netlink-packet-wireguard = "0.2"
 netlink-sys = "0.8"
 
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
+regex = "1.12"
+
 [features]
 default = ["serde"]
 check_dependencies = []
