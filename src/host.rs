@@ -1,4 +1,7 @@
 //! Host interface configuration
+//!
+//! Reference:
+//! * WireGuard [Cross-platform Userspace Implementation](https://www.wireguard.com/xplatform/)
 
 use std::{
     collections::HashMap,
