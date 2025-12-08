@@ -1,12 +1,12 @@
 use std::env;
 
-use crate::error::WireguardInterfaceError;
+use crate::{error::WireguardInterfaceError, utils::get_command_path};
 
 #[cfg(target_os = "linux")]
 const COMMANDS: [&str; 2] = ["resolvconf", "ip"];
 
 #[cfg(target_os = "windows")]
-const COMMANDS: [&str; 1] = [("wireguard.exe")];
+const COMMANDS: [&str; 0] = [];
 
 #[cfg(target_os = "macos")]
 const COMMANDS: [&str; 1] = ["networksetup"];
@@ -16,37 +16,19 @@ const COMMANDS: [&str; 1] = ["resolvconf"];
 
 pub(crate) fn check_external_dependencies() -> Result<(), WireguardInterfaceError> {
     debug!("Checking if all commands required by wireguard-rs are available");
-    let paths = env::var_os("PATH").ok_or(WireguardInterfaceError::MissingDependency(
-        "Environment variable `PATH` not found".into(),
-    ))?;
-
-    // Find the missing command to provide a more informative error message later.
-    let missing = COMMANDS.iter().find(|cmd| {
-        !env::split_paths(&paths).any(|dir| {
-            trace!("Trying to find {cmd} in {dir:?}");
-            match dir.join(cmd).try_exists() {
-                Ok(true) => {
-                    debug!("{cmd} found in {dir:?}");
-                    true
-                }
-                Ok(false) => {
-                    trace!("{cmd} not found in {dir:?}");
-                    false
-                }
-                Err(err) => {
-                    warn!("Error while checking for {cmd} in {dir:?}: {err}");
-                    false
-                }
-            }
-        })
+    let paths = env::var_os("PATH").ok_or_else(|| {
+        WireguardInterfaceError::MissingDependency("Environment variable `PATH` not found".into())
     });
 
-    if let Some(cmd) = missing {
-        Err(WireguardInterfaceError::MissingDependency(format!(
-            "Command `{cmd}` required by wireguard-rs couldn't be found. The following directories were checked: {paths:?}"
-        )))
-    } else {
-        debug!("All commands required by wireguard-rs are available");
-        Ok(())
-    }
+    // Find the missing command to provide a more informative error message later.
+    let missing_command = COMMANDS
+        .iter()
+        .find(|cmd| get_command_path(cmd).map_or(true, |path_opt| path_opt.is_none()));
+
+    missing_command.map_or_else(|| {
+            debug!("All commands required by wireguard-rs are available");
+            Ok(())
+    }, |cmd| Err(WireguardInterfaceError::MissingDependency(format!(
+        "Command `{cmd}` required by wireguard-rs couldn't be found. The following directories were checked: {paths:?}"
+    ))))
 }

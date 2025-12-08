@@ -1,4 +1,7 @@
 //! Host interface configuration
+//!
+//! Reference:
+//! * WireGuard [Cross-platform Userspace Implementation](https://www.wireguard.com/xplatform/)
 
 use std::{
     collections::HashMap,
@@ -355,11 +358,10 @@ impl Host {
                 WgDeviceAttrs::Peers(nlas) => {
                     for nla in nlas {
                         let peer = Peer::from_nlas(nla);
-                        // On some systems, a dual-stack (IPv4 + IPv6) configuration creates separate peer entries
-                        // for each address family. These entries share the same public key, so inserting a new
-                        // peer would overwrite the existing one. To avoid this, we first check if the peer
-                        // already exists and, if it does, update its statistics instead of replacing it.
+                        // On tunnels with a lot of routes, the peer info may be split across multiple
+                        // entries. We need to merge them here.
                         // https://github.com/DefGuard/client/issues/617
+                        // https://github.com/DefGuard/wireguard-rs/issues/101
                         if let Some(existing_peer) = self.peers.get_mut(&peer.public_key) {
                             existing_peer.rx_bytes += peer.rx_bytes;
                             existing_peer.tx_bytes += peer.tx_bytes;
@@ -370,6 +372,20 @@ impl Host {
                                     (None, Some(y)) => Some(y),
                                     (None, None) => None,
                                 };
+                            if peer.preshared_key.is_some() {
+                                existing_peer.preshared_key = peer.preshared_key;
+                            }
+                            if peer.protocol_version.is_some() {
+                                existing_peer.protocol_version = peer.protocol_version;
+                            }
+                            if peer.endpoint.is_some() {
+                                existing_peer.endpoint = peer.endpoint;
+                            }
+                            if peer.persistent_keepalive_interval.is_some() {
+                                existing_peer.persistent_keepalive_interval =
+                                    peer.persistent_keepalive_interval;
+                            }
+                            existing_peer.allowed_ips.extend(peer.allowed_ips);
                         } else {
                             self.peers.insert(peer.public_key.clone(), peer);
                         }

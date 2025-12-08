@@ -12,7 +12,7 @@ use crate::{
 /// Requires FreeBSD version 13+.
 impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Creates a WireGuard network interface.
-    fn create_interface(&self) -> Result<(), WireguardInterfaceError> {
+    fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         let _ = bsd::load_wireguard_kernel_module();
         debug!("Creating interface {}", &self.ifname);
         bsd::create_interface(&self.ifname)?;

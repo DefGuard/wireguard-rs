@@ -1,7 +1,10 @@
 //! Shared multi-platform management API abstraction
 use std::marker::PhantomData;
 
+#[cfg(unix)]
 use boringtun::device::DeviceHandle;
+#[cfg(target_os = "windows")]
+use wireguard_nt::Adapter;
 
 #[cfg(feature = "check_dependencies")]
 use crate::dependencies::check_external_dependencies;
@@ -16,7 +19,10 @@ pub struct Userspace;
 /// to detect the correct API implementation for most common platforms.
 pub struct WGApi<API = Kernel> {
     pub(super) ifname: String,
+    #[cfg(unix)]
     pub(super) device_handle: Option<DeviceHandle>,
+    #[cfg(target_os = "windows")]
+    pub(super) adapter: Option<Adapter>,
     pub(super) _api: PhantomData<API>,
 }
 
@@ -27,7 +33,10 @@ impl<API> WGApi<API> {
         check_external_dependencies()?;
         Ok(WGApi {
             ifname: ifname.into(),
+            #[cfg(unix)]
             device_handle: None,
+            #[cfg(target_os = "windows")]
+            adapter: None,
             _api: PhantomData,
         })
     }

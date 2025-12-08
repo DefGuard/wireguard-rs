@@ -67,7 +67,7 @@ mod dependencies;
 mod wgapi_freebsd;
 #[cfg(target_os = "linux")]
 mod wgapi_linux;
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 mod wgapi_userspace;
 #[cfg(target_family = "windows")]
 mod wgapi_windows;
@@ -105,7 +105,7 @@ pub struct InterfaceConfiguration {
     pub name: String,
     pub prvkey: String,
     pub addresses: Vec<IpAddrMask>,
-    pub port: u32,
+    pub port: u16,
     pub peers: Vec<Peer>,
     /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
     pub mtu: Option<u32>,
@@ -129,7 +129,7 @@ impl TryFrom<&InterfaceConfiguration> for Host {
 
     fn try_from(config: &InterfaceConfiguration) -> Result<Self, Self::Error> {
         let key = config.prvkey.as_str().try_into()?;
-        let mut host = Host::new(config.port as u16, key);
+        let mut host = Host::new(config.port, key);
         for peercfg in &config.peers {
             let peer = peercfg.clone();
             let key: Key = peer.public_key.clone();
