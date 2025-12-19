@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use boringtun::device::{DeviceConfig, DeviceHandle};
+use defguard_boringtun::device::{DeviceConfig, DeviceHandle};
 
 #[cfg(target_os = "linux")]
 use crate::netlink;

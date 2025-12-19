@@ -2,7 +2,7 @@
 use std::marker::PhantomData;
 
 #[cfg(unix)]
-use boringtun::device::DeviceHandle;
+use defguard_boringtun::device::DeviceHandle;
 #[cfg(target_os = "windows")]
 use wireguard_nt::Adapter;
 
