@@ -30,11 +30,7 @@ use netlink_sys::{
 };
 use thiserror::Error;
 
-use crate::{
-    IpVersion, Key, WireguardInterfaceError,
-    host::{Host, Peer},
-    net::IpAddrMask,
-};
+use crate::{IpVersion, Key, WireguardInterfaceError, host::Host, net::IpAddrMask, peer::Peer};
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
 

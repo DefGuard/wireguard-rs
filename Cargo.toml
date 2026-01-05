@@ -1,6 +1,6 @@
 [package]
 name = "defguard_wireguard_rs"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
@@ -44,7 +44,7 @@ wireguard-nt = "0.5"
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-packet-core = "0.8"
 netlink-packet-generic = "0.4"
-netlink-packet-route = "0.25"
+netlink-packet-route = "0.28"
 netlink-packet-utils = "0.6"
 netlink-packet-wireguard = "0.2"
 netlink-sys = "0.8"

@@ -5,8 +5,8 @@ use std::{
 };
 
 use defguard_wireguard_rs::{
-    InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, host::Peer, key::Key,
-    net::IpAddrMask,
+    InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, key::Key, net::IpAddrMask,
+    peer::Peer,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
@@ -63,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         port: 12345,
         peers: vec![peer],
         mtu: None,
+        fwmark: None,
     };
 
     #[cfg(not(windows))]

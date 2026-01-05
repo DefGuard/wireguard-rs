@@ -570,7 +570,7 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
-/// Clean fwmark rules while removing interface same as in wg-quick
+/// Clean fwmark rules while removing interface (based on wg-quick).
 #[cfg(target_os = "linux")]
 pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceError> {
     debug!("Removing firewall rules.");

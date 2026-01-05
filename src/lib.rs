@@ -58,6 +58,7 @@ pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
 pub(crate) mod netlink;
+pub mod peer;
 mod utils;
 mod wgapi;
 
@@ -84,12 +85,7 @@ use serde::{Deserialize, Serialize};
 pub use wgapi::{Kernel, Userspace, WGApi};
 pub use wireguard_interface::WireguardInterfaceApi;
 
-use self::{
-    error::WireguardInterfaceError,
-    host::{Host, Peer},
-    key::Key,
-    net::IpAddrMask,
-};
+use self::{error::WireguardInterfaceError, host::Host, key::Key, net::IpAddrMask, peer::Peer};
 
 // Internet Protocol (IP) address variant.
 #[derive(Clone, Copy)]
@@ -109,6 +105,8 @@ pub struct InterfaceConfiguration {
     pub peers: Vec<Peer>,
     /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
     pub mtu: Option<u32>,
+    /// Firewall mark.
+    pub fwmark: Option<u32>,
 }
 
 // Implement `Debug` manually to avoid exposing private keys.
@@ -120,6 +118,7 @@ impl fmt::Debug for InterfaceConfiguration {
             .field("port", &self.port)
             .field("peers", &self.peers)
             .field("mtu", &self.mtu)
+            .field("fwmark", &self.fwmark)
             .finish_non_exhaustive()
     }
 }
@@ -130,6 +129,7 @@ impl TryFrom<&InterfaceConfiguration> for Host {
     fn try_from(config: &InterfaceConfiguration) -> Result<Self, Self::Error> {
         let key = config.prvkey.as_str().try_into()?;
         let mut host = Host::new(config.port, key);
+        host.fwmark = config.fwmark;
         for peercfg in &config.peers {
             let peer = peercfg.clone();
             let key: Key = peer.public_key.clone();
