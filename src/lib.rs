@@ -11,7 +11,7 @@
 //!
 //! ```no_run
 //! use x25519_dalek::{EphemeralSecret, PublicKey};
-//! use defguard_wireguard_rs::{InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, host::Peer};
+//! use defguard_wireguard_rs::{InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, peer::Peer};
 //! # use defguard_wireguard_rs::error::WireguardInterfaceError;
 //!
 //! // Create new API struct for interface
@@ -31,8 +31,9 @@
 //!     prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
 //!     addresses: vec!["10.6.0.30".parse().unwrap()],
 //!     port: 12345,
-//!     peers: vec![],
+//!     peers: Vec::new(),
 //!     mtu: None,
+//!     fwmark: None,
 //! };
 //! wgapi.configure_interface(&interface_config)?;
 //!
