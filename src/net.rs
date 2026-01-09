@@ -14,6 +14,8 @@ use netlink_packet_wireguard::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::IpVersion;
+
 /// IP address with CIDR.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
@@ -95,6 +97,16 @@ impl IpAddrMask {
             self.cidr == 32
         } else {
             self.cidr == 128
+        }
+    }
+
+    /// Returns `IpVersion` for this address.
+    #[must_use]
+    pub fn ip_version(&self) -> IpVersion {
+        if self.address.is_ipv4() {
+            IpVersion::IPv4
+        } else {
+            IpVersion::IPv6
         }
     }
 

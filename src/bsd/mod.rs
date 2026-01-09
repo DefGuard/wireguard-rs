@@ -31,11 +31,7 @@ use self::{
     timespec::{pack_timespec, unpack_timespec},
     wgio::{WgReadIo, WgWriteIo},
 };
-use crate::{
-    IpVersion, Key, WireguardInterfaceError,
-    host::{Host, Peer},
-    net::IpAddrMask,
-};
+use crate::{IpVersion, Key, WireguardInterfaceError, host::Host, net::IpAddrMask, peer::Peer};
 
 // Note: these values differ across different platforms.
 const AF_INET: u8 = libc::AF_INET as u8;

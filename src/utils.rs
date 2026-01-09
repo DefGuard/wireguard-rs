@@ -7,7 +7,7 @@ use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::{collections::HashSet, fs::OpenOptions};
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::{io::Write, process::Stdio};
+use std::{io::Write, path::PathBuf, process::Stdio};
 use std::{
     io::{BufRead, BufReader},
     net::{SocketAddr, ToSocketAddrs},
@@ -236,17 +236,13 @@ pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
 }
 
 #[cfg(target_os = "linux")]
-const DEFAULT_FWMARK_TABLE: u32 = 51820;
-
-#[cfg(target_os = "linux")]
 fn setup_default_route(
     ifname: &str,
-    addr: &crate::IpAddrMask,
+    addr: &super::IpAddrMask,
 ) -> Result<(), WireguardInterfaceError> {
+    const DEFAULT_FWMARK_TABLE: u32 = 51820; // specific to wg-quick
+
     debug!("Found default route in AllowedIPs: {addr:?}");
-    let is_ipv6 = addr.address.is_ipv6();
-    let proto = if is_ipv6 { "-6" } else { "-4" };
-    debug!("Using the following IP version: {proto}");
 
     debug!("Getting current host configuration for interface {ifname}");
     let mut host = netlink::get_host(ifname)?;
@@ -259,10 +255,8 @@ fn setup_default_route(
         Some(_) | None => {
             let mut table = DEFAULT_FWMARK_TABLE;
             loop {
-                let output = Command::new("ip")
-                    .args([proto, "route", "show", "table", &table.to_string()])
-                    .output()?;
-                if output.stdout.is_empty() {
+                let count = netlink::count_routes(addr.ip_version(), table)?;
+                if count == 0 {
                     host.fwmark = Some(table);
                     netlink::set_host(ifname, &host)?;
                     debug!("Assigned fwmark: {table}");
@@ -287,7 +281,7 @@ fn setup_default_route(
     netlink::add_main_table_rule(addr, 0)?;
     debug!("Main table rule added successfully");
 
-    if !is_ipv6 {
+    if !addr.address.is_ipv6() {
         debug!("Setting net.ipv4.conf.all.src_valid_mark=1");
         OpenOptions::new()
             .write(true)
@@ -570,7 +564,7 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
-/// Clean fwmark rules while removing interface same as in wg-quick
+/// Clean fwmark rules while removing interface (based on wg-quick).
 #[cfg(target_os = "linux")]
 pub(crate) fn clean_fwmark_rules(fwmark: u32) -> Result<(), WireguardInterfaceError> {
     debug!("Removing firewall rules.");
@@ -595,9 +589,7 @@ pub(crate) fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError>
 }
 
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-pub(crate) fn get_command_path(
-    command: &str,
-) -> Result<Option<std::path::PathBuf>, WireguardInterfaceError> {
+pub(crate) fn get_command_path(command: &str) -> Result<Option<PathBuf>, WireguardInterfaceError> {
     use std::env;
 
     debug!("Searching for command {command} in PATH");
@@ -610,15 +602,18 @@ pub(crate) fn get_command_path(
         let full_path = dir.join(command);
         match full_path.try_exists() {
             Ok(true) => {
-                debug!("Command {command} found in {dir:?}");
+                debug!("Command {command} found in {}", dir.display());
                 Some(full_path)
             }
             Ok(false) => {
-                debug!("Command {command} not found in {dir:?}");
+                debug!("Command {command} not found in {}", dir.display());
                 None
             }
             Err(err) => {
-                warn!("Error while checking for {command} in {dir:?}: {err}");
+                warn!(
+                    "Error while checking for {command} in {}: {err}",
+                    dir.display()
+                );
                 None
             }
         }
