@@ -65,11 +65,12 @@ See the [documentation](https://defguard.gitbook.io) for more information.
 
 ## Community and Support
 
-Find us on Matrix: [#defguard:teonite.com](https://matrix.to/#/#defguard:teonite.com)
+If you encounter any issues with Defguard, you can reach out to our community for support via [GitHub Discussions](https://github.com/DefGuard/defguard/discussions/new/choose)
 
 ## Contribution
 
 Please review the [Contributing guide](https://defguard.gitbook.io/defguard/for-developers/contributing) for information on how to get started contributing to the project. You might also find our [environment setup guide](https://defguard.gitbook.io/defguard/for-developers/dev-env-setup) handy.
 
 # Legal
+
 WireGuard® is [registered trademarks](https://www.wireguard.com/trademark-policy/) of Jason A. Donenfeld.
