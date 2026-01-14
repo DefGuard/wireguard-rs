@@ -9,16 +9,16 @@ It was developed as part of [defguard](https://github.com/defguard/defguard) sec
 
 ## Supported platforms
 
-* Native OS Kernel: Linux, FreeBSD (and pfSense/OPNSense), NetBSD, Windows
-* Userspace: Linux, macOS, FreeBSD, NetBSD
+- Native OS Kernel: Linux, FreeBSD (and pfSense/OPNSense), NetBSD, Windows
+- Userspace: Linux, macOS, FreeBSD, NetBSD
 
 ### Unique features
 
-* **Peer routing** - see [WGApi](https://docs.rs/defguard_wireguard_rs/latest/defguard_wireguard_rs/struct.WGApi.html) docs.
-* Configuring **DNS resolver** - see [WGApi](https://docs.rs/defguard_wireguard_rs/latest/defguard_wireguard_rs/struct.WGApi.html) docs.
-  * On FreeBSD network interfaces are managed using **ioctl**.
-  * On Linux, handle network routing using **netlink**.
-  * **fwmark** handling
+- **Peer routing** - see [WGApi](https://docs.rs/defguard_wireguard_rs/latest/defguard_wireguard_rs/struct.WGApi.html) docs.
+- Configuring **DNS resolver** - see [WGApi](https://docs.rs/defguard_wireguard_rs/latest/defguard_wireguard_rs/struct.WGApi.html) docs.
+  - On FreeBSD network interfaces are managed using **ioctl**.
+  - On Linux, handle network routing using **netlink**.
+  - **fwmark** handling
 
 ### Windows support
 
@@ -56,8 +56,8 @@ More info can be found [here](https://stackoverflow.com/a/79640980).
 
 ## Examples
 
-* Client: https://github.com/DefGuard/wireguard-rs/blob/main/examples/client.rs
-* Server: https://github.com/DefGuard/wireguard-rs/blob/main/examples/server.rs
+- Client: https://github.com/DefGuard/wireguard-rs/blob/main/examples/client.rs
+- Server: https://github.com/DefGuard/wireguard-rs/blob/main/examples/server.rs
 
 ## Documentation
 
@@ -65,11 +65,12 @@ See the [documentation](https://defguard.gitbook.io) for more information.
 
 ## Community and Support
 
-Find us on Matrix: [#defguard:teonite.com](https://matrix.to/#/#defguard:teonite.com)
+Reach out to our community via [GitHub Discussions](https://github.com/DefGuard/defguard/discussions/new/choose)
 
 ## Contribution
 
 Please review the [Contributing guide](https://defguard.gitbook.io/defguard/for-developers/contributing) for information on how to get started contributing to the project. You might also find our [environment setup guide](https://defguard.gitbook.io/defguard/for-developers/dev-env-setup) handy.
 
 # Legal
+
 WireGuard® is [registered trademarks](https://www.wireguard.com/trademark-policy/) of Jason A. Donenfeld.
