@@ -49,6 +49,19 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
+        // Set maximum transfer unit (MTU).
+        // It must be done before setting addresses. At least on Linux.
+        if let Some(mtu) = config.mtu {
+            debug!("Setting MTU of {mtu} for interface {}", self.ifname);
+            netlink::set_mtu(&self.ifname, mtu)?;
+            debug!("MTU of {mtu} set for interface {}, value: {{", self.ifname);
+        } else {
+            debug!(
+                "Skipping setting the MTU for interface {}, as it has not been provided",
+                self.ifname
+            );
+        }
+
         // Assign IP addresses to the interface.
         for address in &config.addresses {
             debug!("Assigning address {address} to interface {}", self.ifname);
@@ -71,18 +84,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
         trace!("WireGuard host configuration: {host:?}");
-
-        // set maximum transfer unit
-        if let Some(mtu) = config.mtu {
-            debug!("Setting MTU of {mtu} for interface {}", self.ifname);
-            netlink::set_mtu(&self.ifname, mtu)?;
-            debug!("MTU of {mtu} set for interface {}, value: {{", self.ifname);
-        } else {
-            debug!(
-                "Skipping setting the MTU for interface {}, as it has not been provided",
-                self.ifname
-            );
-        }
 
         info!(
             "Interface {} has been successfully configured. \
