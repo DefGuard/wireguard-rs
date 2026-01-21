@@ -80,6 +80,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
+        // Set maximum transmission unit (MTU).
+        // It must be done before setting addresses. At least on Linux.
+        if let Some(mtu) = config.mtu {
+            debug!("Setting MTU of {mtu} for interface {}", self.ifname);
+            bsd::set_mtu(&self.ifname, mtu)?;
+            debug!(
+                "MTU of {mtu} set for interface {}, value: {mtu}",
+                self.ifname
+            );
+        }
+
         // Assign IP address to the interface.
         for address in &config.addresses {
             self.assign_address(address)?;
@@ -97,16 +108,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
         trace!("WireGuard host configuration: {host:?}");
-
-        // Set maximum transfer unit (MTU).
-        if let Some(mtu) = config.mtu {
-            debug!("Setting MTU of {mtu} for interface {}", self.ifname);
-            bsd::set_mtu(&self.ifname, mtu)?;
-            debug!(
-                "MTU of {mtu} set for interface {}, value: {mtu}",
-                self.ifname
-            );
-        }
 
         info!(
             "Interface {} has been successfully configured. \

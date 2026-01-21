@@ -49,7 +49,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        // Set maximum transfer unit (MTU).
+        // Set maximum transmission unit (MTU).
         // It must be done before setting addresses. At least on Linux.
         if let Some(mtu) = config.mtu {
             debug!("Setting MTU of {mtu} for interface {}", self.ifname);
