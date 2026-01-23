@@ -104,9 +104,10 @@ pub struct InterfaceConfiguration {
     pub addresses: Vec<IpAddrMask>,
     pub port: u16,
     pub peers: Vec<Peer>,
-    /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
+    /// Maximum transmission unit. `None` means: do not set MTU, but keep the system default.
     pub mtu: Option<u32>,
-    /// Firewall mark.
+    /// Firewall mark. `None` means: do not set FwMark, but keep the current value.
+    /// `Some(0)` removes FwMark from WireGuard interfaces.
     pub fwmark: Option<u32>,
 }
 

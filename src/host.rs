@@ -25,11 +25,12 @@ use super::{key::Key, peer::Peer};
 pub struct Host {
     pub listen_port: u16,
     pub private_key: Option<Key>,
+    // FwMark with value of 0, removes the setting from WireGuard interface.
     pub(super) fwmark: Option<u32>,
     pub peers: HashMap<Key, Peer>,
 }
 
-// implement manually to avoid exposing private keys
+// Implement `Debug` manually to avoid exposing private keys.
 impl fmt::Debug for Host {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Host")
