@@ -25,16 +25,17 @@ use windows::{
         Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC},
         System::Com::CLSIDFromString,
     },
-    core::{GUID, PCSTR, PCWSTR, PSTR},
+    core::{GUID, PCSTR, PCWSTR, PSTR, PWSTR},
 };
 use wireguard_nt::Wireguard;
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
     error::WireguardInterfaceError,
-    host::{Host, Peer},
+    host::Host,
     key::Key,
     net::IpAddrMask,
+    peer::Peer,
     wgapi::{Kernel, WGApi},
 };
 
@@ -397,14 +398,13 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
         let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
 
-        let mut search_domains_vec: Vec<u16> =
-            str_to_wide_null_terminated(&search_domains.join(","));
-        let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
+        let mut search_domains_vec = str_to_wide_null_terminated(&search_domains.join(","));
+        let search_domains_wide = PWSTR(search_domains_vec.as_mut_ptr());
 
         if !ipv4_dns_servers.is_empty() {
             let dns_str = ipv4_dns_servers.join(",");
-            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
-            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+            let mut wide = str_to_wide_null_terminated(&dns_str);
+            let name_server = PWSTR(wide.as_mut_ptr());
 
             let settings = DNS_INTERFACE_SETTINGS {
                 Version: DNS_INTERFACE_SETTINGS_VERSION1,
@@ -421,8 +421,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
         if !ipv6_dns_servers.is_empty() {
             let dns_str = ipv6_dns_servers.join(",");
-            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
-            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+            let mut wide = str_to_wide_null_terminated(&dns_str);
+            let name_server = PWSTR(wide.as_mut_ptr());
 
             let settings = DNS_INTERFACE_SETTINGS {
                 Version: DNS_INTERFACE_SETTINGS_VERSION1,

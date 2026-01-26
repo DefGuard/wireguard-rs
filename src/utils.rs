@@ -588,7 +588,12 @@ pub(crate) fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError>
         .ok_or_else(error)
 }
 
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+#[cfg(any(
+    feature = "check_dependencies",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
 pub(crate) fn get_command_path(command: &str) -> Result<Option<PathBuf>, WireguardInterfaceError> {
     use std::env;
 
