@@ -16,9 +16,9 @@ use windows::{
             IpHelper::{
                 ConvertInterfaceGuidToLuid, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
-                GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry,
-                IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW,
-                SetInterfaceDnsSettings, SetIpInterfaceEntry,
+                DNS_SETTING_SEARCHLIST, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
+                GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry,
+                MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
