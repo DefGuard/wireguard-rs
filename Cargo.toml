@@ -29,7 +29,7 @@ defguard_boringtun = { version = "0.6", default-features = false, features = [
     "device",
 ]}
 libc = { version = "0.2", default-features = false }
-nix = { version = "0.30", features = ["ioctl", "socket"] }
+nix = { version = "0.31", features = ["ioctl", "socket"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ipnet = "2.11"

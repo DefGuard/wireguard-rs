@@ -6,7 +6,12 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::{collections::HashSet, fs::OpenOptions};
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+#[cfg(any(
+    feature = "check_dependencies",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
 use std::{io::Write, path::PathBuf, process::Stdio};
 use std::{
     io::{BufRead, BufReader},
@@ -588,7 +593,12 @@ pub(crate) fn resolve(addr: &str) -> Result<SocketAddr, WireguardInterfaceError>
         .ok_or_else(error)
 }
 
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+#[cfg(any(
+    feature = "check_dependencies",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
 pub(crate) fn get_command_path(command: &str) -> Result<Option<PathBuf>, WireguardInterfaceError> {
     use std::env;
 

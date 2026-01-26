@@ -16,25 +16,26 @@ use windows::{
             IpHelper::{
                 ConvertInterfaceGuidToLuid, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
-                GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry,
-                IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW,
-                SetInterfaceDnsSettings, SetIpInterfaceEntry,
+                DNS_SETTING_SEARCHLIST, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
+                GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry,
+                MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
         Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC},
         System::Com::CLSIDFromString,
     },
-    core::{GUID, PCSTR, PCWSTR, PSTR},
+    core::{GUID, PCSTR, PCWSTR, PSTR, PWSTR},
 };
 use wireguard_nt::Wireguard;
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
     error::WireguardInterfaceError,
-    host::{Host, Peer},
+    host::Host,
     key::Key,
     net::IpAddrMask,
+    peer::Peer,
     wgapi::{Kernel, WGApi},
 };
 
@@ -103,10 +104,10 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
 
     // Allocate the buffer and actually get the adapters
     let mut buffer = vec![0u8; buffer_size as usize];
-    let addresses = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+    let addresses = buffer.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
     result = unsafe {
         GetAdaptersAddresses(
-            AF_UNSPEC.0 as u32,
+            u32::from(AF_UNSPEC.0),
             GAA_FLAG_INCLUDE_PREFIX,
             None,
             Some(addresses),
@@ -118,7 +119,7 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     }
 
     // Find our adapter
-    let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    let mut current = buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
     let mut guid: Option<GUID> = None;
     while !current.is_null() {
         // SAFETY:
@@ -239,16 +240,13 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Try to open the adapter. If it's not present create it.
         let wireguard = WIREGUARD_DLL.lock().expect("Failed to lock WIREGUARD_DLL");
-        let adapter = match wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
-            Ok(adapter) => {
-                debug!("Found existing adapter {}", self.ifname);
-                adapter
-            }
-            Err(_) => {
-                debug!("Adapter {} does not exist, creating", self.ifname);
-                wireguard_nt::Adapter::create(&wireguard, &self.ifname, &self.ifname, None)
-                    .map_err(WindowsError::from)?
-            }
+        let adapter = if let Ok(adapter) = wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
+            debug!("Found existing adapter {}", self.ifname);
+            adapter
+        } else {
+            debug!("Adapter {} does not exist, creating", self.ifname);
+            wireguard_nt::Adapter::create(&wireguard, &self.ifname, &self.ifname, None)
+                .map_err(WindowsError::from)?
         };
         self.adapter = Some(adapter);
 
@@ -283,7 +281,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .map(|peer| {
                 Ok(wireguard_nt::SetPeer {
                     public_key: Some(peer.public_key.as_array()),
-                    preshared_key: peer.preshared_key.as_ref().map(|key| key.as_array()),
+                    preshared_key: peer.preshared_key.as_ref().map(Key::as_array),
                     keep_alive: peer.persistent_keepalive_interval,
                     allowed_ips: peer
                         .allowed_ips
@@ -394,21 +392,20 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let guid = get_adapter_guid(&self.ifname)?;
         let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) =
             dns.iter().partition(|ip| ip.is_ipv4());
-        let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(|ip| ip.to_string()).collect();
-        let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(|ip| ip.to_string()).collect();
+        let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(ToString::to_string).collect();
+        let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(ToString::to_string).collect();
 
-        let mut search_domains_vec: Vec<u16> =
-            str_to_wide_null_terminated(&search_domains.join(","));
-        let search_domains_wide = windows::core::PWSTR(search_domains_vec.as_mut_ptr());
+        let mut search_domains_vec = str_to_wide_null_terminated(&search_domains.join(","));
+        let search_domains_wide = PWSTR(search_domains_vec.as_mut_ptr());
 
         if !ipv4_dns_servers.is_empty() {
             let dns_str = ipv4_dns_servers.join(",");
-            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
-            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+            let mut wide = str_to_wide_null_terminated(&dns_str);
+            let name_server = PWSTR(wide.as_mut_ptr());
 
             let settings = DNS_INTERFACE_SETTINGS {
                 Version: DNS_INTERFACE_SETTINGS_VERSION1,
-                Flags: DNS_SETTING_NAMESERVER as u64,
+                Flags: u64::from(DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST),
                 NameServer: name_server,
                 SearchList: search_domains_wide,
                 ..Default::default()
@@ -421,12 +418,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         }
         if !ipv6_dns_servers.is_empty() {
             let dns_str = ipv6_dns_servers.join(",");
-            let mut wide: Vec<u16> = str_to_wide_null_terminated(&dns_str);
-            let name_server = windows::core::PWSTR(wide.as_mut_ptr());
+            let mut wide = str_to_wide_null_terminated(&dns_str);
+            let name_server = PWSTR(wide.as_mut_ptr());
 
             let settings = DNS_INTERFACE_SETTINGS {
                 Version: DNS_INTERFACE_SETTINGS_VERSION1,
-                Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6) as u64,
+                Flags: u64::from(
+                    DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST | DNS_SETTING_IPV6,
+                ),
                 NameServer: name_server,
                 SearchList: search_domains_wide,
                 ..Default::default()
