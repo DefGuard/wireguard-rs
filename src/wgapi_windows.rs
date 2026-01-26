@@ -408,7 +408,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
             let settings = DNS_INTERFACE_SETTINGS {
                 Version: DNS_INTERFACE_SETTINGS_VERSION1,
-                Flags: DNS_SETTING_NAMESERVER as u64,
+                Flags: u64::from(DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST),
                 NameServer: name_server,
                 SearchList: search_domains_wide,
                 ..Default::default()
@@ -426,7 +426,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
             let settings = DNS_INTERFACE_SETTINGS {
                 Version: DNS_INTERFACE_SETTINGS_VERSION1,
-                Flags: (DNS_SETTING_NAMESERVER | DNS_SETTING_IPV6) as u64,
+                Flags: u64::from(
+                    DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST | DNS_SETTING_IPV6,
+                ),
                 NameServer: name_server,
                 SearchList: search_domains_wide,
                 ..Default::default()
