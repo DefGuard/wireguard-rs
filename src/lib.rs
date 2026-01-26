@@ -11,7 +11,7 @@
 //!
 //! ```no_run
 //! use x25519_dalek::{EphemeralSecret, PublicKey};
-//! use defguard_wireguard_rs::{InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, host::Peer};
+//! use defguard_wireguard_rs::{InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, peer::Peer};
 //! # use defguard_wireguard_rs::error::WireguardInterfaceError;
 //!
 //! // Create new API struct for interface
@@ -31,8 +31,9 @@
 //!     prvkey: "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=".to_string(),
 //!     addresses: vec!["10.6.0.30".parse().unwrap()],
 //!     port: 12345,
-//!     peers: vec![],
+//!     peers: Vec::new(),
 //!     mtu: None,
+//!     fwmark: None,
 //! };
 //! wgapi.configure_interface(&interface_config)?;
 //!
@@ -58,6 +59,7 @@ pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
 pub(crate) mod netlink;
+pub mod peer;
 mod utils;
 mod wgapi;
 
@@ -84,12 +86,7 @@ use serde::{Deserialize, Serialize};
 pub use wgapi::{Kernel, Userspace, WGApi};
 pub use wireguard_interface::WireguardInterfaceApi;
 
-use self::{
-    error::WireguardInterfaceError,
-    host::{Host, Peer},
-    key::Key,
-    net::IpAddrMask,
-};
+use self::{error::WireguardInterfaceError, host::Host, key::Key, net::IpAddrMask, peer::Peer};
 
 // Internet Protocol (IP) address variant.
 #[derive(Clone, Copy)]
@@ -107,8 +104,11 @@ pub struct InterfaceConfiguration {
     pub addresses: Vec<IpAddrMask>,
     pub port: u16,
     pub peers: Vec<Peer>,
-    /// Maximum transfer unit. `None` means do not set MTU, but keep the system default.
+    /// Maximum transmission unit. `None` means: do not set MTU, but keep the system default.
     pub mtu: Option<u32>,
+    /// Firewall mark. `None` means: do not set FwMark, but keep the current value.
+    /// `Some(0)` removes FwMark from WireGuard interfaces.
+    pub fwmark: Option<u32>,
 }
 
 // Implement `Debug` manually to avoid exposing private keys.
@@ -120,6 +120,7 @@ impl fmt::Debug for InterfaceConfiguration {
             .field("port", &self.port)
             .field("peers", &self.peers)
             .field("mtu", &self.mtu)
+            .field("fwmark", &self.fwmark)
             .finish_non_exhaustive()
     }
 }
@@ -130,6 +131,7 @@ impl TryFrom<&InterfaceConfiguration> for Host {
     fn try_from(config: &InterfaceConfiguration) -> Result<Self, Self::Error> {
         let key = config.prvkey.as_str().try_into()?;
         let mut host = Host::new(config.port, key);
+        host.fwmark = config.fwmark;
         for peercfg in &config.peers {
             let peer = peercfg.clone();
             let key: Key = peer.public_key.clone();

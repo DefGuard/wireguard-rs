@@ -30,11 +30,7 @@ use netlink_sys::{
 };
 use thiserror::Error;
 
-use crate::{
-    IpVersion, Key, WireguardInterfaceError,
-    host::{Host, Peer},
-    net::IpAddrMask,
-};
+use crate::{IpVersion, Key, WireguardInterfaceError, host::Host, net::IpAddrMask, peer::Peer};
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
 
@@ -520,15 +516,15 @@ pub(crate) fn add_route(
     table: Option<u32>,
 ) -> NetlinkResult<()> {
     let mut message = RouteMessage::default();
-    let mut header = RouteHeader {
+    let header = RouteHeader {
+        address_family: address.address_family(),
+        destination_prefix_length: address.cidr,
         table: RouteHeader::RT_TABLE_MAIN,
         scope: RouteScope::Link,
         kind: RouteType::Unicast,
         protocol: RouteProtocol::Boot,
         ..Default::default()
     };
-    header.address_family = address.address_family();
-    header.destination_prefix_length = address.cidr;
     let route_address = match address.address {
         IpAddr::V4(ipv4) => RouteAddress::Inet(ipv4),
         IpAddr::V6(ipv6) => RouteAddress::Inet6(ipv6),
@@ -560,6 +556,51 @@ pub(crate) fn add_route(
         error!("Failed to add WireGuard interface route interface {ifname} index not found");
         Err(NetlinkError::AddRouteError)
     }
+}
+
+/// Count routes for a given table.
+pub(crate) fn count_routes(ip_version: IpVersion, table: u32) -> NetlinkResult<usize> {
+    let mut message = RouteMessage::default();
+    let header = RouteHeader {
+        address_family: ip_version.address_family(),
+        table: RouteHeader::RT_TABLE_UNSPEC,
+        ..Default::default()
+    };
+    message.header = header;
+    // Push 32-bit table ID.
+    // XXX: doesn't filter
+    message.attributes.push(RouteAttribute::Table(table));
+
+    let responses = netlink_request(
+        RouteNetlinkMessage::GetRoute(message),
+        NLM_F_REQUEST | NLM_F_DUMP,
+        NETLINK_ROUTE,
+    )?;
+
+    let mut count = 0;
+
+    for nlmsg in responses {
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(message),
+            ..
+        } = nlmsg
+        {
+            // Because messages can't be properly filtered, find the first matching `table`.
+            if let RouteNetlinkMessage::NewRoute(RouteMessage { attributes, .. }) = message {
+                for nla in attributes {
+                    if let RouteAttribute::Table(table_id) = nla
+                        && table_id == table
+                    {
+                        count += 1;
+                    }
+                }
+            }
+        } else {
+            debug!("unknown nlmsg response");
+        }
+    }
+
+    Ok(count)
 }
 
 /// Add rule for fwmark.
@@ -757,7 +798,7 @@ mod tests {
                     }
                 }
             } else {
-                debug!("unknown nlmsg response")
+                debug!("unknown nlmsg response");
             }
         }
 
@@ -788,7 +829,7 @@ mod tests {
                     }
                 }
             } else {
-                debug!("unknown nlmsg response")
+                debug!("unknown nlmsg response");
             }
         }
 
@@ -861,5 +902,16 @@ mod tests {
     fn docker_gateway() {
         let gateway = get_gateway(AddressFamily::Inet).unwrap();
         assert!(gateway.is_some());
+    }
+
+    // For this test, execute:
+    // - `ip link add dev wg0 type wireguard`
+    // - `ip link set up dev wg0`
+    // - `ip route add default dev wg0 scope link table 51820`
+    #[ignore]
+    #[test]
+    fn docker_route() {
+        let count = count_routes(IpVersion::IPv4, 51820).unwrap();
+        assert_eq!(count, 1);
     }
 }
