@@ -8,8 +8,7 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use netlink_packet_wireguard::{
-    constants::{AF_INET, AF_INET6},
-    nlas::{WgAllowedIp, WgAllowedIpAttrs},
+    WireguardAddressFamily, WireguardAllowedIp, WireguardAllowedIpAttr,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -112,16 +111,16 @@ impl IpAddrMask {
 
     #[cfg(target_os = "linux")]
     #[must_use]
-    pub fn to_nlas_allowed_ip(&self) -> WgAllowedIp {
+    pub fn to_nlas_allowed_ip(&self) -> WireguardAllowedIp {
         let mut attrs = Vec::new();
-        attrs.push(WgAllowedIpAttrs::Family(if self.address.is_ipv4() {
-            AF_INET
+        attrs.push(WireguardAllowedIpAttr::Family(if self.address.is_ipv4() {
+            WireguardAddressFamily::Ipv4
         } else {
-            AF_INET6
+            WireguardAddressFamily::Ipv6
         }));
-        attrs.push(WgAllowedIpAttrs::IpAddr(self.address));
-        attrs.push(WgAllowedIpAttrs::Cidr(self.cidr));
-        WgAllowedIp(attrs)
+        attrs.push(WireguardAllowedIpAttr::IpAddr(self.address));
+        attrs.push(WireguardAllowedIpAttr::Cidr(self.cidr));
+        WireguardAllowedIp(attrs)
     }
 }
 

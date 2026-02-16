@@ -20,9 +20,7 @@ use netlink_packet_route::{
     rule::{RuleAction, RuleAttribute, RuleFlags, RuleHeader, RuleMessage},
 };
 use netlink_packet_wireguard::{
-    Wireguard, WireguardCmd,
-    constants::WGPEER_F_REMOVE_ME,
-    nlas::{WgDeviceAttrs, WgPeer, WgPeerAttrs},
+    WireguardAttribute, WireguardCmd, WireguardMessage, WireguardPeer, WireguardPeerAttribute,
 };
 use netlink_sys::{
     Socket, SocketAddr,
@@ -33,6 +31,7 @@ use thiserror::Error;
 use crate::{IpVersion, Key, WireguardInterfaceError, host::Host, net::IpAddrMask, peer::Peer};
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
+const WGPEER_F_REMOVE_ME: u32 = 1;
 
 #[derive(Debug, Error)]
 pub(crate) enum NetlinkError {
@@ -84,12 +83,12 @@ macro_rules! get_nla_value {
 
 impl Key {
     #[must_use]
-    pub fn as_nlas_remove(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
+    pub fn as_nlas_remove(&self, ifname: &str) -> Vec<WireguardAttribute> {
         vec![
-            WgDeviceAttrs::IfName(ifname.into()),
-            WgDeviceAttrs::Peers(vec![WgPeer(vec![
-                WgPeerAttrs::PublicKey(self.as_array()),
-                WgPeerAttrs::Flags(WGPEER_F_REMOVE_ME),
+            WireguardAttribute::IfName(ifname.into()),
+            WireguardAttribute::Peers(vec![WireguardPeer(vec![
+                WireguardPeerAttribute::PublicKey(self.as_array()),
+                WireguardPeerAttribute::Flags(WGPEER_F_REMOVE_ME),
             ])]),
         ]
     }
@@ -368,9 +367,9 @@ pub(crate) fn delete_interface(ifname: &str) -> NetlinkResult<()> {
 /// Read host interface data
 pub(crate) fn get_host(ifname: &str) -> NetlinkResult<Host> {
     debug!("Reading Netlink data for interface {ifname}");
-    let genlmsg = GenlMessage::from_payload(Wireguard {
+    let genlmsg = GenlMessage::from_payload(WireguardMessage {
         cmd: WireguardCmd::GetDevice,
-        nlas: vec![WgDeviceAttrs::IfName(ifname.into())],
+        attributes: vec![WireguardAttribute::IfName(ifname.into())],
     });
     let responses = netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_DUMP)?;
 
@@ -381,7 +380,7 @@ pub(crate) fn get_host(ifname: &str) -> NetlinkResult<Host> {
             ..
         } = nlmsg
         {
-            host.append_nlas(&message.payload.nlas);
+            host.append_nlas(&message.payload.attributes);
         } else {
             return Err(NetlinkError::UnexpectedPayload);
         }
@@ -392,9 +391,9 @@ pub(crate) fn get_host(ifname: &str) -> NetlinkResult<Host> {
 
 /// Perform interface configuration
 pub(crate) fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
-    let genlmsg = GenlMessage::from_payload(Wireguard {
+    let genlmsg = GenlMessage::from_payload(WireguardMessage {
         cmd: WireguardCmd::SetDevice,
-        nlas: host.as_nlas(ifname),
+        attributes: host.as_nlas(ifname),
     });
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     // Add peers one by one to avoid packet buffer overflow.
@@ -407,9 +406,9 @@ pub(crate) fn set_host(ifname: &str, host: &Host) -> NetlinkResult<()> {
 
 /// Save or update WireGuard peer configuration
 pub(crate) fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
-    let genlmsg = GenlMessage::from_payload(Wireguard {
+    let genlmsg = GenlMessage::from_payload(WireguardMessage {
         cmd: WireguardCmd::SetDevice,
-        nlas: peer.as_nlas(ifname),
+        attributes: peer.as_nlas(ifname),
     });
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     Ok(())
@@ -417,9 +416,9 @@ pub(crate) fn set_peer(ifname: &str, peer: &Peer) -> NetlinkResult<()> {
 
 /// Delete a WireGuard peer from interface
 pub(crate) fn delete_peer(ifname: &str, public_key: &Key) -> NetlinkResult<()> {
-    let genlmsg = GenlMessage::from_payload(Wireguard {
+    let genlmsg = GenlMessage::from_payload(WireguardMessage {
         cmd: WireguardCmd::SetDevice,
-        nlas: public_key.as_nlas_remove(ifname),
+        attributes: public_key.as_nlas_remove(ifname),
     });
     netlink_request_genl(genlmsg, NLM_F_REQUEST | NLM_F_ACK)?;
     Ok(())
