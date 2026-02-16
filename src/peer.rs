@@ -7,13 +7,15 @@ use std::{fmt, net::SocketAddr, time::SystemTime};
 
 #[cfg(target_os = "linux")]
 use netlink_packet_wireguard::{
-    constants::WGPEER_F_REPLACE_ALLOWEDIPS,
-    nlas::{WgAllowedIpAttrs, WgDeviceAttrs, WgPeer, WgPeerAttrs},
+    WireguardAllowedIpAttr, WireguardAttribute, WireguardPeer, WireguardPeerAttribute,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{error::WireguardInterfaceError, key::Key, net::IpAddrMask, utils::resolve};
+
+#[cfg(target_os = "linux")]
+const WGPEER_F_REPLACE_ALLOWEDIPS: u32 = 2;
 
 /// WireGuard peer representation.
 #[derive(Clone, Default, PartialEq)]
@@ -116,28 +118,36 @@ impl Peer {
 #[cfg(target_os = "linux")]
 impl Peer {
     #[must_use]
-    pub(crate) fn from_nlas(nlas: &[WgPeerAttrs]) -> Self {
+    pub(crate) fn from_nlas(nlas: &[WireguardPeerAttribute]) -> Self {
         let mut peer = Self::default();
 
         for nla in nlas {
+            use std::time::Duration;
+
             match nla {
-                WgPeerAttrs::PublicKey(value) => peer.public_key = Key::new(*value),
-                WgPeerAttrs::PresharedKey(value) => peer.preshared_key = Some(Key::new(*value)),
-                WgPeerAttrs::Endpoint(value) => peer.endpoint = Some(*value),
-                WgPeerAttrs::PersistentKeepalive(value) => {
+                WireguardPeerAttribute::PublicKey(value) => peer.public_key = Key::new(*value),
+                WireguardPeerAttribute::PresharedKey(value) => {
+                    peer.preshared_key = Some(Key::new(*value))
+                }
+                WireguardPeerAttribute::Endpoint(value) => peer.endpoint = Some(*value),
+                WireguardPeerAttribute::PersistentKeepalive(value) => {
                     peer.persistent_keepalive_interval = Some(*value);
                 }
-                WgPeerAttrs::LastHandshake(value) => peer.last_handshake = Some(*value),
-                WgPeerAttrs::RxBytes(value) => peer.rx_bytes = *value,
-                WgPeerAttrs::TxBytes(value) => peer.tx_bytes = *value,
-                WgPeerAttrs::AllowedIps(nlas) => {
+                WireguardPeerAttribute::LastHandshake(value) => {
+                    let duration = Duration::from_secs(value.seconds.cast_unsigned())
+                        .saturating_add(Duration::from_nanos(value.nano_seconds.cast_unsigned()));
+                    peer.last_handshake = Some(SystemTime::UNIX_EPOCH + duration)
+                }
+                WireguardPeerAttribute::RxBytes(value) => peer.rx_bytes = *value,
+                WireguardPeerAttribute::TxBytes(value) => peer.tx_bytes = *value,
+                WireguardPeerAttribute::AllowedIps(nlas) => {
                     for nla in nlas {
                         let ip = nla.iter().find_map(|nla| match nla {
-                            WgAllowedIpAttrs::IpAddr(ip) => Some(*ip),
+                            WireguardAllowedIpAttr::IpAddr(ip) => Some(*ip),
                             _ => None,
                         });
                         let cidr = nla.iter().find_map(|nla| match nla {
-                            WgAllowedIpAttrs::Cidr(cidr) => Some(*cidr),
+                            WireguardAllowedIpAttr::Cidr(cidr) => Some(*cidr),
                             _ => None,
                         });
                         if let (Some(ip), Some(cidr)) = (ip, cidr) {
@@ -153,36 +163,40 @@ impl Peer {
     }
 
     #[must_use]
-    pub(crate) fn as_nlas(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
+    pub(crate) fn as_nlas(&self, ifname: &str) -> Vec<WireguardAttribute> {
         vec![
-            WgDeviceAttrs::IfName(ifname.into()),
-            WgDeviceAttrs::Peers(vec![self.as_nlas_peer()]),
+            WireguardAttribute::IfName(ifname.into()),
+            WireguardAttribute::Peers(vec![self.as_nlas_peer()]),
         ]
     }
 
     #[must_use]
-    pub(crate) fn as_nlas_peer(&self) -> WgPeer {
-        let mut attrs = vec![WgPeerAttrs::PublicKey(self.public_key.as_array())];
+    pub(crate) fn as_nlas_peer(&self) -> WireguardPeer {
+        let mut attrs = vec![WireguardPeerAttribute::PublicKey(
+            self.public_key.as_array(),
+        )];
         if let Some(keepalive) = self.persistent_keepalive_interval {
-            attrs.push(WgPeerAttrs::PersistentKeepalive(keepalive));
+            attrs.push(WireguardPeerAttribute::PersistentKeepalive(keepalive));
         }
 
         if let Some(endpoint) = self.endpoint {
-            attrs.push(WgPeerAttrs::Endpoint(endpoint));
+            attrs.push(WireguardPeerAttribute::Endpoint(endpoint));
         }
 
         if let Some(preshared_key) = &self.preshared_key {
-            attrs.push(WgPeerAttrs::PresharedKey(preshared_key.as_array()));
+            attrs.push(WireguardPeerAttribute::PresharedKey(
+                preshared_key.as_array(),
+            ));
         }
 
-        attrs.push(WgPeerAttrs::Flags(WGPEER_F_REPLACE_ALLOWEDIPS));
+        attrs.push(WireguardPeerAttribute::Flags(WGPEER_F_REPLACE_ALLOWEDIPS));
         let allowed_ips = self
             .allowed_ips
             .iter()
             .map(IpAddrMask::to_nlas_allowed_ip)
             .collect();
-        attrs.push(WgPeerAttrs::AllowedIps(allowed_ips));
+        attrs.push(WireguardPeerAttribute::AllowedIps(allowed_ips));
 
-        WgPeer(attrs)
+        WireguardPeer(attrs)
     }
 }

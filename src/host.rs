@@ -13,11 +13,14 @@ use std::{
 };
 
 #[cfg(target_os = "linux")]
-use netlink_packet_wireguard::{constants::WGDEVICE_F_REPLACE_PEERS, nlas::WgDeviceAttrs};
+use netlink_packet_wireguard::WireguardAttribute;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use super::{key::Key, peer::Peer};
+
+#[cfg(target_os = "linux")]
+const WGDEVICE_F_REPLACE_PEERS: u32 = 1;
 
 /// WireGuard host representation.
 #[derive(Clone, Default)]
@@ -175,13 +178,13 @@ impl Host {
 
 #[cfg(target_os = "linux")]
 impl Host {
-    pub(crate) fn append_nlas(&mut self, nlas: &[WgDeviceAttrs]) {
+    pub(crate) fn append_nlas(&mut self, nlas: &[WireguardAttribute]) {
         for nla in nlas {
             match nla {
-                WgDeviceAttrs::PrivateKey(value) => self.private_key = Some(Key::new(*value)),
-                WgDeviceAttrs::ListenPort(value) => self.listen_port = *value,
-                WgDeviceAttrs::Fwmark(value) => self.fwmark = Some(*value),
-                WgDeviceAttrs::Peers(nlas) => {
+                WireguardAttribute::PrivateKey(value) => self.private_key = Some(Key::new(*value)),
+                WireguardAttribute::ListenPort(value) => self.listen_port = *value,
+                WireguardAttribute::Fwmark(value) => self.fwmark = Some(*value),
+                WireguardAttribute::Peers(nlas) => {
                     for nla in nlas {
                         let peer = Peer::from_nlas(nla);
                         // On tunnels with a lot of routes, the peer info may be split across multiple
@@ -223,22 +226,22 @@ impl Host {
     }
 
     #[must_use]
-    pub(crate) fn as_nlas(&self, ifname: &str) -> Vec<WgDeviceAttrs> {
+    pub(crate) fn as_nlas(&self, ifname: &str) -> Vec<WireguardAttribute> {
         let mut nlas = vec![
-            WgDeviceAttrs::IfName(ifname.into()),
-            WgDeviceAttrs::ListenPort(self.listen_port),
+            WireguardAttribute::IfName(ifname.into()),
+            WireguardAttribute::ListenPort(self.listen_port),
         ];
         if let Some(key) = &self.private_key {
-            nlas.push(WgDeviceAttrs::PrivateKey(key.as_array()));
+            nlas.push(WireguardAttribute::PrivateKey(key.as_array()));
         }
         if let Some(fwmark) = &self.fwmark {
-            nlas.push(WgDeviceAttrs::Fwmark(*fwmark));
+            nlas.push(WireguardAttribute::Fwmark(*fwmark));
         }
-        nlas.push(WgDeviceAttrs::Flags(WGDEVICE_F_REPLACE_PEERS));
+        nlas.push(WireguardAttribute::Flags(WGDEVICE_F_REPLACE_PEERS));
 
         // IMPORTANT: To avoid buffer overflow, do not add peers here.
         // let peers = self.peers.values().map(Peer::as_nlas_peer).collect();
-        // nlas.push(WgDeviceAttrs::Peers(peers));
+        // nlas.push(WireguardAttribute::Peers(peers));
 
         nlas
     }

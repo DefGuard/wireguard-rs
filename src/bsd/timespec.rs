@@ -13,7 +13,8 @@ struct TimeSpec {
 
 impl TimeSpec {
     fn duration(&self) -> Duration {
-        Duration::from_secs(self.tv_sec as u64) + Duration::from_nanos(self.tv_nsec as u64)
+        Duration::from_secs(self.tv_sec.cast_unsigned())
+            .saturating_add(Duration::from_nanos(self.tv_nsec.cast_unsigned()))
     }
 }
 
