@@ -39,7 +39,10 @@ use crate::{
     wgapi::{Kernel, WGApi},
 };
 
-static WIREGUARD_DLL_PATH: &str = "resources-windows/binaries/wireguard.dll";
+#[cfg(target_arch = "aarch64")]
+const WIREGUARD_DLL_PATH: &str = "resources-windows/binaries/wireguard-arm64.dll";
+#[cfg(target_arch = "x86_64")]
+const WIREGUARD_DLL_PATH: &str = "resources-windows/binaries/wireguard-amd64.dll";
 // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
 static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
     Mutex::new(
