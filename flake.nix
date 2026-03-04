@@ -25,7 +25,7 @@
       };
       rustToolchain = pkgs.rust-bin.stable.latest.default.override {
         extensions = ["rust-analyzer" "rust-src" "rustfmt" "clippy"];
-        targets = ["x86_64-unknown-linux-gnu" "armv7-unknown-linux-gnueabihf" "aarch64-unknown-linux-gnu" "x86_64-unknown-freebsd"];
+        targets = ["x86_64-unknown-linux-gnu" "armv7-unknown-linux-gnueabihf" "aarch64-unknown-linux-gnu" "x86_64-unknown-freebsd" "x86_64-apple-darwin" "x86_64-pc-windows-gnu"];
       };
       # define shared build inputs
       nativeBuildInputs = with pkgs; [rustToolchain pkg-config];
