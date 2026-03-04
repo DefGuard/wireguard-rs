@@ -356,12 +356,20 @@ pub(crate) fn add_peer_routing(
         }
     }
     if let Some(default_route) = default_routes.1 {
-        setup_default_route(ifname, default_route)?;
+        if let Err(err) = setup_default_route(ifname, default_route) {
+            warn!("Failed to setup IPv6 default route for interface {ifname}: {err}.");
+        }
     } else {
         for allowed_ip in allowed_ips.1 {
             debug!("Adding a route for allowed IPv6: {allowed_ip}");
-            netlink::add_route(ifname, allowed_ip, None)?;
-            debug!("Route added for allowed IPv6: {allowed_ip}");
+            if let Err(err) = netlink::add_route(ifname, allowed_ip, None) {
+                warn!(
+                    "Failed to add route for allowed IPv6 {allowed_ip} \
+                    on interface {ifname}: {err}."
+                );
+            } else {
+                debug!("Route added for allowed IPv6: {allowed_ip}");
+            }
         }
     }
     debug!("Peers routing added successfully");
