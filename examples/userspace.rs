@@ -1,12 +1,12 @@
 use std::{
-    io::{stdin, stdout, Read, Write},
+    io::{Read, Write, stdin, stdout},
     net::SocketAddr,
     str::FromStr,
 };
 
 use defguard_wireguard_rs::{
-    key::Key, net::IpAddrMask, peer::Peer, InterfaceConfiguration, Userspace, WGApi,
-    WireguardInterfaceApi,
+    InterfaceConfiguration, Userspace, WGApi, WireguardInterfaceApi, key::Key, net::IpAddrMask,
+    peer::Peer,
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
