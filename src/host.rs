@@ -29,7 +29,7 @@ pub struct Host {
     pub listen_port: u16,
     pub private_key: Option<Key>,
     // FwMark with value of 0, removes the setting from WireGuard interface.
-    pub(super) fwmark: Option<u32>,
+    pub fwmark: Option<u32>,
     pub peers: HashMap<Key, Peer>,
 }
 
