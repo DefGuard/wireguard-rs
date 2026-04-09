@@ -64,6 +64,8 @@ impl Host {
             output.push_str(&key.to_lower_hex());
             output.push('\n');
         }
+        // BoringTun supports FwMark only on Linux.
+        #[cfg(target_os = "linux")]
         if let Some(fwmark) = &self.fwmark {
             output.push_str("fwmark=");
             output.push_str(&fwmark.to_string());

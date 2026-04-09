@@ -10,8 +10,8 @@ use crate::wgapi_windows::WindowsError;
 pub enum WireguardInterfaceError {
     #[error("Interface setup error: {0}")]
     Interface(String),
-    #[error("Command execution failed")]
-    CommandExecutionFailed(#[from] std::io::Error),
+    #[error("Input/output error: {0}")]
+    IoError(#[from] std::io::Error),
     #[error("WireGuard key error")]
     KeyDecode(#[from] base64::DecodeError),
     #[error("Command returned error status: `{stdout}`")]
