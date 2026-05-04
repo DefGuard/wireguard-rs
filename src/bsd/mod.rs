@@ -314,13 +314,14 @@ pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
 #[cfg(target_os = "freebsd")]
 #[link(name = "c")]
 unsafe extern "C" {
+    // Note: libc crate doesn't export kldload.
     fn kldload(file: *const u8) -> i32;
 }
 
 #[cfg(target_os = "freebsd")]
 pub fn load_wireguard_kernel_module() -> Result<(), IoError> {
     // Prefer kldload(2) to kld_load(3).
-    // The latter needs libutil, which differes between FreeBSD 14 and 15.
+    // The latter needs libutil, which differs between FreeBSD 14 and 15.
     let retval = unsafe { kldload(c"if_wg".as_ptr()) };
     // Based on https://github.com/freebsd/freebsd-src/blob/main/lib/libutil/kld.c#L70
     if retval == -1 {
