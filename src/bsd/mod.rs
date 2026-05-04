@@ -315,7 +315,7 @@ pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
 #[link(name = "c")]
 unsafe extern "C" {
     // Note: libc crate doesn't export kldload.
-    fn kldload(file: *const u8) -> i32;
+    fn kldload(file: *const libc::c_char) -> libc::c_int;
 }
 
 #[cfg(target_os = "freebsd")]
