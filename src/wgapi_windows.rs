@@ -325,6 +325,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
             })
             .collect();
+
+        debug!("Bringing up adapter {}", self.ifname);
+        adapter.up().map_err(WindowsError::from)?;
+
         adapter
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
@@ -332,13 +336,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // Set MTU
         if let Some(mtu) = config.mtu {
             set_interface_mtu(&self.ifname, mtu)?;
-            // Turn it off and on again.
             adapter.down().map_err(WindowsError::from)?;
+            adapter.up().map_err(WindowsError::from)?;
         }
-
-        // Bring the adapter up.
-        debug!("Bringing up adapter {}", self.ifname);
-        adapter.up().map_err(WindowsError::from)?;
 
         info!(
             "Interface {} has been successfully configured.",
