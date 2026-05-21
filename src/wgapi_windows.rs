@@ -334,6 +334,18 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Applying routing configuration for adapter {}, probing routing stack readiness...",
             self.ifname
         );
+
+        // Debug hook: set DEFGUARD_DEBUG_ROUTE_DELAY_MS to force a sleep before
+        // route installation, simulating the race condition on fast machines.
+        if let Ok(delay_ms) = std::env::var("DEFGUARD_DEBUG_ROUTE_DELAY_MS") {
+            let ms: u64 = delay_ms.parse().unwrap_or(2000);
+            info!(
+                "DEBUG: forcing {}ms delay before set_default_route on adapter {}",
+                ms, self.ifname
+            );
+            std::thread::sleep(Duration::from_millis(ms));
+        }
+
         const MAX_RETRIES: u32 = 50;
         const RETRY_DELAY_MS: u64 = 100;
         for attempt in 1..=MAX_RETRIES {
