@@ -5,6 +5,7 @@ use std::{
     os::windows::ffi::OsStrExt,
     str::FromStr,
     sync::{LazyLock, Mutex},
+    time::Duration,
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -325,9 +326,43 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
             })
             .collect();
-        adapter
-            .set_default_route(&addresses, &interface)
-            .map_err(WindowsError::from)?;
+        // The WireGuard NT adapter may not be visible to the Windows IP routing
+        // stack immediately after set_config(). CreateIpForwardEntry2 can fail with
+        // ERROR_NOT_FOUND (1168) or ERROR_INVALID_PARAMETER (87) if the LUID is not
+        // yet registered with the routing subsystem. Retry with backoff.
+        debug!(
+            "Applying routing configuration for adapter {}, probing routing stack readiness...",
+            self.ifname
+        );
+        const MAX_RETRIES: u32 = 50;
+        const RETRY_DELAY_MS: u64 = 100;
+        for attempt in 1..=MAX_RETRIES {
+            match adapter.set_default_route(&addresses, &interface) {
+                Ok(()) => {
+                    if attempt > 1 {
+                        info!(
+                            "set_default_route succeeded on attempt {}/{} for adapter {}",
+                            attempt, MAX_RETRIES, self.ifname
+                        );
+                    }
+                    break;
+                }
+                Err(e) => {
+                    if attempt == MAX_RETRIES {
+                        error!(
+                            "set_default_route failed after {} attempts for adapter {}: {e}",
+                            MAX_RETRIES, self.ifname
+                        );
+                        return Err(WireguardInterfaceError::from(WindowsError::from(e)));
+                    }
+                    warn!(
+                        "set_default_route attempt {}/{} failed for adapter {}: {e}. Retrying in {}ms...",
+                        attempt, MAX_RETRIES, self.ifname, RETRY_DELAY_MS
+                    );
+                    std::thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                }
+            }
+        }
 
         // Set MTU
         if let Some(mtu) = config.mtu {
