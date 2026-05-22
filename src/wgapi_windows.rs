@@ -335,13 +335,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
 
-        // HARD-CODED DEBUG: force 3000ms sleep to simulate race condition
-        info!(
-            "DEBUG: forcing 3000ms delay before set_default_route on adapter {}",
-            self.ifname
-        );
-        std::thread::sleep(Duration::from_millis(3000));
-
+        let adapter_luid = adapter.get_luid();
         const MAX_RETRIES: u32 = 50;
         const RETRY_DELAY_MS: u64 = 100;
         for attempt in 1..=MAX_RETRIES {
@@ -349,8 +343,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 Ok(()) => {
                     if attempt > 1 {
                         info!(
-                            "set_default_route succeeded on attempt {}/{} for adapter {}",
-                            attempt, MAX_RETRIES, self.ifname
+                            "set_default_route succeeded on attempt {}/{attempt_max} for adapter {ifname} (luid={luid:#018x})",
+                            attempt,
+                            ifname = self.ifname,
+                            luid = adapter_luid,
+                            attempt_max = MAX_RETRIES
                         );
                     }
                     break;
@@ -358,14 +355,20 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 Err(e) => {
                     if attempt == MAX_RETRIES {
                         error!(
-                            "set_default_route failed after {} attempts for adapter {}: {e}",
-                            MAX_RETRIES, self.ifname
+                            "set_default_route failed after {attempt_max} attempts for adapter {ifname} (luid={luid:#018x}): {e}",
+                            ifname = self.ifname,
+                            luid = adapter_luid,
+                            attempt_max = MAX_RETRIES
                         );
                         return Err(WireguardInterfaceError::from(WindowsError::from(e)));
                     }
                     warn!(
-                        "set_default_route attempt {}/{} failed for adapter {}: {e}. Retrying in {}ms...",
-                        attempt, MAX_RETRIES, self.ifname, RETRY_DELAY_MS
+                        "set_default_route attempt {attempt}/{attempt_max} failed for adapter {ifname} (luid={luid:#018x}): {e}. Retrying in {delay}ms...",
+                        attempt,
+                        ifname = self.ifname,
+                        luid = adapter_luid,
+                        attempt_max = MAX_RETRIES,
+                        delay = RETRY_DELAY_MS
                     );
                     std::thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
                 }
