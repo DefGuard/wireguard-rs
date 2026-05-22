@@ -18,9 +18,10 @@ use windows::{
             IpHelper::{
                 ConvertInterfaceGuidToLuid, CreateIpForwardEntry2, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
-                DNS_SETTING_SEARCHLIST, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
-                GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpForwardEntry,
-                InitializeIpInterfaceEntry, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
+                DNS_SETTING_SEARCHLIST, FreeMibTable, GAA_FLAG_INCLUDE_PREFIX,
+                GetAdaptersAddresses, GetIpForwardTable2, GetIpInterfaceEntry,
+                IP_ADAPTER_ADDRESSES_LH, InitializeIpForwardEntry, InitializeIpInterfaceEntry,
+                MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW,
                 SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
@@ -89,6 +90,37 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     Ok(guid)
 }
 
+/// Logs the IPv4 routing table for diagnostics. Conflicting routes (e.g. a
+/// corporate 10.0.0.0/8) can cause unexpected CreateIpForwardEntry2 behavior.
+fn log_routing_table() {
+    let mut table_ptr: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+    let err = unsafe { GetIpForwardTable2(AF_INET, &mut table_ptr) };
+    if err.0 != 0 {
+        warn!("Failed to get IPv4 routing table: error {}", err.0);
+        return;
+    }
+    if table_ptr.is_null() {
+        return;
+    }
+    let table = unsafe { &*table_ptr };
+    let entries = if table.NumEntries > 0 {
+        unsafe { std::slice::from_raw_parts(table.Table.as_ptr(), table.NumEntries as usize) }
+    } else {
+        &[]
+    };
+    info!("--- IPv4 routing table ({} entries) ---", table.NumEntries);
+    for entry in entries {
+        info!(
+            "route: dest_prefix_len={prefix_len} metric={metric} protocol={proto}",
+            prefix_len = entry.DestinationPrefix.PrefixLength,
+            metric = entry.Metric,
+            proto = entry.Protocol.0
+        );
+    }
+    info!("--- End routing table ---");
+    unsafe { FreeMibTable(table_ptr.cast()) };
+}
+
 /// Logs all network adapters and their operational status for diagnostics.
 /// Helps identify conflicting VPN clients, Hyper-V switches, or filter drivers.
 fn log_network_adapters() {
@@ -127,12 +159,8 @@ fn log_network_adapters() {
     info!("--- Network adapters ---");
     while !current.is_null() {
         let adapter = unsafe { &*current };
-        let name = unsafe { PCWSTR(adapter.FriendlyName.0) }
-            .to_string()
-            .unwrap_or_default();
-        let desc = unsafe { PCWSTR(adapter.Description.0) }
-            .to_string()
-            .unwrap_or_default();
+        let name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string() }.unwrap_or_default();
+        let desc = unsafe { PCWSTR(adapter.Description.0).to_string() }.unwrap_or_default();
         info!(
             "adapter: \"{name}\" desc=\"{desc}\" oper_status={status} if_type={if_type}",
             status = adapter.OperStatus.0,
@@ -328,6 +356,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname, ver.dwMajorVersion, ver.dwMinorVersion, ver.dwBuildNumber
         );
         log_network_adapters();
+        log_routing_table();
         Ok(())
     }
 
