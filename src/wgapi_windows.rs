@@ -93,32 +93,37 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
 /// Logs the IPv4 routing table for diagnostics. Conflicting routes (e.g. a
 /// corporate 10.0.0.0/8) can cause unexpected CreateIpForwardEntry2 behavior.
 fn log_routing_table() {
-    let mut table_ptr: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
-    let err = unsafe { GetIpForwardTable2(AF_INET, &mut table_ptr) };
-    if err.0 != 0 {
-        warn!("Failed to get IPv4 routing table: error {}", err.0);
-        return;
-    }
-    if table_ptr.is_null() {
-        return;
-    }
-    let table = unsafe { &*table_ptr };
-    let entries = if table.NumEntries > 0 {
-        unsafe { std::slice::from_raw_parts(table.Table.as_ptr(), table.NumEntries as usize) }
-    } else {
-        &[]
-    };
-    info!("--- IPv4 routing table ({} entries) ---", table.NumEntries);
-    for entry in entries {
+    for (family_name, family) in [("IPv4", AF_INET), ("IPv6", AF_INET6)] {
+        let mut table_ptr: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+        let err = unsafe { GetIpForwardTable2(family, &mut table_ptr) };
+        if err.0 != 0 {
+            warn!("Failed to get {family_name} routing table: error {}", err.0);
+            continue;
+        }
+        if table_ptr.is_null() {
+            continue;
+        }
+        let table = unsafe { &*table_ptr };
+        let entries = if table.NumEntries > 0 {
+            unsafe { std::slice::from_raw_parts(table.Table.as_ptr(), table.NumEntries as usize) }
+        } else {
+            &[]
+        };
         info!(
-            "route: dest_prefix_len={prefix_len} metric={metric} protocol={proto}",
-            prefix_len = entry.DestinationPrefix.PrefixLength,
-            metric = entry.Metric,
-            proto = entry.Protocol.0
+            "--- {family_name} routing table ({} entries) ---",
+            table.NumEntries
         );
+        for entry in entries {
+            info!(
+                "route: dest_prefix_len={prefix_len} metric={metric} protocol={proto}",
+                prefix_len = entry.DestinationPrefix.PrefixLength,
+                metric = entry.Metric,
+                proto = entry.Protocol.0
+            );
+        }
+        info!("--- End {family_name} routing table ---");
+        unsafe { FreeMibTable(table_ptr.cast()) };
     }
-    info!("--- End routing table ---");
-    unsafe { FreeMibTable(table_ptr.cast()) };
 }
 
 /// Logs all network adapters and their operational status for diagnostics.
@@ -162,9 +167,10 @@ fn log_network_adapters() {
         let name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string() }.unwrap_or_default();
         let desc = unsafe { PCWSTR(adapter.Description.0).to_string() }.unwrap_or_default();
         info!(
-            "adapter: \"{name}\" desc=\"{desc}\" oper_status={status} if_type={if_type}",
+            "adapter: \"{name}\" desc=\"{desc}\" oper_status={status} if_type={if_type} flags={flags:#x}",
             status = adapter.OperStatus.0,
-            if_type = adapter.IfType
+            if_type = adapter.IfType,
+            flags = adapter.Flags
         );
         current = adapter.Next;
     }
@@ -335,6 +341,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let wireguard = WIREGUARD_DLL.lock().expect("Failed to lock WIREGUARD_DLL");
         let adapter = if let Ok(adapter) = wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
             debug!("Found existing adapter {}", self.ifname);
+            match adapter.get_config() {
+                Ok(config) => info!(
+                    "Existing adapter {ifname} config: {config:?}",
+                    ifname = self.ifname,
+                    config = config
+                ),
+                Err(e) => warn!(
+                    "Failed to get existing adapter {ifname} config: {e}",
+                    ifname = self.ifname
+                ),
+            }
             adapter
         } else {
             debug!("Adapter {} does not exist, creating", self.ifname);
@@ -414,6 +431,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             peers,
         };
         adapter.set_config(&interface).map_err(WindowsError::from)?;
+        debug!(
+            "Applied WireGuard config to adapter {ifname} (key set, {peer_count} peers, port {port})",
+            ifname = self.ifname,
+            peer_count = interface.peers.len(),
+            port = config.port
+        );
 
         // Set adapter addresses
         debug!(
