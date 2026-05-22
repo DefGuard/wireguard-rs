@@ -12,19 +12,21 @@ use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use thiserror::Error;
 use windows::{
     Win32::{
-        Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
+        Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_OBJECT_ALREADY_EXISTS, ERROR_SUCCESS, NO_ERROR},
         NetworkManagement::{
             IpHelper::{
-                ConvertInterfaceGuidToLuid, DNS_INTERFACE_SETTINGS,
+                ConvertInterfaceGuidToLuid, CreateIpForwardEntry2, DNS_INTERFACE_SETTINGS,
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
                 DNS_SETTING_SEARCHLIST, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
-                GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry,
-                MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
+                GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpForwardEntry,
+                InitializeIpInterfaceEntry, MIB_IPFORWARD_ROW2, MIB_IPINTERFACE_ROW,
+                SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
-        Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC},
+        Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC, IN_ADDR, IN6_ADDR},
         System::Com::CLSIDFromString,
+        System::SystemServices::{OSVERSIONINFOW, RtlGetVersion},
     },
     core::{GUID, PCSTR, PCWSTR, PSTR, PWSTR},
 };
@@ -254,7 +256,19 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         };
         self.adapter = Some(adapter);
 
-        info!("Opened/created interface {}", self.ifname);
+        // Log the Windows version for diagnostics — CreateIpForwardEntry2 behavior
+        // can vary between Windows builds.
+        let mut ver = OSVERSIONINFOW {
+            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: RtlGetVersion is always safe to call; OSVERSIONINFOW is stack-allocated
+        // and properly initialized.
+        unsafe { RtlGetVersion(&mut ver) };
+        info!(
+            "Opened/created interface {} on Windows build {}.{}.{}",
+            self.ifname, ver.dwMajorVersion, ver.dwMinorVersion, ver.dwBuildNumber
+        );
         Ok(())
     }
 
@@ -336,44 +350,118 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         );
 
         let adapter_luid = adapter.get_luid();
-        const MAX_RETRIES: u32 = 50;
-        const RETRY_DELAY_MS: u64 = 100;
-        for attempt in 1..=MAX_RETRIES {
-            match adapter.set_default_route(&addresses, &interface) {
-                Ok(()) => {
-                    if attempt > 1 {
-                        info!(
-                            "set_default_route succeeded on attempt {}/{attempt_max} for adapter {ifname} (luid={luid:#018x})",
-                            attempt,
-                            ifname = self.ifname,
-                            luid = adapter_luid,
-                            attempt_max = MAX_RETRIES
-                        );
+
+        // Diagnostic: query the IP interface state via GetIpInterfaceEntry before
+        // attempting CreateIpForwardEntry2. This tells us whether the routing stack
+        // can even see the adapter LUID at all.
+        debug!(
+            "Querying IP interface state for adapter {ifname} (luid={luid:#018x})",
+            ifname = self.ifname,
+            luid = adapter_luid
+        );
+        for (family_name, family) in [("IPv4", AF_INET), ("IPv6", AF_INET6)] {
+            let mut row = MIB_IPINTERFACE_ROW::default();
+            unsafe { InitializeIpInterfaceEntry(&mut row) };
+            row.InterfaceLuid = std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid);
+            row.Family = ADDRESS_FAMILY(family.0);
+            let err = unsafe { GetIpInterfaceEntry(&mut row) };
+            if err.0 == 0 {
+                info!(
+                    "IP interface {family_name} for {ifname}: connected={conn}, if_index={idx}, mtu={mtu}",
+                    ifname = self.ifname,
+                    conn = row.Connected,
+                    idx = row.InterfaceIndex,
+                    mtu = row.NlMtu
+                );
+            } else {
+                warn!(
+                    "Cannot query IP interface {family_name} for {ifname} (luid={luid:#018x}): GetIpInterfaceEntry returned error {err:#x}",
+                    ifname = self.ifname,
+                    luid = adapter_luid,
+                    err = err.0
+                );
+            }
+        }
+
+        // Per-prefix route creation with individual retry and logging.
+        // CreateIpForwardEntry2 can fail per-prefix; logging which CIDR failed
+        // helps narrow down whether the issue is all prefixes or one specific range.
+        debug!(
+            "Creating routes per-prefix for adapter {ifname} (luid={luid:#018x})",
+            ifname = self.ifname,
+            luid = adapter_luid
+        );
+        const PREFIX_MAX_RETRIES: u32 = 50;
+        const PREFIX_RETRY_DELAY_MS: u64 = 100;
+        for peer in &interface.peers {
+            for allowed_ip in &peer.allowed_ips {
+                let prefix_str = allowed_ip.to_string();
+                let mut route = MIB_IPFORWARD_ROW2::default();
+                unsafe { InitializeIpForwardEntry(&mut route) };
+                route.InterfaceLuid = std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid);
+                route.Metric = 5;
+
+                match allowed_ip {
+                    IpNet::V4(v4) => {
+                        route.DestinationPrefix.Prefix.si_family = AF_INET;
+                        route.DestinationPrefix.Prefix.Ipv4.sin_addr =
+                            std::mem::transmute::<[u8; 4], IN_ADDR>(v4.addr().octets());
+                        route.DestinationPrefix.PrefixLength = v4.prefix_len();
+                        route.NextHop.si_family = AF_INET;
                     }
-                    break;
+                    IpNet::V6(v6) => {
+                        route.DestinationPrefix.Prefix.si_family = AF_INET6;
+                        route.DestinationPrefix.Prefix.Ipv6.sin6_addr =
+                            std::mem::transmute::<[u8; 16], IN6_ADDR>(v6.addr().octets());
+                        route.DestinationPrefix.PrefixLength = v6.prefix_len();
+                        route.NextHop.si_family = AF_INET6;
+                    }
                 }
-                Err(e) => {
-                    if attempt == MAX_RETRIES {
+
+                for attempt in 1..=PREFIX_MAX_RETRIES {
+                    let err = unsafe { CreateIpForwardEntry2(&route) };
+                    if err == ERROR_SUCCESS || err == ERROR_OBJECT_ALREADY_EXISTS {
+                        if attempt > 1 {
+                            info!(
+                                "route for {prefix} succeeded on attempt {attempt}/{attempt_max} (luid={luid:#018x})",
+                                prefix = prefix_str,
+                                luid = adapter_luid,
+                                attempt_max = PREFIX_MAX_RETRIES
+                            );
+                        }
+                        break;
+                    }
+                    if attempt == PREFIX_MAX_RETRIES {
                         error!(
-                            "set_default_route failed after {attempt_max} attempts for adapter {ifname} (luid={luid:#018x}): {e}",
-                            ifname = self.ifname,
+                            "route for {prefix} failed after {attempt_max} attempts (luid={luid:#018x}): error {err:#x}",
+                            prefix = prefix_str,
                             luid = adapter_luid,
-                            attempt_max = MAX_RETRIES
+                            attempt_max = PREFIX_MAX_RETRIES,
+                            err = err.0
                         );
-                        return Err(WireguardInterfaceError::from(WindowsError::from(e)));
+                        return Err(WireguardInterfaceError::from(
+                            WindowsError::NonZeroReturnValue(err.0),
+                        ));
                     }
                     warn!(
-                        "set_default_route attempt {attempt}/{attempt_max} failed for adapter {ifname} (luid={luid:#018x}): {e}. Retrying in {delay}ms...",
-                        attempt,
-                        ifname = self.ifname,
+                        "route for {prefix} attempt {attempt}/{attempt_max} failed (luid={luid:#018x}): error {err:#x}. Retrying in {delay}ms...",
+                        prefix = prefix_str,
                         luid = adapter_luid,
-                        attempt_max = MAX_RETRIES,
-                        delay = RETRY_DELAY_MS
+                        attempt_max = PREFIX_MAX_RETRIES,
+                        err = err.0,
+                        delay = PREFIX_RETRY_DELAY_MS
                     );
-                    std::thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                    std::thread::sleep(Duration::from_millis(PREFIX_RETRY_DELAY_MS));
                 }
             }
         }
+
+        // set_default_route handles unicast address assignment and interface metric
+        // configuration. Routes were already created per-prefix above, so the route
+        // creation step will get ERROR_OBJECT_ALREADY_EXISTS (harmless).
+        adapter
+            .set_default_route(&addresses, &interface)
+            .map_err(|e| WireguardInterfaceError::from(WindowsError::from(e)))?;
 
         // Set MTU
         if let Some(mtu) = config.mtu {
