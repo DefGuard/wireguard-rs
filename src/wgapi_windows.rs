@@ -49,10 +49,14 @@ const WIREGUARD_DLL_PATH: &str = "resources-windows/binaries/wireguard-arm64.dll
 const WIREGUARD_DLL_PATH: &str = "resources-windows/binaries/wireguard-amd64.dll";
 // Load wireguard.dll. Unsafe because we are loading an arbitrary dll file.
 static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
-    Mutex::new(
-        unsafe { wireguard_nt::load_from_path(WIREGUARD_DLL_PATH) }
-            .expect("Failed to load wireguard.dll"),
-    )
+    let wireguard = unsafe { wireguard_nt::load_from_path(WIREGUARD_DLL_PATH) }
+        .expect("Failed to load wireguard.dll");
+    info!(
+        "Loaded wireguard.dll from {} (architecture: {})",
+        WIREGUARD_DLL_PATH,
+        std::env::consts::ARCH
+    );
+    Mutex::new(wireguard)
 });
 
 #[derive(Debug, Error)]
@@ -430,6 +434,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                                 luid = adapter_luid,
                                 attempt_max = PREFIX_MAX_RETRIES
                             );
+                        } else {
+                            debug!(
+                                "route for {prefix} created (luid={luid:#018x})",
+                                prefix = prefix_str,
+                                luid = adapter_luid
+                            );
                         }
                         break;
                     }
@@ -464,6 +474,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         adapter
             .set_default_route(&addresses, &interface)
             .map_err(|e| WireguardInterfaceError::from(WindowsError::from(e)))?;
+        debug!(
+            "Addresses assigned and metric configured for adapter {ifname}",
+            ifname = self.ifname
+        );
 
         // Set MTU
         if let Some(mtu) = config.mtu {
