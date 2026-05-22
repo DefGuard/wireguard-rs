@@ -89,6 +89,60 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     Ok(guid)
 }
 
+/// Logs all network adapters and their operational status for diagnostics.
+/// Helps identify conflicting VPN clients, Hyper-V switches, or filter drivers.
+fn log_network_adapters() {
+    let mut buffer_size: u32 = 0;
+    let result = unsafe {
+        GetAdaptersAddresses(
+            u32::from(AF_UNSPEC.0),
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            None,
+            &mut buffer_size,
+        )
+    };
+    if result != ERROR_BUFFER_OVERFLOW.0 {
+        warn!("Failed to enumerate network adapters: error {}", result);
+        return;
+    }
+
+    let mut buffer = vec![0u8; buffer_size as usize];
+    let addresses = buffer.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+    let result = unsafe {
+        GetAdaptersAddresses(
+            u32::from(AF_UNSPEC.0),
+            GAA_FLAG_INCLUDE_PREFIX,
+            None,
+            Some(addresses),
+            &mut buffer_size,
+        )
+    };
+    if result != NO_ERROR.0 {
+        warn!("Failed to get network adapter list: error {}", result);
+        return;
+    }
+
+    let mut current = buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+    info!("--- Network adapters ---");
+    while !current.is_null() {
+        let adapter = unsafe { &*current };
+        let name = unsafe { PCWSTR(adapter.FriendlyName.0) }
+            .to_string()
+            .unwrap_or_default();
+        let desc = unsafe { PCWSTR(adapter.Description.0) }
+            .to_string()
+            .unwrap_or_default();
+        info!(
+            "adapter: \"{name}\" desc=\"{desc}\" oper_status={status} if_type={if_type}",
+            status = adapter.OperStatus.0,
+            if_type = adapter.IfType
+        );
+        current = adapter.Next;
+    }
+    info!("--- End network adapters ---");
+}
+
 /// Returns the GUID of a network adapter given its name.
 /// Example adapter name: "Ethernet", "WireGuard".
 fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
@@ -273,6 +327,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Opened/created interface {} on Windows build {}.{}.{}",
             self.ifname, ver.dwMajorVersion, ver.dwMinorVersion, ver.dwBuildNumber
         );
+        log_network_adapters();
         Ok(())
     }
 
