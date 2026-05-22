@@ -11,6 +11,7 @@ use std::{
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use thiserror::Error;
 use windows::{
+    Wdk::System::SystemServices::RtlGetVersion,
     Win32::{
         Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_OBJECT_ALREADY_EXISTS, ERROR_SUCCESS, NO_ERROR},
         NetworkManagement::{
@@ -26,7 +27,7 @@ use windows::{
         },
         Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC, IN_ADDR, IN6_ADDR},
         System::Com::CLSIDFromString,
-        System::SystemServices::{OSVERSIONINFOW, RtlGetVersion},
+        System::SystemInformation::OSVERSIONINFOW,
     },
     core::{GUID, PCSTR, PCWSTR, PSTR, PWSTR},
 };
@@ -262,8 +263,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
             ..Default::default()
         };
-        // SAFETY: RtlGetVersion is always safe to call; OSVERSIONINFOW is stack-allocated
-        // and properly initialized.
+        // SAFETY: RtlGetVersion reads kernel version info into stack-allocated struct
         unsafe { RtlGetVersion(&mut ver) };
         info!(
             "Opened/created interface {} on Windows build {}.{}.{}",
@@ -362,7 +362,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         for (family_name, family) in [("IPv4", AF_INET), ("IPv6", AF_INET6)] {
             let mut row = MIB_IPINTERFACE_ROW::default();
             unsafe { InitializeIpInterfaceEntry(&mut row) };
-            row.InterfaceLuid = std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid);
+            row.InterfaceLuid = unsafe { std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid) };
             row.Family = ADDRESS_FAMILY(family.0);
             let err = unsafe { GetIpInterfaceEntry(&mut row) };
             if err.0 == 0 {
@@ -398,21 +398,23 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 let prefix_str = allowed_ip.to_string();
                 let mut route = MIB_IPFORWARD_ROW2::default();
                 unsafe { InitializeIpForwardEntry(&mut route) };
-                route.InterfaceLuid = std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid);
+                route.InterfaceLuid =
+                    unsafe { std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid) };
                 route.Metric = 5;
 
                 match allowed_ip {
                     IpNet::V4(v4) => {
                         route.DestinationPrefix.Prefix.si_family = AF_INET;
                         route.DestinationPrefix.Prefix.Ipv4.sin_addr =
-                            std::mem::transmute::<[u8; 4], IN_ADDR>(v4.addr().octets());
+                            unsafe { std::mem::transmute::<[u8; 4], IN_ADDR>(v4.addr().octets()) };
                         route.DestinationPrefix.PrefixLength = v4.prefix_len();
                         route.NextHop.si_family = AF_INET;
                     }
                     IpNet::V6(v6) => {
                         route.DestinationPrefix.Prefix.si_family = AF_INET6;
-                        route.DestinationPrefix.Prefix.Ipv6.sin6_addr =
-                            std::mem::transmute::<[u8; 16], IN6_ADDR>(v6.addr().octets());
+                        route.DestinationPrefix.Prefix.Ipv6.sin6_addr = unsafe {
+                            std::mem::transmute::<[u8; 16], IN6_ADDR>(v6.addr().octets())
+                        };
                         route.DestinationPrefix.PrefixLength = v6.prefix_len();
                         route.NextHop.si_family = AF_INET6;
                     }
