@@ -170,7 +170,7 @@ fn log_network_adapters() {
             "adapter: \"{name}\" desc=\"{desc}\" oper_status={status} if_type={if_type} flags={flags:#x}",
             status = adapter.OperStatus.0,
             if_type = adapter.IfType,
-            flags = adapter.Flags
+            flags = unsafe { adapter.Anonymous2.Flags }
         );
         current = adapter.Next;
     }
@@ -341,17 +341,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let wireguard = WIREGUARD_DLL.lock().expect("Failed to lock WIREGUARD_DLL");
         let adapter = if let Ok(adapter) = wireguard_nt::Adapter::open(&wireguard, &self.ifname) {
             debug!("Found existing adapter {}", self.ifname);
-            match adapter.get_config() {
-                Ok(config) => info!(
-                    "Existing adapter {ifname} config: {config:?}",
-                    ifname = self.ifname,
-                    config = config
-                ),
-                Err(e) => warn!(
-                    "Failed to get existing adapter {ifname} config: {e}",
-                    ifname = self.ifname
-                ),
-            }
+            info!(
+                "Existing adapter {ifname} config: {config:?}",
+                ifname = self.ifname,
+                config = adapter.get_config()
+            );
             adapter
         } else {
             debug!("Adapter {} does not exist, creating", self.ifname);
