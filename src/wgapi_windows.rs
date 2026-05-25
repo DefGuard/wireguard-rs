@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::OsStr,
-    net::IpAddr,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::windows::ffi::OsStrExt,
     str::FromStr,
     sync::{LazyLock, Mutex},
@@ -20,9 +20,9 @@ use windows::{
                 DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
                 DNS_SETTING_SEARCHLIST, FreeMibTable, GAA_FLAG_INCLUDE_PREFIX,
                 GetAdaptersAddresses, GetIpForwardTable2, GetIpInterfaceEntry,
-                IP_ADAPTER_ADDRESSES_LH, InitializeIpForwardEntry, InitializeIpInterfaceEntry,
-                MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2, MIB_IPINTERFACE_ROW,
-                SetInterfaceDnsSettings, SetIpInterfaceEntry,
+                IP_ADAPTER_ADDRESSES_LH, IP_ADDRESS_PREFIX, InitializeIpForwardEntry,
+                InitializeIpInterfaceEntry, MIB_IPFORWARD_ROW2, MIB_IPFORWARD_TABLE2,
+                MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
@@ -90,8 +90,22 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     Ok(guid)
 }
 
-/// Logs the IPv4 routing table for diagnostics. Conflicting routes (e.g. a
-/// corporate 10.0.0.0/8) can cause unexpected CreateIpForwardEntry2 behavior.
+/// Formats a route destination prefix as a human-readable IP/prefix string (e.g. "10.0.0.0/16").
+fn format_route_ip(prefix: &IP_ADDRESS_PREFIX) -> String {
+    let family = unsafe { prefix.Prefix.si_family };
+    if family == AF_INET {
+        let addr = unsafe { prefix.Prefix.Ipv4.sin_addr.S_un.S_un_b };
+        format!("{}.{}.{}.{}", addr.s_b1, addr.s_b2, addr.s_b3, addr.s_b4)
+    } else if family == AF_INET6 {
+        let bytes = unsafe { prefix.Prefix.Ipv6.sin6_addr.u.Byte };
+        Ipv6Addr::from(bytes).to_string()
+    } else {
+        format!("unknown_family_{}", family.0)
+    }
+}
+
+/// Logs both IPv4 and IPv6 routing tables for diagnostics. Conflicting routes
+/// (e.g. a corporate 10.0.0.0/8) can cause unexpected CreateIpForwardEntry2 behavior.
 fn log_routing_table() {
     for (family_name, family) in [("IPv4", AF_INET), ("IPv6", AF_INET6)] {
         let mut table_ptr: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
@@ -115,7 +129,8 @@ fn log_routing_table() {
         );
         for entry in entries {
             info!(
-                "route: dest_prefix_len={prefix_len} metric={metric} protocol={proto}",
+                "route: {dest}/{prefix_len} metric={metric} protocol={proto}",
+                dest = format_route_ip(&entry.DestinationPrefix),
                 prefix_len = entry.DestinationPrefix.PrefixLength,
                 metric = entry.Metric,
                 proto = entry.Protocol.0
