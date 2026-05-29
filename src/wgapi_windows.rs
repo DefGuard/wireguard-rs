@@ -51,6 +51,9 @@ static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
     )
 });
 
+const IPV4_LABEL: &str = "IPv4";
+const IPV6_LABEL: &str = "IPv6";
+
 #[derive(Debug, Error)]
 pub enum WindowsError {
     #[error("Empty interface array")]
@@ -304,7 +307,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Configure the interface
         debug!("Applying configuration for adapter {}", self.ifname);
-        let interface = wireguard_nt::SetInterface {
+        let mut interface = wireguard_nt::SetInterface {
             listen_port: Some(config.port),
             public_key: None, // derived from private key
             private_key: Some(Key::from_str(&config.prvkey)?.as_array()),
@@ -312,7 +315,56 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         };
         adapter.set_config(&interface).map_err(WindowsError::from)?;
 
-        // Set adapter addresses
+        // Check which IP families are available on this adapter before attempting
+        // to create routes.
+        let adapter_luid = adapter.get_luid();
+        let mut ipv4_available = false;
+        let mut ipv6_available = false;
+        for (family_name, family) in [(IPV4_LABEL, AF_INET), (IPV6_LABEL, AF_INET6)] {
+            let mut row = MIB_IPINTERFACE_ROW::default();
+            unsafe { InitializeIpInterfaceEntry(&mut row) };
+            row.InterfaceLuid = unsafe { std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid) };
+            row.Family = ADDRESS_FAMILY(family.0);
+            let err = unsafe { GetIpInterfaceEntry(&mut row) };
+            if err.0 == 0 {
+                debug!(
+                    "IP interface {family_name} for {ifname}: connected={conn}, if_index={idx}, mtu={mtu}",
+                    ifname = self.ifname,
+                    conn = row.Connected,
+                    idx = row.InterfaceIndex,
+                    mtu = row.NlMtu
+                );
+                if family == AF_INET {
+                    ipv4_available = true;
+                } else {
+                    ipv6_available = true;
+                }
+            } else {
+                info!(
+                    "IP interface {family_name} unavailable on {ifname} (luid={luid:#018x}): {err:#x} - skipping {family_name} routes",
+                    ifname = self.ifname,
+                    luid = adapter_luid,
+                    err = err.0
+                );
+            }
+        }
+        if !ipv4_available && !ipv6_available {
+            Err(WindowsError::AdapterNotFound(self.ifname.clone()))?
+        }
+
+        // Strip allowed IPs for unavailable families so CreateIpForwardEntry2
+        // inside set_default_route only attempts routes that can succeed.
+        if !ipv4_available || !ipv6_available {
+            for peer in &mut interface.peers {
+                peer.allowed_ips.retain(|ip| match ip {
+                    IpNet::V4(_) => ipv4_available,
+                    IpNet::V6(_) => ipv6_available,
+                });
+            }
+        }
+
+        // Set adapter addresses. Skip addresses for families that are not
+        // available on this adapter (e.g. IPv6 disabled system-wide).
         debug!(
             "Assigning addresses to adapter {}: {:?}",
             self.ifname, config.addresses
@@ -321,8 +373,28 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .addresses
             .iter()
             .filter_map(|ip| match ip.address {
-                IpAddr::V4(addr) => Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?)),
-                IpAddr::V6(addr) => Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?)),
+                IpAddr::V4(addr) => {
+                    if ipv4_available {
+                        Some(IpNet::V4(Ipv4Net::new(addr, ip.cidr).ok()?))
+                    } else {
+                        debug!(
+                            "Skipping IPv4 address {}: unavailable on adapter",
+                            ip.address
+                        );
+                        None
+                    }
+                }
+                IpAddr::V6(addr) => {
+                    if ipv6_available {
+                        Some(IpNet::V6(Ipv6Net::new(addr, ip.cidr).ok()?))
+                    } else {
+                        debug!(
+                            "Skipping IPv6 address {}: unavailable on adapter",
+                            ip.address
+                        );
+                        None
+                    }
+                }
             })
             .collect();
         adapter
