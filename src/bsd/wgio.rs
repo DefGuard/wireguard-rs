@@ -5,14 +5,14 @@ use std::{
     slice::from_raw_parts,
 };
 
-use libc::IF_NAMESIZE;
-use nix::{ioctl_readwrite, sys::socket::AddressFamily};
+use libc::{AF_UNIX, IF_NAMESIZE, c_ulong, ioctl};
 
-use super::{IoError, create_socket};
+use super::{IoError, c_int_to_error, create_socket, ioctl::iowr};
 
 // FIXME: `WgReadIo` and `WgWriteIo` have to be declared public.
-ioctl_readwrite!(write_wireguard_data, b'i', 210, WgWriteIo);
-ioctl_readwrite!(read_wireguard_data, b'i', 211, WgReadIo);
+// From `dev/wg/if_wg.h`.
+const SIOCSWG: c_ulong = iowr::<WgWriteIo>(b'i', 210);
+const SIOCGWG: c_ulong = iowr::<WgReadIo>(b'i', 211);
 
 /// Represent `struct wg_data_io` defined in
 /// https://github.com/freebsd/freebsd-src/blob/main/sys/dev/wg/if_wg.h
@@ -59,23 +59,17 @@ impl WgReadIo {
     }
 
     pub(super) fn read_data(&mut self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Unix).map_err(IoError::ReadIo)?;
-        unsafe {
-            // First do ioctl with empty `wg_data` to obtain buffer size.
-            if let Err(err) = read_wireguard_data(socket.as_raw_fd(), self) {
-                error!("WgReadIo first read error {err}");
-                return Err(IoError::ReadIo(err));
-            }
-            // Allocate buffer.
-            self.alloc_data()?;
-            // Second call to ioctl with allocated buffer.
-            if let Err(err) = read_wireguard_data(socket.as_raw_fd(), self) {
-                error!("WgReadIo second read error {err}");
-                return Err(IoError::ReadIo(err));
-            }
-        }
+        let socket = create_socket(AF_UNIX)?;
 
-        Ok(())
+        // First do ioctl with empty `wg_data` to obtain buffer size.
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &self) };
+        c_int_to_error(result)?;
+
+        // Allocate buffer.
+        self.alloc_data()?;
+        // Second call to ioctl with allocated buffer.
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &self) };
+        c_int_to_error(result)
     }
 }
 
@@ -116,14 +110,8 @@ impl WgWriteIo {
     }
 
     pub(super) fn write_data(&mut self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
-        unsafe {
-            if let Err(err) = write_wireguard_data(socket.as_raw_fd(), self) {
-                error!("WgWriteIo write error {err}");
-                return Err(IoError::WriteIo(err));
-            }
-        }
-
-        Ok(())
+        let socket = create_socket(AF_UNIX)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSWG, &self) };
+        c_int_to_error(result)
     }
 }

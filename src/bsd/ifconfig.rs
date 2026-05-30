@@ -3,67 +3,60 @@ use std::{
     os::fd::AsRawFd,
 };
 
-use libc::{IF_NAMESIZE, IFF_UP};
-use nix::{ioctl_readwrite, ioctl_write_ptr, sys::socket::AddressFamily};
+use libc::{AF_INET, AF_INET6, AF_UNIX, IF_NAMESIZE, IFF_UP, c_ulong, ioctl};
 
 use super::{
-    IoError, create_socket,
+    IoError, c_int_to_error, create_socket,
+    ioctl::{iow, iowr},
     sockaddr::{SockAddrIn, SockAddrIn6},
 };
 
 // From `netinet6/in6.h`.
 const ND6_INFINITE_LIFETIME: u32 = u32::MAX;
 
-// SIOCIFDESTROY
-ioctl_write_ptr!(destroy_clone_if, b'i', 121, IfReq);
+// From `sys/sockio.h`.
+const SIOCIFDESTROY: c_ulong = iow::<IfReq>(b'i', 121);
 
-// SIOCIFCREATE2
-// FIXME: not on NetBSD
-ioctl_readwrite!(create_clone_if, b'i', 124, IfReq);
-
-// SIOCGIFMTU
-#[cfg(any(target_os = "freebsd", target_os = "macos"))]
-ioctl_readwrite!(get_if_mtu, b'i', 51, IfMtu);
+// Note: SIOCIFCREATE on NetBSD should work as SIOCIFCREATE2 on FreeBSD.
 #[cfg(target_os = "netbsd")]
-ioctl_readwrite!(get_if_mtu, b'i', 126, IfMtu);
+const SIOCIFCREATE: c_ulong = iowr::<IfReq>(b'i', 122);
 
-// SIOCSIFMTU
-#[cfg(any(target_os = "freebsd", target_os = "macos"))]
-ioctl_write_ptr!(set_if_mtu, b'i', 52, IfMtu);
-#[cfg(target_os = "netbsd")]
-ioctl_write_ptr!(set_if_mtu, b'i', 127, IfMtu);
-
-// SIOCSIFADDR
-ioctl_write_ptr!(set_addr_if, b'i', 12, IfReq);
-
-// SIOCAIFADDR
+// SIOCIFCREATE2 works as SIOCIFCREATE, but let the caller speficy the interface name.
 #[cfg(target_os = "freebsd")]
-ioctl_write_ptr!(add_addr_if, b'i', 43, InAliasReq);
-#[cfg(any(target_os = "macos", target_os = "netbsd"))]
-ioctl_write_ptr!(add_addr_if, b'i', 26, InAliasReq);
-
-// SIOCDIFADDR
-ioctl_write_ptr!(del_addr_if, b'i', 25, IfReq);
-
-// SIOCSIFADDR_IN6
-ioctl_write_ptr!(set_addr_if_in6, b'i', 12, IfReq6);
-
-// SIOCAIFADDR_IN6
-#[cfg(target_os = "freebsd")]
-ioctl_write_ptr!(add_addr_if_in6, b'i', 27, In6AliasReq);
+const SIOCIFCREATE2: c_ulong = iowr::<IfReq>(b'i', 124);
 #[cfg(target_os = "macos")]
-ioctl_write_ptr!(add_addr_if_in6, b'i', 26, In6AliasReq);
+const SIOCIFCREATE2: c_ulong = iowr::<IfReq>(b'i', 124);
+
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
+const SIOCGIFMTU: c_ulong = iowr::<IfMtu>(b'i', 51);
 #[cfg(target_os = "netbsd")]
-ioctl_write_ptr!(add_addr_if_in6, b'i', 107, In6AliasReq);
+const SIOCGIFMTU: c_ulong = iowr::<IfMtu>(b'i', 126);
 
-// SIOCDIFADDR_IN6
-ioctl_write_ptr!(del_addr_if_in6, b'i', 25, IfReq6);
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
+const SIOCSIFMTU: c_ulong = iow::<IfMtu>(b'i', 52);
+#[cfg(target_os = "netbsd")]
+const SIOCSIFMTU: c_ulong = iow::<IfMtu>(b'i', 127);
 
-// SIOCSIFFLAGS
-ioctl_write_ptr!(set_if_flags, b'i', 16, IfReqFlags);
+const SIOCSIFADDR: c_ulong = iow::<IfReq>(b'i', 12);
 
-// SIOCGIFFLAGS
-ioctl_readwrite!(get_if_flags, b'i', 17, IfReqFlags);
+#[cfg(target_os = "freebsd")]
+const SIOCAIFADDR: c_ulong = iow::<InAliasReq>(b'i', 43);
+#[cfg(any(target_os = "macos", target_os = "netbsd"))]
+const SIOCAIFADDR: c_ulong = iow::<InAliasReq>(b'i', 26);
+
+const SIOCDIFADDR: c_ulong = iow::<IfReq>(b'i', 25);
+const SIOCSIFADDR_IN6: c_ulong = iow::<IfReq6>(b'i', 12);
+
+#[cfg(target_os = "freebsd")]
+const SIOCAIFADDR_IN6: c_ulong = iow::<In6AliasReq>(b'i', 27);
+#[cfg(target_os = "macos")]
+const SIOCAIFADDR_IN6: c_ulong = iow::<In6AliasReq>(b'i', 26);
+#[cfg(target_os = "netbsd")]
+const SIOCAIFADDR_IN6: c_ulong = iow::<In6AliasReq>(b'i', 107);
+
+const SIOCDIFADDR_IN6: c_ulong = iow::<IfReq6>(b'i', 25);
+const SIOCSIFFLAGS: c_ulong = iow::<IfReqFlags>(b'i', 16);
+const SIOCGIFFLAGS: c_ulong = iowr::<IfReqFlags>(b'i', 17);
 
 type IfName = [u8; IF_NAMESIZE];
 
@@ -99,41 +92,30 @@ impl IfReq {
     }
 
     pub(super) fn create(&mut self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
-
-        unsafe {
-            create_clone_if(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_UNIX)?;
+        #[cfg(target_os = "netbsd")]
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE, &self) };
+        #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE2, &self) };
+        c_int_to_error(result)
     }
 
     pub(super) fn destroy(&self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
-
-        unsafe {
-            destroy_clone_if(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_UNIX)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFDESTROY, &self) };
+        c_int_to_error(result)
     }
 
     pub(super) fn set_address(&self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Inet).map_err(IoError::WriteIo)?;
-        unsafe {
-            set_addr_if(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_INET)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFADDR, &self) };
+        c_int_to_error(result)
     }
 
     pub(super) fn delete_address(&self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Inet).map_err(IoError::WriteIo)?;
-        unsafe {
-            del_addr_if(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_INET)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCDIFADDR, &self) };
+        c_int_to_error(result)
     }
 }
 
@@ -156,24 +138,17 @@ impl IfMtu {
     }
 
     pub(super) fn get_mtu(&mut self) -> Result<u32, IoError> {
-        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
-
-        unsafe {
-            get_if_mtu(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
+        let socket = create_socket(AF_UNIX)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFMTU, &self) };
+        c_int_to_error(result)?;
         Ok(self.ifru_mtu)
     }
 
     pub(super) fn set_mtu(&mut self, mtu: u32) -> Result<(), IoError> {
         self.ifru_mtu = mtu;
-        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
-
-        unsafe {
-            set_if_mtu(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_UNIX)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFMTU, &self) };
+        c_int_to_error(result)
     }
 }
 
@@ -196,22 +171,15 @@ impl IfReq6 {
     }
 
     pub(super) fn set_address(&self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Inet6).map_err(IoError::WriteIo)?;
-
-        unsafe {
-            set_addr_if_in6(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_INET6)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFADDR_IN6, &self) };
+        c_int_to_error(result)
     }
 
     pub(super) fn delete_address(&self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Inet6).map_err(IoError::WriteIo)?;
-        unsafe {
-            del_addr_if_in6(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_INET6)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCDIFADDR_IN6, &self) };
+        c_int_to_error(result)
     }
 }
 
@@ -245,13 +213,9 @@ impl InAliasReq {
     }
 
     pub(super) fn add_address(&self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Inet).map_err(IoError::WriteIo)?;
-
-        unsafe {
-            add_addr_if(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_INET)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCAIFADDR, &self) };
+        c_int_to_error(result)
     }
 }
 
@@ -296,13 +260,9 @@ impl In6AliasReq {
     }
 
     pub(super) fn add_address(&self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Inet6).map_err(IoError::WriteIo)?;
-
-        unsafe {
-            add_addr_if_in6(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
-
-        Ok(())
+        let socket = create_socket(AF_INET6)?;
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCAIFADDR_IN6, &self) };
+        c_int_to_error(result)
     }
 }
 
@@ -325,19 +285,15 @@ impl IfReqFlags {
     }
 
     pub(super) fn up(&mut self) -> Result<(), IoError> {
-        let socket = create_socket(AddressFamily::Unix).map_err(IoError::WriteIo)?;
+        let socket = create_socket(AF_UNIX)?;
 
         // Get current interface flags.
-        unsafe {
-            get_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
+        let _result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFFLAGS, &self) };
 
         // Set interface up flag.
         self.ifr_flags |= IFF_UP as u64;
-        unsafe {
-            set_if_flags(socket.as_raw_fd(), self).map_err(IoError::WriteIo)?;
-        }
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFFLAGS, &self) };
 
-        Ok(())
+        c_int_to_error(result)
     }
 }

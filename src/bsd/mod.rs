@@ -1,4 +1,5 @@
 mod ifconfig;
+mod ioctl;
 mod nvlist;
 mod route;
 mod sockaddr;
@@ -8,17 +9,15 @@ mod wgio;
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
+    io,
     mem::{MaybeUninit, size_of},
     net::IpAddr,
-    os::fd::OwnedFd,
+    os::fd::{FromRawFd, OwnedFd},
     ptr::from_ref,
     slice::from_raw_parts,
 };
 
-use nix::{
-    errno::Errno,
-    sys::socket::{AddressFamily, SockFlag, SockType, socket},
-};
+use libc::{IPPROTO_IP, SOCK_DGRAM, c_int, socket};
 use route::{DestAddrMask, GatewayLink};
 use sockaddr::{SockAddrDl, SockAddrIn, SockAddrIn6, SocketFromRaw};
 use thiserror::Error;
@@ -72,25 +71,41 @@ unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
     unsafe { from_raw_parts(from_ref::<T>(p).cast::<u8>(), size_of::<T>()) }
 }
 
+/// Convert result of -1 to `IoError`, by taking `errno`.
+fn c_int_to_error(result: c_int) -> Result<(), IoError> {
+    if result == -1 {
+        Err(IoError::Io(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
 /// Create socket for ioctl communication.
-fn create_socket(address_family: AddressFamily) -> Result<OwnedFd, Errno> {
-    socket(address_family, SockType::Datagram, SockFlag::empty(), None)
+fn create_socket(address_family: c_int) -> Result<OwnedFd, io::Error> {
+    match unsafe { socket(address_family, SOCK_DGRAM, IPPROTO_IP) } {
+        -1 => Err(io::Error::last_os_error()),
+        fd => unsafe { Ok(OwnedFd::from_raw_fd(fd)) },
+    }
 }
 
 #[derive(Debug, Error)]
 pub enum IoError {
     #[error("Memory allocation error")]
     MemAlloc,
-    #[error("Read error {0}")]
-    ReadIo(Errno),
-    #[error("Write error {0}")]
-    WriteIo(Errno),
+    #[error("I/O error {0}")]
+    Io(io::Error),
     #[error("Network interface does not exist")]
     NetworkInterface,
     #[error("Not enough bytes to unpack")]
     Unpack,
     #[error("Failed to load kernel module")]
     KernelModule,
+}
+
+impl From<io::Error> for IoError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
 }
 
 impl From<IoError> for WireguardInterfaceError {

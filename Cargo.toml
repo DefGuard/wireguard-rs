@@ -29,7 +29,6 @@ defguard_boringtun = { version = "0.6", default-features = false, features = [
     "device",
 ]}
 libc = { version = "0.2", default-features = false }
-nix = { version = "0.31", features = ["ioctl", "socket"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ipnet = "2.11"
@@ -46,7 +45,7 @@ netlink-packet-core = "0.8"
 netlink-packet-generic = "0.4"
 netlink-packet-route = "0.30"
 netlink-packet-utils = "0.6"
-netlink-packet-wireguard = "0.3"
+netlink-packet-wireguard = "0.4"
 netlink-sys = "0.8"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
