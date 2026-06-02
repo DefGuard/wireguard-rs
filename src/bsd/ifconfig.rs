@@ -61,7 +61,7 @@ const SIOCGIFFLAGS: c_ulong = iowr::<IfReqFlags>(b'i', 17);
 type IfName = [u8; IF_NAMESIZE];
 
 fn make_ifr_name(if_name: &str) -> IfName {
-    let mut ifr_name = [0u8; IF_NAMESIZE];
+    let mut ifr_name = [0; IF_NAMESIZE];
     let len = if_name.len().min(IF_NAMESIZE - 1);
     ifr_name[..len].copy_from_slice(&if_name.as_bytes()[..len]);
     ifr_name
@@ -120,6 +120,7 @@ impl IfReq {
 }
 
 /// Represent `struct ifreq` as defined in `net/if.h` - ifr_mtu variant.
+#[derive(Debug)]
 #[repr(C)]
 pub struct IfMtu {
     ifr_name: IfName,

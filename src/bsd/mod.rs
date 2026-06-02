@@ -3,6 +3,8 @@ mod ioctl;
 mod nvlist;
 mod route;
 mod sockaddr;
+#[cfg(test)]
+mod tests;
 mod timespec;
 mod wgio;
 
