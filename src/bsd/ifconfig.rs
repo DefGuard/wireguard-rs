@@ -94,27 +94,27 @@ impl IfReq {
     pub(super) fn create(&mut self) -> Result<(), IoError> {
         let socket = create_socket(AF_UNIX)?;
         #[cfg(target_os = "netbsd")]
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE, &*self) };
         #[cfg(any(target_os = "freebsd", target_os = "macos"))]
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE2, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE2, &*self) };
         c_int_to_error(result)
     }
 
     pub(super) fn destroy(&self) -> Result<(), IoError> {
         let socket = create_socket(AF_UNIX)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFDESTROY, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFDESTROY, self) };
         c_int_to_error(result)
     }
 
     pub(super) fn set_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AF_INET)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFADDR, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFADDR, self) };
         c_int_to_error(result)
     }
 
     pub(super) fn delete_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AF_INET)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCDIFADDR, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCDIFADDR, self) };
         c_int_to_error(result)
     }
 }
@@ -140,15 +140,16 @@ impl IfMtu {
 
     pub(super) fn get_mtu(&mut self) -> Result<u32, IoError> {
         let socket = create_socket(AF_UNIX)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFMTU, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFMTU, &*self) };
         c_int_to_error(result)?;
+
         Ok(self.ifru_mtu)
     }
 
     pub(super) fn set_mtu(&mut self, mtu: u32) -> Result<(), IoError> {
         self.ifru_mtu = mtu;
         let socket = create_socket(AF_UNIX)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFMTU, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFMTU, &*self) };
         c_int_to_error(result)
     }
 }
@@ -173,13 +174,13 @@ impl IfReq6 {
 
     pub(super) fn set_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AF_INET6)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFADDR_IN6, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFADDR_IN6, self) };
         c_int_to_error(result)
     }
 
     pub(super) fn delete_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AF_INET6)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCDIFADDR_IN6, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCDIFADDR_IN6, self) };
         c_int_to_error(result)
     }
 }
@@ -215,7 +216,7 @@ impl InAliasReq {
 
     pub(super) fn add_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AF_INET)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCAIFADDR, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCAIFADDR, self) };
         c_int_to_error(result)
     }
 }
@@ -262,7 +263,7 @@ impl In6AliasReq {
 
     pub(super) fn add_address(&self) -> Result<(), IoError> {
         let socket = create_socket(AF_INET6)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCAIFADDR_IN6, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCAIFADDR_IN6, self) };
         c_int_to_error(result)
     }
 }
@@ -289,11 +290,11 @@ impl IfReqFlags {
         let socket = create_socket(AF_UNIX)?;
 
         // Get current interface flags.
-        let _result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFFLAGS, &self) };
+        let _result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFFLAGS, &*self) };
 
         // Set interface up flag.
         self.ifr_flags |= IFF_UP as u64;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFFLAGS, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSIFFLAGS, &*self) };
 
         c_int_to_error(result)
     }

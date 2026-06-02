@@ -440,7 +440,7 @@ pub(crate) fn add_peer_routing(
                         }
                     }
                     Err(err) => {
-                        error!("Failed to add route to {default1} for interface {ifname}: {err}")
+                        error!("Failed to add route to {default1} for interface {ifname}: {err}");
                     }
                 }
                 match add_linked_route(&default2, ifname) {

@@ -62,13 +62,13 @@ impl WgReadIo {
         let socket = create_socket(AF_UNIX)?;
 
         // First do ioctl with empty `wg_data` to obtain buffer size.
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &*self) };
         c_int_to_error(result)?;
 
         // Allocate buffer.
         self.alloc_data()?;
         // Second call to ioctl with allocated buffer.
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &*self) };
         c_int_to_error(result)
     }
 }
@@ -111,7 +111,7 @@ impl WgWriteIo {
 
     pub(super) fn write_data(&mut self) -> Result<(), IoError> {
         let socket = create_socket(AF_UNIX)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSWG, &self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSWG, &*self) };
         c_int_to_error(result)
     }
 }
