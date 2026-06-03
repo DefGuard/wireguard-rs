@@ -21,6 +21,7 @@ use netlink_packet_route::{
 };
 use netlink_packet_wireguard::{
     WireguardAttribute, WireguardCmd, WireguardMessage, WireguardPeer, WireguardPeerAttribute,
+    WireguardPeerFlags,
 };
 use netlink_sys::{
     Socket, SocketAddr,
@@ -31,7 +32,6 @@ use thiserror::Error;
 use crate::{IpVersion, Key, WireguardInterfaceError, host::Host, net::IpAddrMask, peer::Peer};
 
 const SOCKET_BUFFER_LENGTH: usize = 12288;
-const WGPEER_F_REMOVE_ME: u32 = 1;
 
 #[derive(Debug, Error)]
 pub(crate) enum NetlinkError {
@@ -88,7 +88,7 @@ impl Key {
             WireguardAttribute::IfName(ifname.into()),
             WireguardAttribute::Peers(vec![WireguardPeer(vec![
                 WireguardPeerAttribute::PublicKey(self.as_array()),
-                WireguardPeerAttribute::Flags(WGPEER_F_REMOVE_ME),
+                WireguardPeerAttribute::Flags(WireguardPeerFlags::RemoveMe),
             ])]),
         ]
     }

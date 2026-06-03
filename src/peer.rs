@@ -8,14 +8,12 @@ use std::{fmt, net::SocketAddr, time::SystemTime};
 #[cfg(target_os = "linux")]
 use netlink_packet_wireguard::{
     WireguardAllowedIpAttr, WireguardAttribute, WireguardPeer, WireguardPeerAttribute,
+    WireguardPeerFlags,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{error::WireguardInterfaceError, key::Key, net::IpAddrMask, utils::resolve};
-
-#[cfg(target_os = "linux")]
-const WGPEER_F_REPLACE_ALLOWEDIPS: u32 = 2;
 
 /// WireGuard peer representation.
 #[derive(Clone, Default, PartialEq)]
@@ -127,7 +125,7 @@ impl Peer {
             match nla {
                 WireguardPeerAttribute::PublicKey(value) => peer.public_key = Key::new(*value),
                 WireguardPeerAttribute::PresharedKey(value) => {
-                    peer.preshared_key = Some(Key::new(*value))
+                    peer.preshared_key = Some(Key::new(*value));
                 }
                 WireguardPeerAttribute::Endpoint(value) => peer.endpoint = Some(*value),
                 WireguardPeerAttribute::PersistentKeepalive(value) => {
@@ -136,7 +134,7 @@ impl Peer {
                 WireguardPeerAttribute::LastHandshake(value) => {
                     let duration = Duration::from_secs(value.seconds.cast_unsigned())
                         .saturating_add(Duration::from_nanos(value.nano_seconds.cast_unsigned()));
-                    peer.last_handshake = Some(SystemTime::UNIX_EPOCH + duration)
+                    peer.last_handshake = Some(SystemTime::UNIX_EPOCH + duration);
                 }
                 WireguardPeerAttribute::RxBytes(value) => peer.rx_bytes = *value,
                 WireguardPeerAttribute::TxBytes(value) => peer.tx_bytes = *value,
@@ -189,7 +187,9 @@ impl Peer {
             ));
         }
 
-        attrs.push(WireguardPeerAttribute::Flags(WGPEER_F_REPLACE_ALLOWEDIPS));
+        attrs.push(WireguardPeerAttribute::Flags(
+            WireguardPeerFlags::ReplaceAllowedIps,
+        ));
         let allowed_ips = self
             .allowed_ips
             .iter()

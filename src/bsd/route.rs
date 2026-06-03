@@ -1,18 +1,15 @@
 use std::{
     ffi::{CStr, CString},
+    io,
     mem::{MaybeUninit, size_of},
     net::IpAddr,
-    os::fd::{AsFd, AsRawFd},
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
 };
 
-use nix::{
-    errno::Errno,
-    sys::socket::{AddressFamily, Shutdown, SockFlag, SockType, shutdown, socket},
-    unistd::{read, write},
-};
+use libc::{ESRCH, PF_ROUTE, SHUT_RD, SOCK_RAW, read, shutdown, socket, write};
 
 use super::{
-    IoError, cast_bytes, cast_ref,
+    IoError, c_int_to_error, cast_bytes, cast_ref,
     sockaddr::{SockAddrDl, SocketFromRaw, unpack_sockaddr},
 };
 
@@ -351,30 +348,54 @@ impl<Payload> RtMessage<Payload> {
         Self { header, payload }
     }
 
-    pub(super) fn execute(&self) -> Result<(), IoError> {
-        let socket = socket(AddressFamily::Route, SockType::Raw, SockFlag::empty(), None)
-            .map_err(IoError::WriteIo)?;
-        // Don't want to read back our messages.
-        shutdown(socket.as_raw_fd(), Shutdown::Read).map_err(IoError::WriteIo)?;
-        let buf = unsafe { cast_bytes(self) };
-        match write(socket.as_fd(), buf) {
-            Ok(_) | Err(Errno::ESRCH) => Ok(()), // not in table
-            Err(err) => Err(IoError::WriteIo(err)),
+    /// Create socket for ioctl communication.
+    fn socket() -> Result<OwnedFd, io::Error> {
+        match unsafe { socket(PF_ROUTE, SOCK_RAW, 0) } {
+            -1 => Err(io::Error::last_os_error()),
+            fd => unsafe { Ok(OwnedFd::from_raw_fd(fd)) },
         }
     }
 
-    pub(super) fn get_gateway(&self) -> Result<Option<IpAddr>, IoError> {
-        let socket = socket(AddressFamily::Route, SockType::Raw, SockFlag::empty(), None)
-            .map_err(IoError::WriteIo)?;
+    pub(super) fn execute(&self) -> Result<(), IoError> {
+        let socket = Self::socket()?;
+        // Don't want to read back our messages.
+        let result = unsafe { shutdown(socket.as_raw_fd(), SHUT_RD) };
+        c_int_to_error(result)?;
         let buf = unsafe { cast_bytes(self) };
-        match write(socket.as_fd(), buf) {
-            Ok(_) => (),
-            Err(Errno::ESRCH) => return Ok(None), // not in table
-            Err(err) => return Err(IoError::WriteIo(err)),
+        let result = unsafe { write(socket.as_raw_fd(), buf.as_ptr().cast(), buf.len()) };
+        if result == -1 {
+            let err = io::Error::last_os_error();
+            if let Some(raw_os_err) = err.raw_os_error()
+                && raw_os_err == ESRCH
+            {
+                // not in table
+            } else {
+                return Err(err)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn get_gateway(&self) -> Result<Option<IpAddr>, IoError> {
+        let socket = Self::socket()?;
+        let buf = unsafe { cast_bytes(self) };
+        let result = unsafe { write(socket.as_raw_fd(), buf.as_ptr().cast(), buf.len()) };
+        if result == -1 {
+            let err = io::Error::last_os_error();
+            if let Some(raw_os_err) = err.raw_os_error()
+                && raw_os_err == ESRCH
+            {
+                return Ok(None); // not in table
+            }
+            return Err(err)?;
         }
 
         let mut buf = [0u8; 256]; // FIXME: fixed buffer size
-        let len = read(socket.as_fd(), &mut buf).map_err(IoError::ReadIo)?;
+        let len = match unsafe { read(socket.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) } {
+            -1 => return Err(io::Error::last_os_error())?,
+            result => result.cast_unsigned(),
+        };
         if len < size_of::<Self>() {
             return Err(IoError::Unpack);
         }

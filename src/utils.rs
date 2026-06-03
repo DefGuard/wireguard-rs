@@ -382,8 +382,6 @@ pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
 ) -> Result<(), WireguardInterfaceError> {
-    use nix::errno::Errno;
-
     use crate::bsd::{IoError, delete_gateway};
 
     let gateway_v4 = get_gateway(IpVersion::IPv4);
@@ -423,8 +421,10 @@ pub(crate) fn add_peer_routing(
                 }
                 match add_linked_route(&default1, ifname) {
                     Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
-                    Err(err) => match err {
-                        IoError::WriteIo(Errno::ENETUNREACH) => {
+                    Err(IoError::Io(err)) => {
+                        if let Some(raw_os_err) = err.raw_os_error()
+                            && raw_os_err == libc::ENETUNREACH
+                        {
                             warn!(
                                 "Failed to add default route {default1} for interface {ifname}: \
                                 Network is unreachable. This may happen if interface's IP address \
@@ -433,18 +433,22 @@ pub(crate) fn add_peer_routing(
                                 ignored. Otherwise, there may be some other issues with network \
                                 configuration."
                             );
-                        }
-                        _ => {
+                        } else {
                             error!(
                                 "Failed to add route to {default1} for interface {ifname}: {err}"
                             );
                         }
-                    },
+                    }
+                    Err(err) => {
+                        error!("Failed to add route to {default1} for interface {ifname}: {err}");
+                    }
                 }
                 match add_linked_route(&default2, ifname) {
                     Ok(()) => debug!("Route to {default2} has been added for interface {ifname}"),
-                    Err(err) => match err {
-                        IoError::WriteIo(Errno::ENETUNREACH) => {
+                    Err(IoError::Io(err)) => {
+                        if let Some(raw_os_err) = err.raw_os_error()
+                            && raw_os_err == libc::ENETUNREACH
+                        {
                             warn!(
                                 "Failed to add default route {default2} for interface {ifname}: \
                                 Network is unreachable. This may happen if interface's IP address \
@@ -453,13 +457,15 @@ pub(crate) fn add_peer_routing(
                                 ignored. Otherwise, there may be some other issues with network \
                                 configuration."
                             );
-                        }
-                        _ => {
+                        } else {
                             error!(
                                 "Failed to add route to {default2} for interface {ifname}: {err}"
                             );
                         }
-                    },
+                    }
+                    Err(err) => {
+                        error!("Failed to add route to {default2} for interface {ifname}: {err}");
+                    }
                 }
             } else {
                 // Equivalent to `route -n add -inet[6] <allowed_ip> -interface <ifname>`.
@@ -614,7 +620,7 @@ pub(crate) fn get_command_path(command: &str) -> Result<Option<PathBuf>, Wiregua
     let paths = env::var_os("PATH").ok_or_else(|| {
         WireguardInterfaceError::MissingDependency("Environment variable `PATH` not found".into())
     })?;
-    debug!("PATH variable: {paths:?}");
+    debug!("PATH variable: {}", paths.display());
 
     Ok(env::split_paths(&paths).find_map(|dir| {
         let full_path = dir.join(command);
