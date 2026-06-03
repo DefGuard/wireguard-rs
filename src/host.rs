@@ -13,14 +13,11 @@ use std::{
 };
 
 #[cfg(target_os = "linux")]
-use netlink_packet_wireguard::WireguardAttribute;
+use netlink_packet_wireguard::{WireguardAttribute, WireguardDeviceFlags};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use super::{key::Key, peer::Peer};
-
-#[cfg(target_os = "linux")]
-const WGDEVICE_F_REPLACE_PEERS: u32 = 1;
 
 /// WireGuard host representation.
 #[derive(Clone, Default)]
@@ -239,7 +236,9 @@ impl Host {
         if let Some(fwmark) = &self.fwmark {
             nlas.push(WireguardAttribute::Fwmark(*fwmark));
         }
-        nlas.push(WireguardAttribute::Flags(WGDEVICE_F_REPLACE_PEERS));
+        nlas.push(WireguardAttribute::Flags(
+            WireguardDeviceFlags::ReplacePeers,
+        ));
 
         // IMPORTANT: To avoid buffer overflow, do not add peers here.
         // let peers = self.peers.values().map(Peer::as_nlas_peer).collect();

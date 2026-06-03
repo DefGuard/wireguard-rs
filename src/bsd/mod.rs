@@ -74,9 +74,9 @@ unsafe fn cast_bytes<T: Sized>(p: &T) -> &[u8] {
 }
 
 /// Convert result of -1 to `IoError`, by taking `errno`.
-fn c_int_to_error(result: c_int) -> Result<(), IoError> {
+pub fn c_int_to_error(result: c_int) -> Result<(), io::Error> {
     if result == -1 {
-        Err(IoError::Io(io::Error::last_os_error()))
+        Err(io::Error::last_os_error())
     } else {
         Ok(())
     }

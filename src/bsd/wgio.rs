@@ -69,7 +69,9 @@ impl WgReadIo {
         self.alloc_data()?;
         // Second call to ioctl with allocated buffer.
         let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &*self) };
-        c_int_to_error(result)
+        c_int_to_error(result)?;
+
+        Ok(())
     }
 }
 
@@ -112,6 +114,8 @@ impl WgWriteIo {
     pub(super) fn write_data(&mut self) -> Result<(), IoError> {
         let socket = create_socket(AF_UNIX)?;
         let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSWG, &*self) };
-        c_int_to_error(result)
+        c_int_to_error(result)?;
+
+        Ok(())
     }
 }

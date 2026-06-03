@@ -620,7 +620,7 @@ pub(crate) fn get_command_path(command: &str) -> Result<Option<PathBuf>, Wiregua
     let paths = env::var_os("PATH").ok_or_else(|| {
         WireguardInterfaceError::MissingDependency("Environment variable `PATH` not found".into())
     })?;
-    debug!("PATH variable: {paths:?}");
+    debug!("PATH variable: {}", paths.display());
 
     Ok(env::split_paths(&paths).find_map(|dir| {
         let full_path = dir.join(command);

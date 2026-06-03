@@ -22,21 +22,25 @@ const fn ioc(dir: u32, ty: u8, nr: u32, size: u32) -> c_ulong {
 }
 
 /// IO  — no data transfer
+#[must_use]
 pub const fn io(ty: u8, nr: u32) -> c_ulong {
     ioc(IOC_VOID, ty, nr, 0)
 }
 
 /// IOR — kernel to userspace (read)
+#[must_use]
 pub const fn ior<T>(ty: u8, nr: u32) -> c_ulong {
     ioc(IOC_IN, ty, nr, mem::size_of::<T>() as u32)
 }
 
 /// IOW — userspace to kernel (write)
+#[must_use]
 pub const fn iow<T>(ty: u8, nr: u32) -> c_ulong {
     ioc(IOC_IN, ty, nr, mem::size_of::<T>() as u32)
 }
 
 /// IOWR — bidirectional communication (write-read)
+#[must_use]
 pub const fn iowr<T>(ty: u8, nr: u32) -> c_ulong {
     ioc(IOC_OUT | IOC_IN, ty, nr, mem::size_of::<T>() as u32)
 }
