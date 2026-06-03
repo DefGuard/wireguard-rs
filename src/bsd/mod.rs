@@ -1,5 +1,5 @@
 mod ifconfig;
-mod ioctl;
+pub mod ioctl;
 mod nvlist;
 mod route;
 mod sockaddr;
