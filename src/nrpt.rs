@@ -19,8 +19,10 @@ pub(crate) fn nrpt_comment(ifname: &str) -> String {
 
 /// Normalizes a search domain into an NRPT namespace in suffix-match form.
 /// `example.com` becomes `.example.com`; an already dotted value is kept as is.
+/// A trailing dot (FQDN form like `example.com.`) is stripped, since NRPT treats
+/// it as a literal character and the suffix match would never fire.
 pub(crate) fn nrpt_namespace(domain: &str) -> String {
-    let trimmed = domain.trim();
+    let trimmed = domain.trim().trim_end_matches('.');
     if trimmed.starts_with('.') {
         trimmed.to_string()
     } else {
@@ -62,6 +64,13 @@ mod tests {
     fn namespace_preserves_existing_dot_and_trims() {
         assert_eq!(nrpt_namespace(".example.com"), ".example.com");
         assert_eq!(nrpt_namespace("  example.com  "), ".example.com");
+    }
+
+    #[test]
+    fn namespace_strips_trailing_dot() {
+        assert_eq!(nrpt_namespace("example.com."), ".example.com");
+        assert_eq!(nrpt_namespace("  example.com.  "), ".example.com");
+        assert_eq!(nrpt_namespace(".example.com."), ".example.com");
     }
 
     #[test]

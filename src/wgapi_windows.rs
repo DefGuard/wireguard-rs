@@ -269,16 +269,24 @@ fn remove_nrpt_rules(ifname: &str) -> Result<(), WindowsError> {
             return Ok(());
         }
     };
+    let mut removed_any = false;
     for subkey in subkeys {
         let Ok(rule) = root.open(&subkey) else {
             continue;
         };
         if rule.get_string("Comment").ok().as_deref() == Some(comment.as_str()) {
             match root.remove_tree(&subkey) {
-                Ok(()) => debug!("Removed NRPT rule {subkey} for interface {ifname}"),
+                Ok(()) => {
+                    debug!("Removed NRPT rule {subkey} for interface {ifname}");
+                    removed_any = true;
+                }
                 Err(err) => warn!("Failed to remove NRPT rule {subkey}: {err}"),
             }
         }
+    }
+
+    if removed_any {
+        reload_dns_cache();
     }
     Ok(())
 }
