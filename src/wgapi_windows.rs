@@ -35,6 +35,7 @@ use crate::{
     host::Host,
     key::Key,
     net::IpAddrMask,
+    nrpt::{nrpt_comment, nrpt_dns_servers, nrpt_namespace, nrpt_rule_guid},
     peer::Peer,
     wgapi::{Kernel, WGApi},
 };
@@ -74,6 +75,8 @@ pub enum WindowsError {
     WindowsCoreError(#[from] windows::core::Error),
     #[error("Missing peer endpoint for peer {0}")]
     MissingPeerEndpoint(String),
+    #[error("Registry error: {0}")]
+    Registry(String),
 }
 
 /// Converts a string representation of a GUID into a `windows::core::GUID`.
@@ -237,6 +240,107 @@ impl From<wireguard_nt::WireguardInterface> for Host {
 /// Converts an str to wide (u16), null-terminated
 fn str_to_wide_null_terminated(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(Some(0)).collect()
+}
+
+/// Registry path holding the local Name Resolution Policy Table rules.
+const NRPT_REGISTRY_PATH: &str =
+    r"SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig";
+/// `ConfigOptions` bit meaning "use the DNS servers listed in `GenericDNSServers`".
+const NRPT_CONFIG_OPTIONS_DNS_SERVERS: u32 = 0x8;
+/// NRPT rule schema version written by modern Windows.
+const NRPT_RULE_VERSION: u32 = 2;
+
+fn to_registry_error(err: impl std::fmt::Display) -> WindowsError {
+    WindowsError::Registry(err.to_string())
+}
+
+/// Removes every NRPT rule previously created for `ifname`, identified by the
+/// `Comment` marker.
+fn remove_nrpt_rules(ifname: &str) -> Result<(), WindowsError> {
+    let comment = nrpt_comment(ifname);
+    // If the policy key does not exist there is nothing to clean up.
+    let Ok(root) = windows_registry::LOCAL_MACHINE.open(NRPT_REGISTRY_PATH) else {
+        return Ok(());
+    };
+    let subkeys: Vec<String> = match root.keys() {
+        Ok(keys) => keys.collect(),
+        Err(err) => {
+            warn!("Failed to enumerate NRPT rules for {ifname}: {err}");
+            return Ok(());
+        }
+    };
+    for subkey in subkeys {
+        let Ok(rule) = root.open(&subkey) else {
+            continue;
+        };
+        if rule.get_string("Comment").ok().as_deref() == Some(comment.as_str()) {
+            match root.remove_tree(&subkey) {
+                Ok(()) => debug!("Removed NRPT rule {subkey} for interface {ifname}"),
+                Err(err) => warn!("Failed to remove NRPT rule {subkey}: {err}"),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Creates one NRPT rule per search domain, routing that namespace (suffix) to
+/// the tunnel `dns` servers. No-op when there are no DNS servers or no search
+/// domains (a suffix rule needs a suffix).
+fn create_nrpt_rules(
+    ifname: &str,
+    dns: &[IpAddr],
+    search_domains: &[&str],
+) -> Result<(), WindowsError> {
+    if dns.is_empty() || search_domains.is_empty() {
+        debug!(
+            "Skipping NRPT rules for {ifname}: {} DNS server(s), {} search domain(s)",
+            dns.len(),
+            search_domains.len()
+        );
+        return Ok(());
+    }
+    let comment = nrpt_comment(ifname);
+    let servers = nrpt_dns_servers(dns);
+    let root = windows_registry::LOCAL_MACHINE
+        .create(NRPT_REGISTRY_PATH)
+        .map_err(to_registry_error)?;
+    for domain in search_domains {
+        let namespace = nrpt_namespace(domain);
+        if namespace.len() <= 1 {
+            // An empty/`.`-only namespace would be a catch-all
+            warn!("Skipping empty NRPT namespace derived from {domain:?}");
+            continue;
+        }
+        let subkey = nrpt_rule_guid(ifname, &namespace);
+        let rule = root.create(&subkey).map_err(to_registry_error)?;
+        rule.set_u32("Version", NRPT_RULE_VERSION)
+            .map_err(to_registry_error)?;
+        rule.set_multi_string("Name", &[namespace.as_str()])
+            .map_err(to_registry_error)?;
+        rule.set_string("GenericDNSServers", servers.as_str())
+            .map_err(to_registry_error)?;
+        rule.set_u32("ConfigOptions", NRPT_CONFIG_OPTIONS_DNS_SERVERS)
+            .map_err(to_registry_error)?;
+        rule.set_string("IPSECCARestriction", "")
+            .map_err(to_registry_error)?;
+        rule.set_string("Comment", comment.as_str())
+            .map_err(to_registry_error)?;
+        debug!("Created NRPT rule {subkey}: {namespace} -> {servers}");
+    }
+    reload_dns_cache();
+    Ok(())
+}
+
+/// Signals the DNS Client service to reload its configuration so newly written
+/// NRPT rules take effect immediately. Best-effort; failures are only logged.
+fn reload_dns_cache() {
+    match std::process::Command::new("sc.exe")
+        .args(["control", "dnscache", "paramchange"])
+        .output()
+    {
+        Ok(_) => debug!("Requested DNS Client service configuration reload"),
+        Err(err) => warn!("Failed to reload DNS Client service configuration: {err}"),
+    }
 }
 
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
@@ -425,6 +529,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn remove_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
+        // Interface DNS settings disappear with the adapter, but NRPT rules are
+        // global registry entries and must be removed explicitly.
+        if let Err(err) = remove_nrpt_rules(&self.ifname) {
+            warn!("Failed to remove NRPT rules for {}: {err}", self.ifname);
+        }
         self.adapter = None;
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
@@ -510,6 +619,18 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             if status != NO_ERROR {
                 Err(WindowsError::NonZeroReturnValue(status.0))?;
             }
+        }
+
+        // Pin the configured search-domain namespaces to the tunnel DNS via NRPT
+        // so resolution does not depend on Windows multi-homed name resolution.
+        if let Err(err) = remove_nrpt_rules(&self.ifname) {
+            warn!(
+                "Failed to clean up stale NRPT rules for {}: {err}",
+                self.ifname
+            );
+        }
+        if let Err(err) = create_nrpt_rules(&self.ifname, dns, search_domains) {
+            error!("Failed to configure NRPT rules for {}: {err}", self.ifname);
         }
 
         info!(

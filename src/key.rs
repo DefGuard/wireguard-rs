@@ -218,10 +218,10 @@ impl<'de> Deserialize<'de> for Key {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[cfg(feature = "serde")]
     use serde_test::{Token, assert_tokens};
+
+    use super::*;
 
     // Same `Key` in different representations.
     static KEY_B64: &str = "AAECAwQFBgcICQoLDA0OD/Dh0sO0pZaHeGlaSzwtHg8=";

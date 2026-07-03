@@ -59,6 +59,8 @@ pub mod key;
 pub mod net;
 #[cfg(target_os = "linux")]
 pub(crate) mod netlink;
+#[cfg(any(target_family = "windows", test))]
+mod nrpt;
 pub mod peer;
 mod utils;
 mod wgapi;

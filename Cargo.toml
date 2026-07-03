@@ -1,6 +1,6 @@
 [package]
 name = "defguard_wireguard_rs"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 rust-version = "1.87"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
@@ -16,6 +16,7 @@ base64 = "0.22"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "2.0"
+uuid = { version = "1", features = ["v5"] }
 x25519-dalek = { version = "2.0", features = ["getrandom", "static_secrets"] }
 
 [dev-dependencies]
@@ -38,6 +39,7 @@ windows = { version = "0.62", features = [
     "Win32_Networking_WinSock",
     "Win32_System_Com",
 ] }
+windows-registry = "0.6"
 wireguard-nt = "0.5"
 
 [target.'cfg(target_os = "linux")'.dependencies]
