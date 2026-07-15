@@ -78,7 +78,9 @@ impl Peer {
 
     #[must_use]
     pub fn as_uapi_update(&self) -> String {
-        let mut output = format!("public_key={}\n", self.public_key.to_lower_hex());
+        let mut output = String::from("public_key=");
+        output.push_str(&self.public_key.to_lower_hex());
+        output.push('\n');
         if let Some(key) = &self.preshared_key {
             output.push_str("preshared_key=");
             output.push_str(&key.to_lower_hex());

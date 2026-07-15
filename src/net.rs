@@ -137,7 +137,7 @@ impl error::Error for IpAddrParseError {}
 
 impl fmt::Display for IpAddrParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "IP address/mask parse error")
+        f.write_str("IP address/mask parse error")
     }
 }
 
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(
             "::1".parse::<IpAddrMask>(),
             Ok(IpAddrMask::new(
-                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                IpAddr::V6(Ipv6Addr::LOCALHOST),
                 128
             ))
         );
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(ip.broadcast(), IpAddr::V4(Ipv4Addr::new(192, 168, 0, 255)));
         assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 255, 0)));
 
-        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8);
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8);
         assert_eq!(
             ip.broadcast(),
             IpAddr::V4(Ipv4Addr::new(127, 255, 255, 255))
@@ -243,16 +243,16 @@ mod tests {
         );
         assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 0, 0)));
 
-        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
         assert_eq!(
             ip.broadcast(),
-            IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255))
+            IpAddr::V4(Ipv4Addr::BROADCAST)
         );
-        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
+        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::UNSPECIFIED));
 
         let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)), 32);
         assert_eq!(ip.broadcast(), IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)));
-        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)));
+        assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::BROADCAST));
     }
 
     #[test]

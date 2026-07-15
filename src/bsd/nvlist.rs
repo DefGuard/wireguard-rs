@@ -143,12 +143,12 @@ impl Error for NvListError {}
 impl fmt::Display for NvListError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NameTooLong => write!(f, "name is too long"),
-            Self::NotEnoughBytes => write!(f, "not enough bytes"),
-            Self::WrongHeader => write!(f, "wrong header"),
-            Self::WrongName => write!(f, "wrong name"),
-            Self::WrongPair => write!(f, "wrong name-value pair"),
-            Self::WrongPairData => write!(f, "wrong name-value pair data"),
+            Self::NameTooLong => f.write_str("name is too long"),
+            Self::NotEnoughBytes => f.write_str("not enough bytes"),
+            Self::WrongHeader => f.write_str("wrong header"),
+            Self::WrongName => f.write_str("wrong name"),
+            Self::WrongPair => f.write_str("wrong name-value pair"),
+            Self::WrongPairData => f.write_str("wrong name-value pair data"),
         }
     }
 }

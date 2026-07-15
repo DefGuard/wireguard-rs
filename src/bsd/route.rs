@@ -219,11 +219,10 @@ fn if_addr<S: SocketFromRaw>(if_name: &str) -> Option<S> {
         let mut addr = addrs;
         while !addr.is_null() {
             let name = unsafe { CStr::from_ptr((*addr).ifa_name) };
-            if name == ifname_c.as_c_str() {
-                if let Some(sockaddr) = unsafe { S::from_raw((*addr).ifa_addr) } {
+            if name == ifname_c.as_c_str()
+                && let Some(sockaddr) = unsafe { S::from_raw((*addr).ifa_addr) } {
                     return Some(sockaddr);
                 }
-            }
             addr = unsafe { (*addr).ifa_next };
         }
         unsafe { libc::freeifaddrs(addrs) };
@@ -370,7 +369,7 @@ impl<Payload> RtMessage<Payload> {
             {
                 // not in table
             } else {
-                return Err(err)?;
+                Err(err)?;
             }
         }
 
@@ -388,7 +387,7 @@ impl<Payload> RtMessage<Payload> {
             {
                 return Ok(None); // not in table
             }
-            return Err(err)?;
+            Err(err)?;
         }
 
         let mut buf = [0u8; 256]; // FIXME: fixed buffer size

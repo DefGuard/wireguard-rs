@@ -2,10 +2,13 @@
 use std::io::{Cursor, Error as IoError};
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use std::net::{Ipv4Addr, Ipv6Addr};
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::{collections::HashSet, fs::OpenOptions};
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use std::{
+    fs::{File, symlink_metadata},
+    path::Path,
+};
 #[cfg(any(
     feature = "check_dependencies",
     target_os = "freebsd",
@@ -51,30 +54,32 @@ fn construct_resolvconf_ifname(base_ifname: &str) -> String {
     let iface_order = Path::new(IFACE_ORDER_PATH);
     if iface_order.exists() {
         // Check if resolvconf command is a symlink or a binary
-        if let Ok(Some(resolvconf_path)) = get_command_path("resolvconf") {
-            if let Ok(metadata) = std::fs::symlink_metadata(&resolvconf_path) {
-                if !metadata.file_type().is_symlink() {
-                    // It's a binary, proceed to read interface_order file
-                    let iface_regex = regex::Regex::new(r"^([A-Za-z0-9-]+)\*$").unwrap();
-                    if let Ok(file) = std::fs::File::open(iface_order) {
-                        let reader = BufReader::new(file);
-                        if let Some(constructed_ifname) = reader.lines().map_while(Result::ok).find_map(|line| {
-                            let iface = line.trim();
-                            iface_regex.captures(iface).and_then(|captures| {
-                                captures.get(1).map(|matched_iface| {
-                                    // Output format: <highest_priority_iface>.<base_ifname>
-                                    let constructed_ifname =
-                                        format!("{}.{base_ifname}", matched_iface.as_str());
-                                    debug!(
-                                        "Constructed interface name from interface_order: {constructed_ifname}"
-                                    );
-                                    constructed_ifname
-                                })
+        if let Ok(Some(resolvconf_path)) = get_command_path("resolvconf")
+            && let Ok(metadata) = symlink_metadata(&resolvconf_path)
+            && !metadata.file_type().is_symlink()
+        {
+            // It's a binary, proceed to read interface_order file
+            let iface_regex = regex::Regex::new(r"^([A-Za-z0-9-]+)\*$").unwrap();
+            if let Ok(file) = File::open(iface_order) {
+                let reader = BufReader::new(file);
+                if let Some(constructed_ifname) =
+                    reader.lines().map_while(Result::ok).find_map(|line| {
+                        let iface = line.trim();
+                        iface_regex.captures(iface).and_then(|captures| {
+                            captures.get(1).map(|matched_iface| {
+                                // Output format: <highest_priority_iface>.<base_ifname>
+                                let constructed_ifname =
+                                    format!("{}.{base_ifname}", matched_iface.as_str());
+                                debug!(
+                                    "Constructed interface name from interface_order: \
+                                    {constructed_ifname}"
+                                );
+                                constructed_ifname
                             })
-                        }) {
-                            return constructed_ifname;
-                        }
-                    }
+                        })
+                    })
+                {
+                    return constructed_ifname;
                 }
             }
         }
