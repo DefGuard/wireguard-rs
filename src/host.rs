@@ -127,9 +127,10 @@ impl Host {
                     }
                     "allowed_ip" => {
                         if let Some(ref mut peer) = peer_ref
-                            && let Ok(addr) = value.parse() {
-                                peer.allowed_ips.push(addr);
-                            }
+                            && let Ok(addr) = value.parse()
+                        {
+                            peer.allowed_ips.push(addr);
+                        }
                     }
                     "last_handshake_time_sec" => {
                         if let Some(ref mut peer) = peer_ref {
@@ -158,10 +159,11 @@ impl Host {
                     // "errno" ends config
                     "errno" => {
                         if let Ok(errno) = value.parse::<u32>()
-                            && errno == 0 {
-                                // Break here, or BufReader will wait for EOF.
-                                break;
-                            }
+                            && errno == 0
+                        {
+                            // Break here, or BufReader will wait for EOF.
+                            break;
+                        }
                         return Err(io::Error::other("error reading UAPI"));
                     }
                     _ => error!("Unknown UAPI keyword {keyword}"),

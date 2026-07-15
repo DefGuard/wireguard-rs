@@ -198,10 +198,7 @@ mod tests {
 
         assert_eq!(
             "::1".parse::<IpAddrMask>(),
-            Ok(IpAddrMask::new(
-                IpAddr::V6(Ipv6Addr::LOCALHOST),
-                128
-            ))
+            Ok(IpAddrMask::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 128))
         );
 
         assert_eq!(
@@ -244,10 +241,7 @@ mod tests {
         assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::new(255, 255, 0, 0)));
 
         let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
-        assert_eq!(
-            ip.broadcast(),
-            IpAddr::V4(Ipv4Addr::BROADCAST)
-        );
+        assert_eq!(ip.broadcast(), IpAddr::V4(Ipv4Addr::BROADCAST));
         assert_eq!(ip.mask(), IpAddr::V4(Ipv4Addr::UNSPECIFIED));
 
         let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)), 32);

@@ -50,15 +50,16 @@ impl WGApi<Userspace> {
                 }
             };
             if let Some((keyword, value)) = line.split_once('=')
-                && keyword == "errno" {
-                    match value.parse() {
-                        Ok(errno) => return errno,
-                        Err(err) => {
-                            error!("Failed to parse errno: {err}, using default value 0");
-                            return 0;
-                        }
+                && keyword == "errno"
+            {
+                match value.parse() {
+                    Ok(errno) => return errno,
+                    Err(err) => {
+                        error!("Failed to parse errno: {err}, using default value 0");
+                        return 0;
                     }
                 }
+            }
         }
         0
     }

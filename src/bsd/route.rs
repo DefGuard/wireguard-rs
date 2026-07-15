@@ -9,7 +9,7 @@ use std::{
 use libc::{ESRCH, PF_ROUTE, SHUT_RD, SOCK_RAW, read, shutdown, socket, write};
 
 use super::{
-    IoError, c_int_to_error, cast_bytes, cast_ref,
+    IoError, c_int_to_error, cast_bytes, read_unaligned,
     sockaddr::{SockAddrDl, SocketFromRaw, unpack_sockaddr},
 };
 
@@ -220,9 +220,10 @@ fn if_addr<S: SocketFromRaw>(if_name: &str) -> Option<S> {
         while !addr.is_null() {
             let name = unsafe { CStr::from_ptr((*addr).ifa_name) };
             if name == ifname_c.as_c_str()
-                && let Some(sockaddr) = unsafe { S::from_raw((*addr).ifa_addr) } {
-                    return Some(sockaddr);
-                }
+                && let Some(sockaddr) = unsafe { S::from_raw((*addr).ifa_addr) }
+            {
+                return Some(sockaddr);
+            }
             addr = unsafe { (*addr).ifa_next };
         }
         unsafe { libc::freeifaddrs(addrs) };
@@ -399,7 +400,7 @@ impl<Payload> RtMessage<Payload> {
             return Err(IoError::Unpack);
         }
 
-        let header = unsafe { cast_ref::<RtMsgHdr>(&buf) };
+        let header = unsafe { read_unaligned::<RtMsgHdr>(&buf) };
 
         let mut offset = size_of::<RtMsgHdr>();
         if header.rtm_addrs & RTA_DST != 0 {

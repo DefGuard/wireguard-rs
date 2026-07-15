@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use super::{cast_bytes, cast_ref};
+use super::{cast_bytes, read_unaligned};
 
 #[repr(C)]
 struct TimeSpec {
@@ -50,8 +50,8 @@ pub(super) fn unpack_timespec(buf: &[u8]) -> Option<SystemTime> {
     const TS_SIZE: usize = size_of::<TimeSpec>();
     match buf.len() {
         TS_SIZE => {
-            let ts = unsafe { cast_ref::<TimeSpec>(buf) };
-            Some(ts.into())
+            let ts = unsafe { read_unaligned::<TimeSpec>(buf) };
+            Some((&ts).into())
         }
         _ => None,
     }

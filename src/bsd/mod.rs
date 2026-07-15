@@ -63,9 +63,15 @@ static NV_CIDR: &str = "cidr";
 static NV_IPV4: &str = "ipv4";
 static NV_IPV6: &str = "ipv6";
 
-/// Cast bytes to `T`.
-unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
-    unsafe { bytes.as_ptr().cast::<T>().as_ref().unwrap() }
+/// Read a `T` out of a byte buffer that may not be aligned to `T`.
+/// This returns an owned value rather than a reference.
+///
+/// # Safety
+/// `bytes` must contain a valid bit pattern for `T` in its first `size_of::<T>()`
+/// bytes; `T` must be a plain-old-data type (no meaningful `Drop`).
+unsafe fn read_unaligned<T>(bytes: &[u8]) -> T {
+    assert!(bytes.len() >= size_of::<T>());
+    unsafe { bytes.as_ptr().cast::<T>().read_unaligned() }
 }
 
 /// Cast `T' to bytes.
@@ -416,21 +422,22 @@ pub fn flush_interface(if_name: &str) -> Result<(), IoError> {
                 let name = CStr::from_ptr((*addr).ifa_name);
                 if name == ifname_c.as_c_str() {
                     let ifa_addr = (*addr).ifa_addr;
-                    if ifa_addr.is_null() {
-                        continue;
+                    // Skip entries without an address, but still advance to the next one.
+                    if !ifa_addr.is_null() {
+                        // Convert `ifa_addr` to `IpAddr`.
+                        // Note: `ifa_addr` is actually `sockaddr_in` or `sockaddr_in6` depending on
+                        // `sa_len` and `sa_family`.
+                        if (*ifa_addr).sa_len == SA_IN_SIZE && (*ifa_addr).sa_family == AF_INET {
+                            if let Some(sockaddr) = SockAddrIn::from_raw(ifa_addr) {
+                                addr_to_remove.push(sockaddr.ip_addr());
+                            }
+                        } else if (*ifa_addr).sa_len == SA_IN6_SIZE
+                            && (*ifa_addr).sa_family == libc::AF_INET6 as u8
+                            && let Some(sockaddr) = SockAddrIn6::from_raw(ifa_addr)
+                        {
+                            addr_to_remove.push(sockaddr.ip_addr());
+                        }
                     }
-                    // Convert `ifa_addr` to `IpAddr`.
-                    // Note: `ifa_addr` is actually `sockaddr_in` or `sockaddr_in6` depending on
-                    // `sa_len` and `sa_family`.
-                    if (*ifa_addr).sa_len == SA_IN_SIZE && (*ifa_addr).sa_family == AF_INET {
-                        if let Some(sockaddr) = SockAddrIn::from_raw(ifa_addr) {
-                            addr_to_remove.push(sockaddr.ip_addr());
-                        }
-                    } else if (*ifa_addr).sa_len == SA_IN6_SIZE
-                        && (*ifa_addr).sa_family == libc::AF_INET6 as u8
-                        && let Some(sockaddr) = SockAddrIn6::from_raw(ifa_addr) {
-                            addr_to_remove.push(sockaddr.ip_addr());
-                        }
                 }
                 addr = (*addr).ifa_next;
             };
