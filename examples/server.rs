@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use defguard_wireguard_rs::{
     InterfaceConfiguration, WGApi, WireguardInterfaceApi, key::Key, net::IpAddrMask, peer::Peer,
@@ -6,12 +6,14 @@ use defguard_wireguard_rs::{
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     // Create new api object for interface management
-    let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
-        "wg0".into()
+    let ifname = String::from(if cfg!(target_os = "macos") {
+        "utun3"
     } else {
-        "utun3".into()
-    };
+        "wg0"
+    });
 
     #[cfg(not(target_os = "macos"))]
     let mut wgapi = WGApi::<defguard_wireguard_rs::Kernel>::new(ifname.clone())?;
@@ -34,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer_key: Key = key.as_ref().try_into().unwrap();
     peer_keys.push(peer_key.clone());
     let mut peer = Peer::new(peer_key);
-    let addr = IpAddrMask::from_str("10.20.30.2/32").unwrap();
+    let addr = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 2)), 32);
     peer.allowed_ips.push(addr);
 
     let interface_config = InterfaceConfiguration {
@@ -65,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let peer_key: Key = key.as_ref().try_into().unwrap();
         peer_keys.push(peer_key.clone());
         let mut peer = Peer::new(peer_key);
-        let addr = IpAddrMask::from_str(&format!("10.20.30.{peer_id}/32")).unwrap();
+        let addr = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, peer_id)), 32);
         peer.allowed_ips.push(addr);
         // add peer to WireGuard interface
         wgapi.configure_peer(&peer)?;
