@@ -135,10 +135,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     }
 
     fn configure_peer(&self, peer: &Peer) -> Result<(), WireguardInterfaceError> {
-        debug!("Configuring peer {peer:?} on interface {}", self.ifname);
+        debug!("Configuring {peer:?} on interface {}", self.ifname);
         bsd::set_peer(&self.ifname, peer)?;
         debug!(
-            "Peer {peer:?} configured successfully on interface {}",
+            "{peer:?} configured successfully on interface {}",
             self.ifname
         );
         Ok(())

@@ -167,13 +167,13 @@ impl Eq for Key {}
 
 impl fmt::Debug for Key {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_lower_hex())
+        f.write_str(&self.to_lower_hex())
     }
 }
 
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", BASE64_STANDARD.encode(self.0))
+        f.write_str(&BASE64_STANDARD.encode(self.0))
     }
 }
 

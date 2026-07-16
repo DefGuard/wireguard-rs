@@ -1,6 +1,7 @@
 use std::{
     net::{Ipv4Addr, Ipv6Addr},
     os::fd::AsRawFd,
+    ptr::from_mut,
 };
 
 use libc::{AF_INET, AF_INET6, AF_UNIX, IF_NAMESIZE, IFF_UP, c_ulong, ioctl};
@@ -94,9 +95,9 @@ impl IfReq {
     pub(super) fn create(&mut self) -> Result<(), IoError> {
         let socket = create_socket(AF_UNIX)?;
         #[cfg(target_os = "netbsd")]
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE, &*self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE, from_mut::<Self>(self)) };
         #[cfg(any(target_os = "freebsd", target_os = "macos"))]
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE2, &*self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCIFCREATE2, from_mut::<Self>(self)) };
         c_int_to_error(result)?;
 
         Ok(())
@@ -148,7 +149,7 @@ impl IfMtu {
 
     pub(super) fn get_mtu(&mut self) -> Result<u32, IoError> {
         let socket = create_socket(AF_UNIX)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFMTU, &*self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFMTU, from_mut::<Self>(self)) };
         c_int_to_error(result)?;
 
         Ok(self.ifru_mtu)
@@ -308,7 +309,7 @@ impl IfReqFlags {
         let socket = create_socket(AF_UNIX)?;
 
         // Get current interface flags.
-        let _result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFFLAGS, &*self) };
+        let _result = unsafe { ioctl(socket.as_raw_fd(), SIOCGIFFLAGS, from_mut::<Self>(self)) };
 
         // Set interface up flag.
         self.ifr_flags |= IFF_UP as u64;

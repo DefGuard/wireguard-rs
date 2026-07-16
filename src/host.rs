@@ -126,10 +126,10 @@ impl Host {
                         }
                     }
                     "allowed_ip" => {
-                        if let Some(ref mut peer) = peer_ref {
-                            if let Ok(addr) = value.parse() {
-                                peer.allowed_ips.push(addr);
-                            }
+                        if let Some(ref mut peer) = peer_ref
+                            && let Ok(addr) = value.parse()
+                        {
+                            peer.allowed_ips.push(addr);
                         }
                     }
                     "last_handshake_time_sec" => {
@@ -158,11 +158,11 @@ impl Host {
                     }
                     // "errno" ends config
                     "errno" => {
-                        if let Ok(errno) = value.parse::<u32>() {
-                            if errno == 0 {
-                                // Break here, or BufReader will wait for EOF.
-                                break;
-                            }
+                        if let Ok(errno) = value.parse::<u32>()
+                            && errno == 0
+                        {
+                            // Break here, or BufReader will wait for EOF.
+                            break;
                         }
                         return Err(io::Error::other("error reading UAPI"));
                     }

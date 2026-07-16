@@ -5,7 +5,7 @@ use std::{
     ptr::{copy, from_mut},
 };
 
-use super::{AF_INET, AF_INET6, AF_LINK, SA_IN_SIZE, SA_IN6_SIZE, cast_bytes, cast_ref};
+use super::{AF_INET, AF_INET6, AF_LINK, SA_IN_SIZE, SA_IN6_SIZE, cast_bytes, read_unaligned};
 
 pub(super) trait SocketFromRaw {
     unsafe fn from_raw(addr: *const libc::sockaddr) -> Option<Self>
@@ -212,20 +212,22 @@ pub(super) fn pack_sockaddr(sockaddr: &SocketAddr) -> Vec<u8> {
 
 pub(super) fn unpack_sockaddr(buf: &[u8]) -> Option<SocketAddr> {
     match buf.first() {
-        Some(&SA_IN_SIZE) => {
-            let sockaddr_in = unsafe { cast_ref::<SockAddrIn>(buf) };
+        // The leading byte is `sa_len`; verify the buffer actually holds a whole struct
+        // before reading it, otherwise a truncated buffer would be an out-of-bounds read.
+        Some(&SA_IN_SIZE) if buf.len() >= size_of::<SockAddrIn>() => {
+            let sockaddr_in = unsafe { read_unaligned::<SockAddrIn>(buf) };
             // sanity checks
             if sockaddr_in.family == AF_INET {
-                Some(sockaddr_in.into())
+                Some((&sockaddr_in).into())
             } else {
                 None
             }
         }
-        Some(&SA_IN6_SIZE) => {
-            let sockaddr_in6 = unsafe { cast_ref::<SockAddrIn6>(buf) };
+        Some(&SA_IN6_SIZE) if buf.len() >= size_of::<SockAddrIn6>() => {
+            let sockaddr_in6 = unsafe { read_unaligned::<SockAddrIn6>(buf) };
             // sanity checks
             if sockaddr_in6.family == AF_INET6 {
-                Some(sockaddr_in6.into())
+                Some((&sockaddr_in6).into())
             } else {
                 None
             }

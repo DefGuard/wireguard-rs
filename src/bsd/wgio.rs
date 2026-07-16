@@ -1,7 +1,7 @@
 use std::{
     alloc::{Layout, alloc, dealloc},
     os::fd::AsRawFd,
-    ptr::null_mut,
+    ptr::{from_mut, from_ref, null_mut},
     slice::from_raw_parts,
 };
 
@@ -42,19 +42,22 @@ impl WgReadIo {
 
     /// Allocate data buffer.
     fn alloc_data(&mut self) -> Result<(), IoError> {
-        if self.wgd_data.is_null() {
-            if let Ok(layout) = Layout::array::<u8>(self.wgd_size) {
-                unsafe {
-                    self.wgd_data = alloc(layout);
-                }
-                return Ok(());
+        // Note: `alloc` with a zero-sized layout is undefined behaviour.
+        if self.wgd_size != 0
+            && self.wgd_data.is_null()
+            && let Ok(layout) = Layout::array::<u8>(self.wgd_size)
+        {
+            unsafe {
+                self.wgd_data = alloc(layout);
             }
+            Ok(())
+        } else {
+            Err(IoError::MemAlloc)
         }
-        Err(IoError::MemAlloc)
     }
 
     /// Return buffer as slice.
-    pub(super) fn as_slice<'a>(&self) -> &'a [u8] {
+    pub(super) fn as_slice(&self) -> &[u8] {
         unsafe { from_raw_parts(self.wgd_data, self.wgd_size) }
     }
 
@@ -62,13 +65,14 @@ impl WgReadIo {
         let socket = create_socket(AF_UNIX)?;
 
         // First do ioctl with empty `wg_data` to obtain buffer size.
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &*self) };
+        // IMPORTANT: Pass a raw mutable pointer, so it's not optimized out..
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, from_mut::<Self>(self)) };
         c_int_to_error(result)?;
 
         // Allocate buffer.
         self.alloc_data()?;
         // Second call to ioctl with allocated buffer.
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, &*self) };
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCGWG, from_mut::<Self>(self)) };
         c_int_to_error(result)?;
 
         Ok(())
@@ -113,7 +117,8 @@ impl WgWriteIo {
 
     pub(super) fn write_data(&mut self) -> Result<(), IoError> {
         let socket = create_socket(AF_UNIX)?;
-        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSWG, &*self) };
+        // `SIOCSWG` only reads the struct, so a shared pointer is correct here.
+        let result = unsafe { ioctl(socket.as_raw_fd(), SIOCSWG, from_ref::<Self>(self)) };
         c_int_to_error(result)?;
 
         Ok(())

@@ -63,9 +63,15 @@ static NV_CIDR: &str = "cidr";
 static NV_IPV4: &str = "ipv4";
 static NV_IPV6: &str = "ipv6";
 
-/// Cast bytes to `T`.
-unsafe fn cast_ref<T>(bytes: &[u8]) -> &T {
-    unsafe { bytes.as_ptr().cast::<T>().as_ref().unwrap() }
+/// Read a `T` out of a byte buffer that may not be aligned to `T`.
+/// This returns an owned value rather than a reference.
+///
+/// # Safety
+/// `bytes` must contain a valid bit pattern for `T` in its first `size_of::<T>()`
+/// bytes; `T` must be a plain-old-data type (no meaningful `Drop`).
+unsafe fn read_unaligned<T>(bytes: &[u8]) -> T {
+    assert!(bytes.len() >= size_of::<T>());
+    unsafe { bytes.as_ptr().cast::<T>().read_unaligned() }
 }
 
 /// Cast `T' to bytes.
@@ -102,6 +108,8 @@ pub enum IoError {
     Unpack,
     #[error("Failed to load kernel module")]
     KernelModule,
+    #[error("Failed to parse NvList: {0}")]
+    NvList(#[from] nvlist::NvListError),
 }
 
 impl From<io::Error> for IoError {
@@ -291,18 +299,14 @@ pub fn get_host(if_name: &str) -> Result<Host, IoError> {
     wg_data.read_data()?;
 
     let mut nvlist = NvList::new();
-    // FIXME: use proper error, here and above
-    nvlist
-        .unpack(wg_data.as_slice())
-        .map_err(|_| IoError::MemAlloc)?;
+    nvlist.unpack(wg_data.as_slice())?;
 
     Ok(Host::from_nvlist(&nvlist))
 }
 
 pub fn set_host(if_name: &str, host: &Host) -> Result<(), IoError> {
     let nvlist = host.as_nvlist();
-    // FIXME: use proper error, here and above
-    let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
+    let mut buf = nvlist.pack()?;
 
     let mut wg_data = WgWriteIo::new(if_name, &mut buf);
     wg_data.write_data()
@@ -311,8 +315,7 @@ pub fn set_host(if_name: &str, host: &Host) -> Result<(), IoError> {
 pub fn set_peer(if_name: &str, peer: &Peer) -> Result<(), IoError> {
     let mut nvlist = NvList::new();
     nvlist.append_nvlist_array(NV_PEERS, vec![peer.as_nvlist()]);
-    // FIXME: use proper error, here and above
-    let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
+    let mut buf = nvlist.pack()?;
 
     let mut wg_data = WgWriteIo::new(if_name, &mut buf);
     wg_data.write_data()
@@ -321,8 +324,7 @@ pub fn set_peer(if_name: &str, peer: &Peer) -> Result<(), IoError> {
 pub fn delete_peer(if_name: &str, public_key: &Key) -> Result<(), IoError> {
     let mut nvlist = NvList::new();
     nvlist.append_nvlist_array(NV_PEERS, vec![public_key.as_nvlist_for_removal()]);
-    // FIXME: use proper error, here and above
-    let mut buf = nvlist.pack().map_err(|_| IoError::MemAlloc)?;
+    let mut buf = nvlist.pack()?;
 
     let mut wg_data = WgWriteIo::new(if_name, &mut buf);
     wg_data.write_data()
@@ -420,20 +422,19 @@ pub fn flush_interface(if_name: &str) -> Result<(), IoError> {
                 let name = CStr::from_ptr((*addr).ifa_name);
                 if name == ifname_c.as_c_str() {
                     let ifa_addr = (*addr).ifa_addr;
-                    if ifa_addr.is_null() {
-                        continue;
-                    }
-                    // Convert `ifa_addr` to `IpAddr`.
-                    // Note: `ifa_addr` is actually `sockaddr_in` or `sockaddr_in6` depending on
-                    // `sa_len` and `sa_family`.
-                    if (*ifa_addr).sa_len == SA_IN_SIZE && (*ifa_addr).sa_family == AF_INET {
-                        if let Some(sockaddr) = SockAddrIn::from_raw(ifa_addr) {
-                            addr_to_remove.push(sockaddr.ip_addr());
-                        }
-                    } else if (*ifa_addr).sa_len == SA_IN6_SIZE
-                        && (*ifa_addr).sa_family == libc::AF_INET6 as u8
-                    {
-                        if let Some(sockaddr) = SockAddrIn6::from_raw(ifa_addr) {
+                    // Skip entries without an address, but still advance to the next one.
+                    if !ifa_addr.is_null() {
+                        // Convert `ifa_addr` to `IpAddr`.
+                        // Note: `ifa_addr` is actually `sockaddr_in` or `sockaddr_in6` depending on
+                        // `sa_len` and `sa_family`.
+                        if (*ifa_addr).sa_len == SA_IN_SIZE && (*ifa_addr).sa_family == AF_INET {
+                            if let Some(sockaddr) = SockAddrIn::from_raw(ifa_addr) {
+                                addr_to_remove.push(sockaddr.ip_addr());
+                            }
+                        } else if (*ifa_addr).sa_len == SA_IN6_SIZE
+                            && (*ifa_addr).sa_family == libc::AF_INET6 as u8
+                            && let Some(sockaddr) = SockAddrIn6::from_raw(ifa_addr)
+                        {
                             addr_to_remove.push(sockaddr.ip_addr());
                         }
                     }
