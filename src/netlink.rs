@@ -463,6 +463,27 @@ fn get_interface_index(ifname: &str) -> NetlinkResult<Option<u32>> {
     Ok(None)
 }
 
+/// Bring a network interface up.
+pub(crate) fn set_link_up(if_name: &str) -> NetlinkResult<()> {
+    let Some(index) = get_interface_index(if_name)? else {
+        error!("Failed to bring interface {if_name} up: interface not found");
+        return Err(NetlinkError::NotFound);
+    };
+
+    let mut message = LinkMessage::default();
+    message.header.index = index;
+    message.header.flags = LinkFlags::Up;
+    message.header.change_mask = LinkFlags::Up;
+
+    netlink_request(
+        RouteNetlinkMessage::SetLink(message),
+        NLM_F_REQUEST | NLM_F_ACK,
+        NETLINK_ROUTE,
+    )?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 /// Get default route for a given address family.
 pub(crate) fn get_gateway(address_family: AddressFamily) -> NetlinkResult<Option<IpAddr>> {
@@ -529,31 +550,31 @@ pub(crate) fn add_route(
         IpAddr::V6(ipv6) => RouteAddress::Inet6(ipv6),
     };
     message.header = header;
-    if let Some(interface_index) = get_interface_index(ifname)? {
-        message
-            .attributes
-            .push(RouteAttribute::Oif(interface_index));
-        message
-            .attributes
-            .push(RouteAttribute::Destination(route_address));
-        if let Some(table) = table {
-            message.attributes.push(RouteAttribute::Table(table));
-        }
-        match netlink_request(
-            RouteNetlinkMessage::NewRoute(message),
-            NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
-            NETLINK_ROUTE,
-        ) {
-            Ok(_msg) => Ok(()),
-            Err(NetlinkError::FileAlreadyExists) => Ok(()),
-            Err(err) => {
-                error!("Failed to add WireGuard interface route: {err}");
-                Err(NetlinkError::AddRouteError)
-            }
-        }
-    } else {
+    let Some(interface_index) = get_interface_index(ifname)? else {
         error!("Failed to add WireGuard interface route interface {ifname} index not found");
-        Err(NetlinkError::AddRouteError)
+        return Err(NetlinkError::NotFound);
+    };
+
+    message
+        .attributes
+        .push(RouteAttribute::Oif(interface_index));
+    message
+        .attributes
+        .push(RouteAttribute::Destination(route_address));
+    if let Some(table) = table {
+        message.attributes.push(RouteAttribute::Table(table));
+    }
+    match netlink_request(
+        RouteNetlinkMessage::NewRoute(message),
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
+        NETLINK_ROUTE,
+    ) {
+        Ok(_msg) => Ok(()),
+        Err(NetlinkError::FileAlreadyExists) => Ok(()),
+        Err(err) => {
+            error!("Failed to add WireGuard interface route: {err}");
+            Err(NetlinkError::AddRouteError)
+        }
     }
 }
 

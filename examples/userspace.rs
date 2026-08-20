@@ -1,6 +1,6 @@
 use std::{
-    io::{Read, Write, stdin, stdout},
-    net::SocketAddr,
+    io::{self, Read, Write, stdin, stdout},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
 };
 
@@ -10,11 +10,13 @@ use defguard_wireguard_rs::{
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
-fn pause() {
+fn pause() -> io::Result<()> {
     let mut stdout = stdout();
-    stdout.write_all(b"Press Enter to continue...").unwrap();
-    stdout.flush().unwrap();
-    stdin().read_exact(&mut [0]).unwrap();
+    stdout.write_all(b"Press Enter to continue...")?;
+    stdout.flush()?;
+    stdin().read_exact(&mut [0])?;
+
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,11 +25,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(tracing::Level::DEBUG)
         .init();
 
-    let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
-        "wg0".into()
-    } else {
-        "utun5".into()
-    };
+    #[cfg(not(target_os = "macos"))]
+    let ifname = String::from("tun0");
+    #[cfg(target_os = "macos")]
+    let ifname = String::from("utun5");
     let mut api = WGApi::<Userspace>::new(ifname.clone())?;
 
     api.create_interface()?;
@@ -40,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut peer = Peer::new(peer_key.clone());
 
     // WireGuard server endpoint which peer connects to.
-    let endpoint: SocketAddr = "10.20.30.40:55001".parse().unwrap();
+    let endpoint = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), 55001);
     // Peer endpoint and interval.
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);
@@ -72,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     api.configure_interface(&interface_config, &[])?;
 
     println!("Interface {ifname} configured.");
-    pause();
+    pause().unwrap();
 
     api.remove_interface()?;
 

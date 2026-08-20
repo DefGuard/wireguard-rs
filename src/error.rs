@@ -26,6 +26,7 @@ pub enum WireguardInterfaceError {
     PeerConfigurationError(String),
     #[error("Interface data read error: {0}")]
     ReadInterfaceError(String),
+    #[cfg(target_os = "linux")]
     #[error("Netlink error: {0}")]
     NetlinkError(String),
     #[error("BSD error: {0}")]
