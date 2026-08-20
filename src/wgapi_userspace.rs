@@ -103,6 +103,13 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         debug!("Userspace interface {} created successfully", self.ifname);
         self.device_handle = Some(device_handle);
 
+        // The interface created by BoringTun is down at this point. Unlike the BSDs, Linux doesn't
+        // put it up when addresses are assigned, so do it explicitly here.
+        #[cfg(target_os = "linux")]
+        {
+            netlink::set_link_up(&self.ifname)?;
+        }
+
         Ok(())
     }
 
