@@ -16,5 +16,8 @@ fn test_assign_address() {
 fn test_get_mtu() {
     let ifname = "lo0";
     let mtu = get_mtu(ifname).unwrap();
+    #[cfg(not(target_os = "netbsd"))]
     assert_eq!(mtu, 16384);
+    #[cfg(target_os = "netbsd")]
+    assert_eq!(mtu, 33624);
 }

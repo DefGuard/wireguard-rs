@@ -5,6 +5,7 @@ use defguard_wireguard_rs::{
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
+#[cfg(not(target_os = "netbsd"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
@@ -90,4 +91,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     wgapi.remove_interface()?;
 
     Ok(())
+}
+
+#[cfg(target_os = "netbsd")]
+fn main() {
+    println!("This example is not for NetBSD");
 }

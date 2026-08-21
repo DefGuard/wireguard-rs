@@ -31,6 +31,7 @@ use wireguard_nt::Wireguard;
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
+    dns::DnsConfig,
     error::WireguardInterfaceError,
     host::Host,
     key::Key,
@@ -455,11 +456,18 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         Ok(host)
     }
 
-    fn configure_dns(
-        &self,
-        dns: &[IpAddr],
-        search_domains: &[&str],
-    ) -> Result<(), WireguardInterfaceError> {
+    fn set_dns(&self, config: &DnsConfig<'_>) -> Result<(), WireguardInterfaceError> {
+        let dns = config.servers;
+        let search_domains = config.search_domains;
+        if !config.routing_domains.is_empty() {
+            warn!(
+                "Routing-only domains {:?} have been requested, but DNS servers are configured \
+                per adapter on Windows, so these domains cannot be resolved separately and will \
+                be ignored. The Name Resolution Policy Table would be needed for split DNS on \
+                this platform.",
+                config.routing_domains
+            );
+        }
         debug!(
             "Configuring DNS for interface {}, using address: {dns:?}",
             self.ifname

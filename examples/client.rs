@@ -5,6 +5,7 @@ use defguard_wireguard_rs::{
 };
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
+#[cfg(not(target_os = "netbsd"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create new API object for interface
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
@@ -56,4 +57,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     wgapi.configure_peer_routing(&interface_config.peers)?;
 
     Ok(())
+}
+
+#[cfg(target_os = "netbsd")]
+fn main() {
+    println!("This example is not for NetBSD");
 }

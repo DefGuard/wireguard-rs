@@ -1,33 +1,19 @@
-#[cfg(target_os = "macos")]
-use std::io::{Cursor, Error as IoError};
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
-use std::net::{Ipv4Addr, Ipv6Addr};
-#[cfg(target_os = "linux")]
-use std::{collections::HashSet, fs::OpenOptions};
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use std::{
-    fs::{File, symlink_metadata},
-    path::Path,
-};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{SocketAddr, ToSocketAddrs};
 #[cfg(any(
     feature = "check_dependencies",
     target_os = "freebsd",
     target_os = "linux",
     target_os = "netbsd"
 ))]
-use std::{io::Write, path::PathBuf, process::Stdio};
-use std::{
-    io::{BufRead, BufReader},
-    net::{SocketAddr, ToSocketAddrs},
-};
-#[cfg(not(target_os = "windows"))]
-use std::{net::IpAddr, process::Command};
+use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+use std::{collections::HashSet, fs::OpenOptions, io::Write};
 
 #[cfg(not(target_os = "windows"))]
 use crate::Peer;
 use crate::WireguardInterfaceError;
-#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
-use crate::check_command_output_status;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::{
     IpVersion,
@@ -35,215 +21,7 @@ use crate::{
     net::IpAddrMask,
 };
 #[cfg(target_os = "linux")]
-use crate::{IpVersion, check_command_output_status, netlink};
-
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-const IFACE_ORDER_PATH: &str = "/etc/resolvconf/interface-order";
-
-/// Constructs the resolvconf interface name for manipulating DNS settings.
-/// Resolvconf may be symlinked to resolvectl on some systems that use systemd-resolved.
-/// In such cases there is no need to prefix the interface name and this function just returns
-/// the base interface name.
-///
-/// On other systems, especially those that don't use systemd-resolved (Debian 13)
-/// resolvconf may be a binary from the "resolvconf" package. In such cases, this function
-/// reads the interface-order file to find a highest priority interface prefix and constructs
-/// the full interface name prefixing the base interface name with the found prefix.
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-fn construct_resolvconf_ifname(base_ifname: &str) -> String {
-    let iface_order = Path::new(IFACE_ORDER_PATH);
-    if iface_order.exists() {
-        // Check if resolvconf command is a symlink or a binary
-        if let Ok(Some(resolvconf_path)) = get_command_path("resolvconf")
-            && let Ok(metadata) = symlink_metadata(&resolvconf_path)
-            && !metadata.file_type().is_symlink()
-        {
-            // It's a binary, proceed to read interface_order file
-            let iface_regex = regex::Regex::new(r"^([A-Za-z0-9-]+)\*$").unwrap();
-            if let Ok(file) = File::open(iface_order) {
-                let reader = BufReader::new(file);
-                if let Some(constructed_ifname) =
-                    reader.lines().map_while(Result::ok).find_map(|line| {
-                        let iface = line.trim();
-                        iface_regex.captures(iface).and_then(|captures| {
-                            captures.get(1).map(|matched_iface| {
-                                // Output format: <highest_priority_iface>.<base_ifname>
-                                let constructed_ifname =
-                                    format!("{}.{base_ifname}", matched_iface.as_str());
-                                debug!(
-                                    "Constructed interface name from interface_order: \
-                                    {constructed_ifname}"
-                                );
-                                constructed_ifname
-                            })
-                        })
-                    })
-                {
-                    return constructed_ifname;
-                }
-            }
-        }
-    }
-
-    base_ifname.into()
-}
-
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-pub(crate) fn configure_dns(
-    ifname: &str,
-    dns: &[IpAddr],
-    search_domains: &[&str],
-) -> Result<(), WireguardInterfaceError> {
-    // Build the resolvconf command
-    debug!(
-        "Starting DNS servers configuration for interface {ifname}, DNS: {dns:?}, search \
-        domains: {search_domains:?}"
-    );
-    let mut cmd = Command::new("resolvconf");
-    let ifname = construct_resolvconf_ifname(ifname);
-    let mut args = vec!["-a", &ifname, "-m", "0"];
-    // Set the exclusive flag if no search domains are provided,
-    // making the DNS servers a preferred route for any domain
-    if search_domains.is_empty() {
-        args.push("-x");
-    }
-    debug!("Executing command resolvconf with args: {args:?}");
-    cmd.args(args);
-
-    match cmd.stdin(Stdio::piped()).spawn() {
-        Ok(mut child) => {
-            debug!(
-                "Command resolvconf spawned successfully, proceeding with writing nameservers \
-                and search domains to its stdin"
-            );
-            if let Some(mut stdin) = child.stdin.take() {
-                for entry in dns {
-                    debug!("Adding nameserver entry: {entry}");
-                    writeln!(stdin, "nameserver {entry}")?;
-                }
-                for domain in search_domains {
-                    debug!("Adding search domain entry: {domain}");
-                    writeln!(stdin, "search {domain}")?;
-                }
-            }
-            debug!("Waiting for resolvconf command to finish");
-
-            let status = child.wait().expect("Failed to wait for command");
-            if status.success() {
-                debug!("DNS servers and search domains set successfully for interface {ifname}");
-                Ok(())
-            } else {
-                Err(WireguardInterfaceError::DnsError(format!(
-                    "Failed to execute resolvconf \
-                    command while setting DNS servers and search domains: {status}"
-                )))
-            }
-        }
-        Err(e) => Err(WireguardInterfaceError::DnsError(format!(
-            "Failed to execute resolvconf command \
-                while setting DNS servers and search domains: {e}"
-        ))),
-    }
-}
-
-#[cfg(target_os = "macos")]
-/// Obtain list of network services
-fn network_services() -> Result<Vec<String>, IoError> {
-    let output = Command::new("networksetup")
-        .arg("-listallnetworkservices")
-        .output()?;
-
-    if output.status.success() {
-        let buf = BufReader::new(Cursor::new(output.stdout));
-        // Get all lines from stdout without asterisk (*).
-        // An asterisk (*) denotes that a network service is disabled.
-        let lines = buf
-            .lines()
-            .filter_map(|line| line.ok().filter(|line| !line.contains('*')))
-            .collect();
-        debug!("Found following network services: {lines:?}");
-        Ok(lines)
-    } else {
-        Err(IoError::other(format!(
-            "network setup command failed: {}",
-            output.status
-        )))
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn configure_dns(
-    dns: &[IpAddr],
-    search_domains: &[&str],
-) -> Result<(), WireguardInterfaceError> {
-    debug!(
-        "Configuring DNS servers and search domains, DNS: {dns:?}, search domains: \
-        {search_domains:?}"
-    );
-
-    debug!("Setting DNS servers and search domains for all network services");
-    for service in network_services()? {
-        debug!(
-            "Setting DNS entries (search domains and DNS servers) for network service {service}"
-        );
-        let mut cmd = Command::new("networksetup");
-        cmd.arg("-setdnsservers").arg(&service);
-        if dns.is_empty() {
-            // This clears all DNS entries.
-            cmd.arg("Empty");
-        } else {
-            cmd.args(dns.iter().map(ToString::to_string));
-        }
-
-        let status = cmd.status()?;
-        if !status.success() {
-            return Err(WireguardInterfaceError::DnsError(format!(
-                "Command `networksetup` failed while setting DNS servers for {service}: {status}"
-            )));
-        }
-        debug!("DNS servers set successfully for {service}");
-
-        // Set search domains, if empty, clear all search domains.
-        debug!("Setting search domains for {service}");
-        let mut cmd = Command::new("networksetup");
-        cmd.arg("-setsearchdomains").arg(&service);
-        if search_domains.is_empty() {
-            // This clears all search domains.
-            cmd.arg("Empty");
-        } else {
-            cmd.args(search_domains.iter());
-        }
-
-        let status = cmd.status()?;
-        if !status.success() {
-            return Err(WireguardInterfaceError::DnsError(format!(
-                "Command `networksetup` failed \
-                while setting search domains for {service}: {status}"
-            )));
-        }
-
-        debug!("Search domains set successfully for {service}");
-    }
-
-    debug!(
-        "The following DNS servers and search domains were set successfully: DNS: {dns:?}, \
-        search domains: {search_domains:?}"
-    );
-    Ok(())
-}
-
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
-    debug!("Removing DNS configuration for interface {ifname}");
-    let ifname = construct_resolvconf_ifname(ifname);
-    let args = ["-d", &ifname, "-f"];
-    debug!("Executing resolvconf with args: {args:?}");
-    let mut cmd = Command::new("resolvconf");
-    let output = cmd.args(args).output()?;
-    check_command_output_status(output)?;
-    debug!("DNS configuration removed successfully for interface {ifname}");
-    Ok(())
-}
+use crate::{IpVersion, netlink};
 
 #[cfg(target_os = "linux")]
 fn setup_default_route(
@@ -410,20 +188,20 @@ pub(crate) fn add_peer_routing(
                     "Found following default route in the allowed IPs: {addr}, interface: \
                     {ifname}, proceeding with default route initial setup."
                 );
-                let default1;
-                let default2;
-                if addr.address.is_ipv4() {
+
+                let (default1, default2) = if addr.address.is_ipv4() {
                     // 0.0.0.0/1
-                    default1 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1);
-                    // 128.0.0.0/1
-                    default2 = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)), 1);
+                    (
+                        IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1),
+                        IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(128, 0, 0, 0)), 1),
+                    )
                 } else {
                     // ::/1
-                    default1 = IpAddrMask::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 1);
-                    // 8000::/1
-                    default2 =
-                        IpAddrMask::new(IpAddr::V6(Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0)), 1);
-                }
+                    (
+                        IpAddrMask::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 1),
+                        IpAddrMask::new(IpAddr::V6(Ipv6Addr::new(0x8000, 0, 0, 0, 0, 0, 0, 0)), 1),
+                    )
+                };
                 match add_linked_route(&default1, ifname) {
                     Ok(()) => debug!("Route to {default1} has been added for interface {ifname}"),
                     Err(IoError::Io(err)) => {

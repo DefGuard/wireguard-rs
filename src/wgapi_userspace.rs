@@ -1,21 +1,27 @@
 use std::{
     fs,
     io::{self, BufRead, BufReader, ErrorKind, Read, Write},
-    net::{IpAddr, Shutdown},
+    net::Shutdown,
     os::unix::net::UnixStream,
     time::Duration,
 };
 
 use defguard_boringtun::device::{DeviceConfig, DeviceHandle};
 
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+use crate::dns::clear_dns;
 #[cfg(target_os = "linux")]
 use crate::netlink;
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-use crate::utils::clear_dns;
 use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
+    dns::DnsConfig,
     error::WireguardInterfaceError,
-    utils::{add_peer_routing, configure_dns},
+    utils::add_peer_routing,
     wgapi::{Userspace, WGApi},
     wireguard_interface::WireguardInterfaceApi,
 };
@@ -113,40 +119,25 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
         Ok(())
     }
 
-    /// Sets DNS configuration for a WireGuard interface using the `resolvconf` command.
+    /// Sets the DNS configuration for the interface.
     ///
-    /// This function is platform-specific and is intended for use on Linux and FreeBSD.
-    /// It executes the `resolvconf -a <if_name> -m -0 -x` command with appropriate arguments to update DNS
-    /// configurations for the specified Wireguard interface. The DNS entries are filtered
-    /// for nameservers and search domains before being piped to the `resolvconf` command.
+    /// On Linux, FreeBSD and NetBSD this goes through `systemd-resolved` or `resolvconf`, on
+    /// macOS through `networksetup`.
     ///
     /// # Errors
     ///
-    /// Returns a `WireguardInterfaceError::DnsError` if there is an error in setting the DNS configuration.
-    ///
-    /// # Platform Support
-    ///
-    /// - Linux
-    /// - FreeBSD
-    fn configure_dns(
-        &self,
-        dns: &[IpAddr],
-        search_domains: &[&str],
-    ) -> Result<(), WireguardInterfaceError> {
-        if dns.is_empty() {
+    /// Returns a `WireguardInterfaceError::DnsError` if there is an error in setting the DNS
+    /// configuration.
+    fn set_dns(&self, config: &DnsConfig<'_>) -> Result<(), WireguardInterfaceError> {
+        if config.servers.is_empty() {
             warn!("Received empty DNS server list. Skipping DNS configuration...");
             return Ok(());
         }
         debug!("Beginning DNS configuration for interface {}", self.ifname);
-        // Setting DNS is not supported for macOS.
         #[cfg(target_os = "macos")]
-        {
-            configure_dns(dns, search_domains)?;
-        }
+        config.configure_dns()?;
         #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-        {
-            configure_dns(&self.ifname, dns, search_domains)?;
-        }
+        config.configure_dns(&self.ifname)?;
         debug!("Finished configuring DNS for interface {}", self.ifname);
         Ok(())
     }
@@ -314,7 +305,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
                 "Clearing DNS entries by applying an empty DNS list to all network services, interface {}",
                 self.ifname
             );
-            configure_dns(&[], &[])?;
+            clear_dns()?;
         }
         #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))]
         {
