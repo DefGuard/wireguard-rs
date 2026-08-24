@@ -134,9 +134,6 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             return Ok(());
         }
         debug!("Beginning DNS configuration for interface {}", self.ifname);
-        #[cfg(target_os = "macos")]
-        config.configure_dns()?;
-        #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
         config.configure_dns(&self.ifname)?;
         debug!("Finished configuring DNS for interface {}", self.ifname);
         Ok(())
@@ -299,19 +296,8 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
             }
         }
 
-        #[cfg(target_os = "macos")]
-        {
-            debug!(
-                "Clearing DNS entries by applying an empty DNS list to all network services, interface {}",
-                self.ifname
-            );
-            clear_dns()?;
-        }
-        #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))]
-        {
-            debug!("Clearing DNS entries for interface {}", self.ifname);
-            clear_dns(&self.ifname)?;
-        }
+        debug!("Clearing DNS entries for interface {}", self.ifname);
+        clear_dns(&self.ifname)?;
         debug!("DNS entries cleared, interface {}", self.ifname);
 
         info!("Interface {} removed successfully", self.ifname);

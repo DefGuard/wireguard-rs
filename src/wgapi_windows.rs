@@ -12,7 +12,8 @@ use thiserror::Error;
 use windows::{
     Win32::{
         Foundation::{
-            ERROR_BUFFER_OVERFLOW, ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, FreeLibrary, NO_ERROR,
+            ERROR_BUFFER_OVERFLOW, ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, FreeLibrary,
+            NO_ERROR, WIN32_ERROR,
         },
         NetworkManagement::{
             IpHelper::{
@@ -37,15 +38,11 @@ use windows::{
     },
     core::{GUID, Owned, PCSTR, PCWSTR, PSTR, PWSTR},
 };
-use wireguard_nt::Wireguard;
+use wireguard_nt::{Wireguard, WireguardPeer};
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
-    dns::{
-        DnsConfig, NRPT_CONFIG_OPTION_OVERRIDE_DNS, NRPT_MAX_NAMESPACES_PER_RULE,
-        NRPT_POLICY_CONFIG_PATH, NRPT_RULE_VERSION, multi_sz, nrpt_rule_key_interface_id,
-        nrpt_rule_key_name, nrpt_servers_value,
-    },
+    dns::{DnsConfig, nrpt},
     error::WireguardInterfaceError,
     host::Host,
     key::Key,
@@ -99,8 +96,11 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     Ok(guid)
 }
 
-/// Returns the friendly name and GUID of every network adapter on the host.
-fn list_adapters() -> Result<Vec<(String, GUID)>, WindowsError> {
+/// Returns the friendly name and the adapter name of every network adapter on the host.
+///
+/// The adapter name is the interface's GUID in its `{...}` registry spelling, which is what
+/// [`get_adapter_guid`] parses and what the NRPT rule keys are named after.
+fn list_adapters() -> Result<Vec<(String, String)>, WindowsError> {
     // We have to call `GetAdaptersAddresses` twice - first call to just get the `buffer_size` to hold the adapters.
     // Before the second call we allocate the buffer with `buffer_size` capacity so that the call can actually
     // store the adapters in the buffer.
@@ -150,7 +150,7 @@ fn list_adapters() -> Result<Vec<(String, GUID)>, WindowsError> {
 
         let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
         let adapter_name = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
-        adapters.push((friendly_name, guid_from_str(&adapter_name)?));
+        adapters.push((friendly_name, adapter_name));
 
         current = adapter.Next;
     }
@@ -162,11 +162,12 @@ fn list_adapters() -> Result<Vec<(String, GUID)>, WindowsError> {
 /// Example adapter name: "Ethernet", "WireGuard".
 fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     debug!("Finding adapter {adapter_name}");
-    let guid = list_adapters()?
+    let adapter = list_adapters()?
         .into_iter()
-        .find_map(|(friendly_name, guid)| (friendly_name == adapter_name).then_some(guid));
-    match guid {
-        Some(guid) => {
+        .find_map(|(friendly_name, name)| (friendly_name == adapter_name).then_some(name));
+    match adapter {
+        Some(name) => {
+            let guid = guid_from_str(&name)?;
             info!("Found adapter {adapter_name}, GUID: {guid:?}");
             Ok(guid)
         }
@@ -223,8 +224,8 @@ fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError>
     Ok(())
 }
 
-impl From<wireguard_nt::WireguardPeer> for Peer {
-    fn from(peer: wireguard_nt::WireguardPeer) -> Self {
+impl From<WireguardPeer> for Peer {
+    fn from(peer: WireguardPeer) -> Self {
         Self {
             public_key: Key::new(peer.public_key),
             preshared_key: Some(Key::new(peer.preshared_key)),
@@ -279,11 +280,20 @@ fn as_bytes(buffer: &[u16]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), size_of_val(buffer)) }
 }
 
+/// Turns the status a registry call returns into a `Result`.
+fn check(status: WIN32_ERROR) -> Result<(), WindowsError> {
+    if status == NO_ERROR {
+        Ok(())
+    } else {
+        Err(WindowsError::NonZeroReturnValue(status.0))
+    }
+}
+
 /// Creates a registry key under `HKEY_LOCAL_MACHINE`, or opens it if it already exists.
 fn create_key(path: &str) -> Result<Owned<HKEY>, WindowsError> {
     let path = str_to_wide_null_terminated(path);
     let mut key = HKEY::default();
-    let status = unsafe {
+    check(unsafe {
         RegCreateKeyExW(
             HKEY_LOCAL_MACHINE,
             PCWSTR(path.as_ptr()),
@@ -295,13 +305,9 @@ fn create_key(path: &str) -> Result<Owned<HKEY>, WindowsError> {
             &raw mut key,
             None,
         )
-    };
-    if status == NO_ERROR {
-        // SAFETY: the key was just opened by this call, so we own the handle.
-        Ok(unsafe { Owned::new(key) })
-    } else {
-        Err(WindowsError::NonZeroReturnValue(status.0))
-    }
+    })?;
+    // SAFETY: the key was just opened by this call, so we own the handle.
+    Ok(unsafe { Owned::new(key) })
 }
 
 /// Opens a registry key under `HKEY_LOCAL_MACHINE`, returning `None` if it does not exist.
@@ -318,13 +324,11 @@ fn open_key(path: &str, access: REG_SAM_FLAGS) -> Result<Option<Owned<HKEY>>, Wi
         )
     };
     if status == ERROR_FILE_NOT_FOUND {
-        Ok(None)
-    } else if status == NO_ERROR {
-        // SAFETY: the key was just opened by this call, so we own the handle.
-        Ok(Some(unsafe { Owned::new(key) }))
-    } else {
-        Err(WindowsError::NonZeroReturnValue(status.0))
+        return Ok(None);
     }
+    check(status)?;
+    // SAFETY: the key was just opened by this call, so we own the handle.
+    Ok(Some(unsafe { Owned::new(key) }))
 }
 
 /// Writes one value into an open registry key.
@@ -335,13 +339,7 @@ fn set_value(
     data: &[u8],
 ) -> Result<(), WindowsError> {
     let name = str_to_wide_null_terminated(name);
-    let status =
-        unsafe { RegSetValueExW(key, PCWSTR(name.as_ptr()), None, value_type, Some(data)) };
-    if status == NO_ERROR {
-        Ok(())
-    } else {
-        Err(WindowsError::NonZeroReturnValue(status.0))
-    }
+    check(unsafe { RegSetValueExW(key, PCWSTR(name.as_ptr()), None, value_type, Some(data)) })
 }
 
 /// Lists the names of the subkeys of an open registry key.
@@ -371,9 +369,7 @@ fn subkey_names(key: HKEY) -> Result<Vec<String>, WindowsError> {
         if status == ERROR_NO_MORE_ITEMS {
             return Ok(names);
         }
-        if status != NO_ERROR {
-            return Err(WindowsError::NonZeroReturnValue(status.0));
-        }
+        check(status)?;
         names.push(String::from_utf16_lossy(&buffer[..length as usize]));
         index += 1;
     }
@@ -385,68 +381,102 @@ fn write_nrpt_rules(
     namespaces: &[String],
     servers: &[IpAddr],
 ) -> Result<(), WindowsError> {
-    let servers = str_to_wide_null_terminated(&nrpt_servers_value(servers));
+    let servers = str_to_wide_null_terminated(&nrpt::servers_value(servers));
 
-    for (index, chunk) in namespaces.chunks(NRPT_MAX_NAMESPACES_PER_RULE).enumerate() {
-        let rule = nrpt_rule_key_name(interface_id, index);
+    for (index, chunk) in namespaces.chunks(nrpt::MAX_NAMESPACES_PER_RULE).enumerate() {
+        let rule = nrpt::rule_key_name(interface_id, index);
         debug!("Creating NRPT rule {rule} resolving {chunk:?} through the interface");
-        let key = create_key(&format!("{NRPT_POLICY_CONFIG_PATH}\\{rule}"))?;
-        set_value(*key, "Name", REG_MULTI_SZ, as_bytes(&multi_sz(chunk)))?;
+        let key = create_key(&format!("{}\\{rule}", nrpt::POLICY_CONFIG_PATH))?;
+        set_value(*key, "Name", REG_MULTI_SZ, as_bytes(&nrpt::multi_sz(chunk)))?;
         set_value(*key, "GenericDNSServers", REG_SZ, as_bytes(&servers))?;
         set_value(
             *key,
             "ConfigOptions",
             REG_DWORD,
-            &NRPT_CONFIG_OPTION_OVERRIDE_DNS.to_ne_bytes(),
+            &nrpt::CONFIG_OPTION_OVERRIDE_DNS.to_ne_bytes(),
         )?;
-        set_value(*key, "Version", REG_DWORD, &NRPT_RULE_VERSION.to_ne_bytes())?;
+        set_value(
+            *key,
+            "Version",
+            REG_DWORD,
+            &nrpt::RULE_VERSION.to_ne_bytes(),
+        )?;
     }
 
     Ok(())
 }
 
-/// Removes every NRPT rule belonging to the given interface.
-fn clear_nrpt_rules(interface_id: &str) -> Result<(), WindowsError> {
-    remove_nrpt_rules(|rule_interface_id| rule_interface_id.eq_ignore_ascii_case(interface_id))
-}
-
-/// Removes the NRPT rules of interfaces which no longer exist.
-fn sweep_orphaned_nrpt_rules() -> Result<(), WindowsError> {
-    let live = list_adapters()?
-        .iter()
-        .map(|(_, guid)| guid_to_string(guid))
-        .collect::<Vec<_>>();
-    remove_nrpt_rules(|interface_id| {
-        !live
-            .iter()
-            .any(|guid| guid.eq_ignore_ascii_case(interface_id))
-    })
-}
-
-/// Removes the NRPT rules of this crate whose interface matches `remove`.
-fn remove_nrpt_rules(remove: impl Fn(&str) -> bool) -> Result<(), WindowsError> {
-    let Some(policy_config) = open_key(NRPT_POLICY_CONFIG_PATH, KEY_ALL_ACCESS)? else {
-        debug!("{NRPT_POLICY_CONFIG_PATH} does not exist, so there is no NRPT rule to remove");
-        return Ok(());
+/// Returns the policy table key together with the rules this crate owns under it, as pairs of
+/// registry key name and the interface the rule belongs to.
+fn our_nrpt_rules() -> Result<Option<(Owned<HKEY>, Vec<(String, String)>)>, WindowsError> {
+    let Some(policy_config) = open_key(nrpt::POLICY_CONFIG_PATH, KEY_ALL_ACCESS)? else {
+        debug!(
+            "{} does not exist, so there is no NRPT rule to remove",
+            nrpt::POLICY_CONFIG_PATH
+        );
+        return Ok(None);
     };
 
     // Collect the names before deleting anything, as removing a subkey shifts the indices of the
     // ones enumerated after it.
     let rules = subkey_names(*policy_config)?
         .into_iter()
-        .filter(|name| nrpt_rule_key_interface_id(name).is_some_and(&remove))
+        .filter_map(|name| {
+            let interface_id = nrpt::rule_key_interface_id(&name)?.to_string();
+            Some((name, interface_id))
+        })
         .collect::<Vec<_>>();
 
+    Ok((!rules.is_empty()).then_some((policy_config, rules)))
+}
+
+/// Deletes the named rules from the policy table.
+fn delete_nrpt_rules(
+    policy_config: HKEY,
+    rules: impl IntoIterator<Item = String>,
+) -> Result<(), WindowsError> {
     for rule in rules {
         debug!("Removing NRPT rule {rule}");
         let name = str_to_wide_null_terminated(&rule);
-        let status = unsafe { RegDeleteTreeW(*policy_config, PCWSTR(name.as_ptr())) };
-        if status != NO_ERROR {
-            return Err(WindowsError::NonZeroReturnValue(status.0));
-        }
+        check(unsafe { RegDeleteTreeW(policy_config, PCWSTR(name.as_ptr())) })?;
     }
-
     Ok(())
+}
+
+/// Removes every NRPT rule belonging to the given interface.
+fn clear_nrpt_rules(interface_id: &str) -> Result<(), WindowsError> {
+    let Some((policy_config, rules)) = our_nrpt_rules()? else {
+        return Ok(());
+    };
+    delete_nrpt_rules(
+        *policy_config,
+        rules
+            .into_iter()
+            .filter(|(_, id)| id.eq_ignore_ascii_case(interface_id))
+            .map(|(name, _)| name),
+    )
+}
+
+/// Removes the NRPT rules of interfaces which no longer exist.
+fn sweep_orphaned_nrpt_rules() -> Result<(), WindowsError> {
+    // Look at the policy table before the adapters: it holds no rule of ours on almost every
+    // host, and then there is nothing to match them against.
+    let Some((policy_config, rules)) = our_nrpt_rules()? else {
+        return Ok(());
+    };
+
+    let live = list_adapters()?
+        .into_iter()
+        .map(|(_, adapter_name)| adapter_name.trim_matches(['{', '}']).to_string())
+        .collect::<Vec<_>>();
+
+    delete_nrpt_rules(
+        *policy_config,
+        rules
+            .into_iter()
+            .filter(|(_, id)| !live.iter().any(|guid| guid.eq_ignore_ascii_case(id)))
+            .map(|(name, _)| name),
+    )
 }
 
 /// Flushes the DNS resolver cache.
@@ -656,7 +686,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Assigning addresses to adapter {}: {:?}",
             self.ifname, config.addresses
         );
-        let addresses: Vec<_> = config
+        let addresses = config
             .addresses
             .iter()
             .filter_map(|ip| match ip.address {
@@ -683,7 +713,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                     }
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
         adapter
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;

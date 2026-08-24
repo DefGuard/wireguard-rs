@@ -24,6 +24,7 @@ use std::{
     process::Command,
 };
 
+#[cfg(not(windows))]
 use crate::error::WireguardInterfaceError;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use crate::{check_command_output_status, utils::get_command_path};
@@ -164,14 +165,8 @@ impl<'a> DnsConfig<'a> {
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        let mut args = vec!["dns", ifname];
-        args.extend(servers.iter().map(String::as_str));
-        resolvectl(&args)?;
-
-        let domains = self.resolved_domain_args();
-        let mut args = vec!["domain", ifname];
-        args.extend(domains.iter().map(String::as_str));
-        resolvectl(&args)?;
+        resolvectl_link("dns", ifname, &servers)?;
+        resolvectl_link("domain", ifname, &self.resolved_domain_args())?;
 
         // Set this explicitly instead of relying on the implicit default, which depends on whether
         // the link has routing domains configured.
@@ -184,7 +179,8 @@ impl<'a> DnsConfig<'a> {
         Ok(())
     }
 
-    /// Applies `config` to the given interface, using whichever DNS backend this host provides.
+    /// Applies this configuration to the given interface, using whichever DNS backend this host
+    /// provides.
     #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
     pub(crate) fn configure_dns(&self, ifname: &str) -> Result<(), WireguardInterfaceError> {
         debug!("Starting DNS configuration for interface {ifname}: {self:?}");
@@ -243,6 +239,8 @@ impl<'a> DnsConfig<'a> {
         let mut child = Command::new(RESOLVCONF)
             .args(&args)
             .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()?;
         {
             let mut stdin = child.stdin.take().ok_or_else(|| {
@@ -256,19 +254,13 @@ impl<'a> DnsConfig<'a> {
             // Dropping stdin closes the pipe, which lets resolvconf proceed.
         }
 
-        let status = child.wait()?;
-        if status.success() {
-            debug!("DNS configured successfully for interface {ifname} through {RESOLVCONF}");
-            Ok(())
-        } else {
-            Err(WireguardInterfaceError::DnsError(format!(
-                "Failed to execute the `{RESOLVCONF}` command while setting DNS servers and search \
-                domains: {status}"
-            )))
-        }
+        check_command_output_status(child.wait_with_output()?)?;
+
+        debug!("DNS configured successfully for interface {ifname} through {RESOLVCONF}");
+        Ok(())
     }
 
-    /// Picks the `resolvconf` flags matching the intent of `config`.
+    /// Picks the `resolvconf` flags matching the intent of this configuration.
     #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
     fn resolvconf_mode_args(&self, local_resolver: bool) -> &'static [&'static str] {
         if self.default_route {
@@ -308,15 +300,15 @@ impl<'a> DnsConfig<'a> {
         stdin
     }
 
-    /// Applies `config` to every macOS network service.
+    /// Applies this configuration to every macOS network service.
     ///
     /// `networksetup` only knows global resolvers, so [`DnsConfig::routing_domains`] and
     /// [`DnsConfig::default_route`] cannot be honored here: the DNS servers of the tunnel answer
-    /// every query for as long as it is up. Scoped resolvers (`/etc/resolver/<domain>`) would be
-    /// needed for split DNS on this platform.
+    /// every query for as long as it is up, whichever interface they belong to. Scoped resolvers
+    /// (`/etc/resolver/<domain>`) would be needed for split DNS on this platform.
     #[cfg(target_os = "macos")]
-    pub(crate) fn configure_dns(&self) -> Result<(), WireguardInterfaceError> {
-        debug!("Configuring DNS: {self:?}");
+    pub(crate) fn configure_dns(&self, ifname: &str) -> Result<(), WireguardInterfaceError> {
+        debug!("Starting DNS configuration for interface {ifname}: {self:?}");
         if !self.routing_domains.is_empty() {
             warn!(
                 "Routing-only domains {:?} have been requested, but macOS DNS servers are \
@@ -328,53 +320,44 @@ impl<'a> DnsConfig<'a> {
         if !self.default_route && !self.servers.is_empty() {
             debug!(
                 "Split DNS has been requested, but macOS DNS servers are configured globally, so \
-                {:?} will answer every query while the interface is up.",
+                {:?} will answer every query while interface {ifname} is up.",
                 self.servers
             );
         }
 
+        // An empty list clears the entries of that kind instead of setting them.
+        let servers = self.servers.iter().map(ToString::to_string).collect();
+        let search_domains = self
+            .search_domains
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let entries = [
+            ("-setdnsservers", "DNS servers", &servers),
+            ("-setsearchdomains", "search domains", &search_domains),
+        ];
+
         debug!("Setting DNS servers and search domains for all network services");
         for service in network_services()? {
-            debug!(
-                "Setting DNS entries (search domains and DNS servers) for network service {service}"
-            );
-            let mut cmd = Command::new("networksetup");
-            cmd.arg("-setdnsservers").arg(&service);
-            if self.servers.is_empty() {
-                // This clears all DNS entries.
-                cmd.arg("Empty");
-            } else {
-                cmd.args(self.servers.iter().map(ToString::to_string));
-            }
+            for (option, description, values) in entries {
+                debug!("Setting {description} for network service {service}");
+                let mut cmd = Command::new("networksetup");
+                cmd.arg(option).arg(&service);
+                if values.is_empty() {
+                    cmd.arg("Empty");
+                } else {
+                    cmd.args(values);
+                }
 
-            let status = cmd.status()?;
-            if !status.success() {
-                return Err(WireguardInterfaceError::DnsError(format!(
-                    "Command `networksetup` failed while setting DNS servers for {service}: {status}"
-                )));
+                let status = cmd.status()?;
+                if !status.success() {
+                    return Err(WireguardInterfaceError::DnsError(format!(
+                        "Command `networksetup` failed while setting {description} for \
+                        {service}: {status}"
+                    )));
+                }
+                debug!("{description} set successfully for {service}");
             }
-            debug!("DNS servers set successfully for {service}");
-
-            // Set search domains, if empty, clear all search domains.
-            debug!("Setting search domains for {service}");
-            let mut cmd = Command::new("networksetup");
-            cmd.arg("-setsearchdomains").arg(&service);
-            if self.search_domains.is_empty() {
-                // This clears all search domains.
-                cmd.arg("Empty");
-            } else {
-                cmd.args(self.search_domains.iter());
-            }
-
-            let status = cmd.status()?;
-            if !status.success() {
-                return Err(WireguardInterfaceError::DnsError(format!(
-                    "Command `networksetup` failed \
-                    while setting search domains for {service}: {status}"
-                )));
-            }
-
-            debug!("Search domains set successfully for {service}");
         }
 
         debug!("The following DNS configuration was applied successfully: {self:?}");
@@ -393,7 +376,7 @@ impl<'a> DnsConfig<'a> {
         }
         let mut namespaces = Vec::new();
         for domain in self.search_domains.iter().chain(self.routing_domains) {
-            if let Some(namespace) = nrpt_namespace(domain)
+            if let Some(namespace) = nrpt::namespace(domain)
                 && !namespaces.contains(&namespace)
             {
                 namespaces.push(namespace);
@@ -401,97 +384,6 @@ impl<'a> DnsConfig<'a> {
         }
         namespaces
     }
-}
-
-/// Registry path holding the local (as opposed to group policy) Name Resolution Policy Table.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) const NRPT_POLICY_CONFIG_PATH: &str =
-    r"SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig";
-
-/// `ConfigOptions` bit telling the DNS client to resolve the rule's namespaces through the
-/// servers listed in its `GenericDNSServers` value.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) const NRPT_CONFIG_OPTION_OVERRIDE_DNS: u32 = 0x8;
-
-/// Value of the `Version` entry every NRPT rule carries.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) const NRPT_RULE_VERSION: u32 = 1;
-
-/// Windows ignores the whole policy table when a single rule carries more namespaces than this,
-/// so longer domain lists have to be spread over several rules.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) const NRPT_MAX_NAMESPACES_PER_RULE: usize = 50;
-
-/// Prefix of every NRPT rule key owned by this crate.
-///
-/// Rule keys are named after the interface they belong to, which makes it possible to replace or
-/// remove exactly the rules of one interface, and to recognize the ones left behind by a process
-/// which did not get to clean up after itself.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) const NRPT_RULE_KEY_PREFIX: &str = "defguard-wireguard-";
-
-/// Normalizes a domain into an NRPT namespace, returning `None` for an empty one.
-#[cfg(any(target_os = "windows", test))]
-fn nrpt_namespace(domain: &str) -> Option<String> {
-    let domain = domain.trim();
-    // A lone dot already is the whole namespace.
-    if domain == "." {
-        return Some(domain.to_string());
-    }
-    let domain = domain.trim_end_matches('.');
-    if domain.is_empty() {
-        return None;
-    }
-    let mut namespace = domain.to_lowercase();
-    // Without a leading dot a rule matches only that exact name, not the names below it.
-    if !namespace.starts_with('.') {
-        namespace.insert(0, '.');
-    }
-    Some(namespace)
-}
-
-/// Builds the registry key name of one of an interface's NRPT rules.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) fn nrpt_rule_key_name(interface_id: &str, index: usize) -> String {
-    format!("{NRPT_RULE_KEY_PREFIX}{interface_id}-{index}")
-}
-
-/// Returns the interface a rule key belongs to, or `None` if the key is not one of ours.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) fn nrpt_rule_key_interface_id(key: &str) -> Option<&str> {
-    // Registry key names are case insensitive, so the case they come back in is not guaranteed
-    // to be the one they were written with.
-    let head = key.get(..NRPT_RULE_KEY_PREFIX.len())?;
-    if !head.eq_ignore_ascii_case(NRPT_RULE_KEY_PREFIX) {
-        return None;
-    }
-    let (interface_id, index) = key[NRPT_RULE_KEY_PREFIX.len()..].rsplit_once('-')?;
-    // Anything without the trailing rule index was named by something else.
-    index.parse::<usize>().ok()?;
-    (!interface_id.is_empty()).then_some(interface_id)
-}
-
-/// Formats the DNS servers for a rule's `GenericDNSServers` value.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) fn nrpt_servers_value(servers: &[IpAddr]) -> String {
-    servers
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(";")
-}
-
-/// Encodes strings into the `REG_MULTI_SZ` representation: every string NUL terminated, followed
-/// by one more NUL closing the list.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) fn multi_sz(values: &[String]) -> Vec<u16> {
-    let mut buffer = Vec::new();
-    for value in values {
-        buffer.extend(value.encode_utf16());
-        buffer.push(0);
-    }
-    buffer.push(0);
-    buffer
 }
 
 /// Mechanism used to apply DNS settings on the current host.
@@ -504,7 +396,7 @@ pub(crate) fn multi_sz(values: &[String]) -> Vec<u16> {
 #[non_exhaustive]
 pub enum DnsBackend {
     /// `systemd-resolved` is running and is configured through `resolvectl`.
-    /// This is thee only backend which implements per-domain resolution natively, so the whole of
+    /// This is the only backend which implements per-domain resolution natively, so the whole of
     /// [`DnsConfig`] can be honored.
     #[cfg(target_os = "linux")]
     SystemdResolved,
@@ -640,9 +532,12 @@ fn local_resolver_configured() -> bool {
 }
 
 /// Removes the DNS configuration from every macOS network service.
+///
+/// `networksetup` configures resolvers globally rather than per interface, so this clears the
+/// entries of every network service, whichever interface set them.
 #[cfg(target_os = "macos")]
-pub(crate) fn clear_dns() -> Result<(), WireguardInterfaceError> {
-    DnsConfig::default().configure_dns()
+pub(crate) fn clear_dns(ifname: &str) -> Result<(), WireguardInterfaceError> {
+    DnsConfig::default().configure_dns(ifname)
 }
 
 /// Removes the DNS configuration of the given interface.
@@ -691,6 +586,21 @@ fn resolvectl(args: &[&str]) -> Result<(), WireguardInterfaceError> {
     check_command_output_status(output)
 }
 
+/// Runs a `resolvectl` subcommand which takes a link followed by a list of values.
+///
+/// `resolvectl` needs at least one value to distinguish setting a link's list from printing it,
+/// which is why the callers pass an explicit empty string to clear one.
+#[cfg(target_os = "linux")]
+fn resolvectl_link(
+    subcommand: &str,
+    ifname: &str,
+    values: &[String],
+) -> Result<(), WireguardInterfaceError> {
+    let mut args = vec![subcommand, ifname];
+    args.extend(values.iter().map(String::as_str));
+    resolvectl(&args)
+}
+
 /// Flushes the resolver caches, so that answers cached before the tunnel came up do not shadow
 /// the zones which are now resolved through it.
 #[cfg(target_os = "linux")]
@@ -711,34 +621,29 @@ fn flush_resolved_caches() {
 /// the file just use the interface name as-is.
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 fn construct_resolvconf_ifname(base_ifname: &str) -> String {
-    let iface_order = Path::new(IFACE_ORDER_PATH);
-    if iface_order.exists() {
-        let iface_regex = regex::Regex::new(r"^([A-Za-z0-9-]+)\*$").unwrap();
-        if let Ok(file) = File::open(iface_order) {
-            let reader = BufReader::new(file);
-            if let Some(constructed_ifname) =
-                reader.lines().map_while(Result::ok).find_map(|line| {
-                    let iface = line.trim();
-                    iface_regex.captures(iface).and_then(|captures| {
-                        captures.get(1).map(|matched_iface| {
-                            // Output format: <highest_priority_iface>.<base_ifname>
-                            let constructed_ifname =
-                                format!("{}.{base_ifname}", matched_iface.as_str());
-                            debug!(
-                                "Constructed interface name from interface_order: \
-                            {constructed_ifname}"
-                            );
-                            constructed_ifname
-                        })
-                    })
-                })
-            {
-                return constructed_ifname;
-            }
-        }
-    }
+    let Ok(file) = File::open(IFACE_ORDER_PATH) else {
+        return base_ifname.into();
+    };
 
-    base_ifname.into()
+    BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .find_map(|line| {
+            // Entries look like `tun*`; the prefix is what has to be prepended.
+            let prefix = line.trim().strip_suffix('*')?;
+            if prefix.is_empty()
+                || !prefix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            {
+                return None;
+            }
+            // Output format: <highest_priority_iface>.<base_ifname>
+            let ifname = format!("{prefix}.{base_ifname}");
+            debug!("Constructed interface name from {IFACE_ORDER_PATH}: {ifname}");
+            Some(ifname)
+        })
+        .unwrap_or_else(|| base_ifname.into())
 }
 
 /// Obtains the list of macOS network services.
@@ -766,221 +671,8 @@ fn network_services() -> Result<Vec<String>, IoError> {
     }
 }
 
+#[cfg(any(target_os = "windows", test))]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) mod nrpt;
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SERVERS: [IpAddr; 1] = [IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1))];
-
-    #[test]
-    fn legacy_config_without_search_domains_resolves_everything() {
-        let config = DnsConfig::from_legacy(&SERVERS, &[]);
-        assert!(config.default_route);
-        assert!(!config.has_domains());
-        assert!(!config.is_unused());
-    }
-
-    #[test]
-    fn legacy_config_with_search_domains_is_not_a_default_route() {
-        let config = DnsConfig::from_legacy(&SERVERS, &["corp.example.com"]);
-        assert!(!config.default_route);
-        assert!(config.has_domains());
-        assert!(!config.is_unused());
-    }
-
-    #[test]
-    fn config_without_domains_and_without_default_route_is_unused() {
-        assert!(DnsConfig::split_dns(&SERVERS, &[], &[]).is_unused());
-        assert!(!DnsConfig::full_tunnel(&SERVERS).is_unused());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn resolved_domains_mark_routing_only_domains() {
-        let config = DnsConfig::split_dns(&SERVERS, &["corp.example.com"], &["example.net"]);
-        assert_eq!(
-            config.resolved_domain_args(),
-            ["corp.example.com", "~example.net"]
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn resolved_domains_route_everything_for_a_full_tunnel() {
-        assert_eq!(
-            DnsConfig::full_tunnel(&SERVERS).resolved_domain_args(),
-            ["~."]
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn resolved_domains_are_cleared_explicitly() {
-        // `resolvectl domain <link>` without any argument would print the current settings
-        // instead of clearing them.
-        assert_eq!(
-            DnsConfig::split_dns(&SERVERS, &[], &[]).resolved_domain_args(),
-            [""]
-        );
-    }
-
-    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-    #[test]
-    fn resolvconf_stdin_holds_a_single_search_line() {
-        let config = DnsConfig::split_dns(&SERVERS, &["corp.example.com"], &["example.net"]);
-        assert_eq!(
-            config.resolvconf_stdin(),
-            "nameserver 10.0.0.1\nsearch corp.example.com example.net\n"
-        );
-    }
-
-    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-    #[test]
-    fn resolvconf_stdin_omits_an_empty_search_line() {
-        assert_eq!(
-            DnsConfig::full_tunnel(&SERVERS).resolvconf_stdin(),
-            "nameserver 10.0.0.1\n"
-        );
-    }
-
-    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-    #[test]
-    fn resolvconf_marks_a_full_tunnel_exclusive() {
-        let config = DnsConfig::full_tunnel(&SERVERS);
-        assert_eq!(config.resolvconf_mode_args(false), ["-m", "0", "-x"]);
-        assert_eq!(config.resolvconf_mode_args(true), ["-m", "0", "-x"]);
-    }
-
-    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-    #[test]
-    fn resolvconf_marks_a_split_dns_interface_private_when_possible() {
-        let config = DnsConfig::split_dns(&SERVERS, &["corp.example.com"], &[]);
-        assert_eq!(config.resolvconf_mode_args(true), ["-p"]);
-        // Without a local resolver the servers have to stay first, or the internal zones
-        // would not resolve at all.
-        assert_eq!(config.resolvconf_mode_args(false), ["-m", "0"]);
-    }
-
-    #[test]
-    fn nrpt_namespaces_match_suffixes() {
-        let config = DnsConfig::split_dns(&SERVERS, &["Corp.Example.COM"], &["10.in-addr.arpa."]);
-        // Lower cased, trailing dot dropped, leading dot added so the rule matches every name
-        // below the suffix rather than the suffix itself.
-        assert_eq!(
-            config.nrpt_namespaces(),
-            [".corp.example.com", ".10.in-addr.arpa"]
-        );
-    }
-
-    #[test]
-    fn nrpt_namespaces_of_a_full_tunnel_are_the_whole_namespace() {
-        // A catch-all rule already covers the configured domains, so it replaces them.
-        let mut config = DnsConfig::full_tunnel(&SERVERS);
-        assert_eq!(config.nrpt_namespaces(), ["."]);
-        config.search_domains = &["corp.example.com"];
-        assert_eq!(config.nrpt_namespaces(), ["."]);
-    }
-
-    #[test]
-    fn nrpt_namespaces_are_deduplicated_and_skip_empty_domains() {
-        let config = DnsConfig::split_dns(
-            &SERVERS,
-            &["corp.example.com", "  "],
-            &[".CORP.example.com", ""],
-        );
-        assert_eq!(config.nrpt_namespaces(), [".corp.example.com"]);
-    }
-
-    #[test]
-    fn nrpt_namespaces_are_empty_without_domains() {
-        assert!(
-            DnsConfig::split_dns(&SERVERS, &[], &[])
-                .nrpt_namespaces()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn nrpt_rule_keys_name_the_interface_they_belong_to() {
-        let key = nrpt_rule_key_name("A1B2C3D4-0000-0000-0000-000000000000", 2);
-        assert_eq!(
-            key,
-            "defguard-wireguard-A1B2C3D4-0000-0000-0000-000000000000-2"
-        );
-        assert_eq!(
-            nrpt_rule_key_interface_id(&key),
-            Some("A1B2C3D4-0000-0000-0000-000000000000")
-        );
-        // Registry key names are case insensitive.
-        assert_eq!(
-            nrpt_rule_key_interface_id("DEFGUARD-WIREGUARD-abc-0"),
-            Some("abc")
-        );
-    }
-
-    #[test]
-    fn rules_of_other_software_are_not_recognized_as_ours() {
-        assert_eq!(nrpt_rule_key_interface_id("{some-other-rule}"), None);
-        assert_eq!(nrpt_rule_key_interface_id("defguard-wireguard-"), None);
-        // No trailing rule index.
-        assert_eq!(nrpt_rule_key_interface_id("defguard-wireguard-abc"), None);
-        assert_eq!(
-            nrpt_rule_key_interface_id("defguard-wireguard-abc-notanindex"),
-            None
-        );
-        // Shorter than the prefix, and not a char boundary panic either.
-        assert_eq!(nrpt_rule_key_interface_id("defguard"), None);
-        assert_eq!(nrpt_rule_key_interface_id("ł"), None);
-    }
-
-    #[test]
-    fn nrpt_servers_are_semicolon_separated() {
-        let servers = [
-            IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)),
-            IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
-        ];
-        assert_eq!(nrpt_servers_value(&servers), "10.0.0.1;::1");
-        assert_eq!(nrpt_servers_value(&[]), "");
-    }
-
-    #[test]
-    fn multi_sz_terminates_every_string_and_the_list() {
-        assert_eq!(
-            multi_sz(&["ab".to_string(), "c".to_string()]),
-            [0x61, 0x62, 0, 0x63, 0, 0]
-        );
-        // An empty list is just the list terminator.
-        assert_eq!(multi_sz(&[]), [0]);
-    }
-
-    #[test]
-    fn nrpt_rules_stay_within_the_namespace_limit() {
-        let domains: Vec<String> = (0..120)
-            .map(|index| format!("d{index}.example.com"))
-            .collect();
-        let domains: Vec<&str> = domains.iter().map(String::as_str).collect();
-        let config = DnsConfig::split_dns(&SERVERS, &domains, &[]);
-        let namespaces = config.nrpt_namespaces();
-        assert_eq!(namespaces.len(), 120);
-        let chunks: Vec<_> = namespaces.chunks(NRPT_MAX_NAMESPACES_PER_RULE).collect();
-        assert_eq!(chunks.len(), 3);
-        assert!(
-            chunks
-                .iter()
-                .all(|chunk| chunk.len() <= NRPT_MAX_NAMESPACES_PER_RULE)
-        );
-    }
-
-    #[test]
-    fn nrpt_rules_carry_the_values_the_dns_client_expects() {
-        // The rules live in the local policy table, not the group policy one.
-        assert_eq!(
-            NRPT_POLICY_CONFIG_PATH,
-            r"SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig"
-        );
-        // `ConfigOptions` has to carry the bit which makes the DNS client use the servers of the
-        // rule, otherwise the namespaces are matched but resolved through the usual resolvers.
-        assert_eq!(NRPT_CONFIG_OPTION_OVERRIDE_DNS, 0x8);
-        assert_eq!(NRPT_RULE_VERSION, 1);
-    }
-}
+mod tests;
