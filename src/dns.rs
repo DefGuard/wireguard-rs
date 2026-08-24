@@ -380,6 +380,118 @@ impl<'a> DnsConfig<'a> {
         debug!("The following DNS configuration was applied successfully: {self:?}");
         Ok(())
     }
+
+    /// Builds the list of NRPT namespaces which have to be resolved through `servers`.
+    ///
+    /// A namespace with a leading dot matches every name under that suffix, while `.` on its own
+    /// matches the whole DNS namespace. Since a catch-all rule already covers every configured
+    /// domain, it replaces them rather than being added next to them.
+    #[cfg(any(target_os = "windows", test))]
+    pub(crate) fn nrpt_namespaces(&self) -> Vec<String> {
+        if self.default_route {
+            return vec![".".to_string()];
+        }
+        let mut namespaces = Vec::new();
+        for domain in self.search_domains.iter().chain(self.routing_domains) {
+            if let Some(namespace) = nrpt_namespace(domain)
+                && !namespaces.contains(&namespace)
+            {
+                namespaces.push(namespace);
+            }
+        }
+        namespaces
+    }
+}
+
+/// Registry path holding the local (as opposed to group policy) Name Resolution Policy Table.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) const NRPT_POLICY_CONFIG_PATH: &str =
+    r"SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig";
+
+/// `ConfigOptions` bit telling the DNS client to resolve the rule's namespaces through the
+/// servers listed in its `GenericDNSServers` value.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) const NRPT_CONFIG_OPTION_OVERRIDE_DNS: u32 = 0x8;
+
+/// Value of the `Version` entry every NRPT rule carries.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) const NRPT_RULE_VERSION: u32 = 1;
+
+/// Windows ignores the whole policy table when a single rule carries more namespaces than this,
+/// so longer domain lists have to be spread over several rules.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) const NRPT_MAX_NAMESPACES_PER_RULE: usize = 50;
+
+/// Prefix of every NRPT rule key owned by this crate.
+///
+/// Rule keys are named after the interface they belong to, which makes it possible to replace or
+/// remove exactly the rules of one interface, and to recognize the ones left behind by a process
+/// which did not get to clean up after itself.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) const NRPT_RULE_KEY_PREFIX: &str = "defguard-wireguard-";
+
+/// Normalizes a domain into an NRPT namespace, returning `None` for an empty one.
+#[cfg(any(target_os = "windows", test))]
+fn nrpt_namespace(domain: &str) -> Option<String> {
+    let domain = domain.trim();
+    // A lone dot already is the whole namespace.
+    if domain == "." {
+        return Some(domain.to_string());
+    }
+    let domain = domain.trim_end_matches('.');
+    if domain.is_empty() {
+        return None;
+    }
+    let mut namespace = domain.to_lowercase();
+    // Without a leading dot a rule matches only that exact name, not the names below it.
+    if !namespace.starts_with('.') {
+        namespace.insert(0, '.');
+    }
+    Some(namespace)
+}
+
+/// Builds the registry key name of one of an interface's NRPT rules.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn nrpt_rule_key_name(interface_id: &str, index: usize) -> String {
+    format!("{NRPT_RULE_KEY_PREFIX}{interface_id}-{index}")
+}
+
+/// Returns the interface a rule key belongs to, or `None` if the key is not one of ours.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn nrpt_rule_key_interface_id(key: &str) -> Option<&str> {
+    // Registry key names are case insensitive, so the case they come back in is not guaranteed
+    // to be the one they were written with.
+    let head = key.get(..NRPT_RULE_KEY_PREFIX.len())?;
+    if !head.eq_ignore_ascii_case(NRPT_RULE_KEY_PREFIX) {
+        return None;
+    }
+    let (interface_id, index) = key[NRPT_RULE_KEY_PREFIX.len()..].rsplit_once('-')?;
+    // Anything without the trailing rule index was named by something else.
+    index.parse::<usize>().ok()?;
+    (!interface_id.is_empty()).then_some(interface_id)
+}
+
+/// Formats the DNS servers for a rule's `GenericDNSServers` value.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn nrpt_servers_value(servers: &[IpAddr]) -> String {
+    servers
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// Encodes strings into the `REG_MULTI_SZ` representation: every string NUL terminated, followed
+/// by one more NUL closing the list.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn multi_sz(values: &[String]) -> Vec<u16> {
+    let mut buffer = Vec::new();
+    for value in values {
+        buffer.extend(value.encode_utf16());
+        buffer.push(0);
+    }
+    buffer.push(0);
+    buffer
 }
 
 /// Mechanism used to apply DNS settings on the current host.
@@ -747,5 +859,128 @@ mod tests {
         // Without a local resolver the servers have to stay first, or the internal zones
         // would not resolve at all.
         assert_eq!(config.resolvconf_mode_args(false), ["-m", "0"]);
+    }
+
+    #[test]
+    fn nrpt_namespaces_match_suffixes() {
+        let config = DnsConfig::split_dns(&SERVERS, &["Corp.Example.COM"], &["10.in-addr.arpa."]);
+        // Lower cased, trailing dot dropped, leading dot added so the rule matches every name
+        // below the suffix rather than the suffix itself.
+        assert_eq!(
+            config.nrpt_namespaces(),
+            [".corp.example.com", ".10.in-addr.arpa"]
+        );
+    }
+
+    #[test]
+    fn nrpt_namespaces_of_a_full_tunnel_are_the_whole_namespace() {
+        // A catch-all rule already covers the configured domains, so it replaces them.
+        let mut config = DnsConfig::full_tunnel(&SERVERS);
+        assert_eq!(config.nrpt_namespaces(), ["."]);
+        config.search_domains = &["corp.example.com"];
+        assert_eq!(config.nrpt_namespaces(), ["."]);
+    }
+
+    #[test]
+    fn nrpt_namespaces_are_deduplicated_and_skip_empty_domains() {
+        let config = DnsConfig::split_dns(
+            &SERVERS,
+            &["corp.example.com", "  "],
+            &[".CORP.example.com", ""],
+        );
+        assert_eq!(config.nrpt_namespaces(), [".corp.example.com"]);
+    }
+
+    #[test]
+    fn nrpt_namespaces_are_empty_without_domains() {
+        assert!(
+            DnsConfig::split_dns(&SERVERS, &[], &[])
+                .nrpt_namespaces()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn nrpt_rule_keys_name_the_interface_they_belong_to() {
+        let key = nrpt_rule_key_name("A1B2C3D4-0000-0000-0000-000000000000", 2);
+        assert_eq!(
+            key,
+            "defguard-wireguard-A1B2C3D4-0000-0000-0000-000000000000-2"
+        );
+        assert_eq!(
+            nrpt_rule_key_interface_id(&key),
+            Some("A1B2C3D4-0000-0000-0000-000000000000")
+        );
+        // Registry key names are case insensitive.
+        assert_eq!(
+            nrpt_rule_key_interface_id("DEFGUARD-WIREGUARD-abc-0"),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn rules_of_other_software_are_not_recognized_as_ours() {
+        assert_eq!(nrpt_rule_key_interface_id("{some-other-rule}"), None);
+        assert_eq!(nrpt_rule_key_interface_id("defguard-wireguard-"), None);
+        // No trailing rule index.
+        assert_eq!(nrpt_rule_key_interface_id("defguard-wireguard-abc"), None);
+        assert_eq!(
+            nrpt_rule_key_interface_id("defguard-wireguard-abc-notanindex"),
+            None
+        );
+        // Shorter than the prefix, and not a char boundary panic either.
+        assert_eq!(nrpt_rule_key_interface_id("defguard"), None);
+        assert_eq!(nrpt_rule_key_interface_id("ł"), None);
+    }
+
+    #[test]
+    fn nrpt_servers_are_semicolon_separated() {
+        let servers = [
+            IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+            IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+        ];
+        assert_eq!(nrpt_servers_value(&servers), "10.0.0.1;::1");
+        assert_eq!(nrpt_servers_value(&[]), "");
+    }
+
+    #[test]
+    fn multi_sz_terminates_every_string_and_the_list() {
+        assert_eq!(
+            multi_sz(&["ab".to_string(), "c".to_string()]),
+            [0x61, 0x62, 0, 0x63, 0, 0]
+        );
+        // An empty list is just the list terminator.
+        assert_eq!(multi_sz(&[]), [0]);
+    }
+
+    #[test]
+    fn nrpt_rules_stay_within_the_namespace_limit() {
+        let domains: Vec<String> = (0..120)
+            .map(|index| format!("d{index}.example.com"))
+            .collect();
+        let domains: Vec<&str> = domains.iter().map(String::as_str).collect();
+        let config = DnsConfig::split_dns(&SERVERS, &domains, &[]);
+        let namespaces = config.nrpt_namespaces();
+        assert_eq!(namespaces.len(), 120);
+        let chunks: Vec<_> = namespaces.chunks(NRPT_MAX_NAMESPACES_PER_RULE).collect();
+        assert_eq!(chunks.len(), 3);
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.len() <= NRPT_MAX_NAMESPACES_PER_RULE)
+        );
+    }
+
+    #[test]
+    fn nrpt_rules_carry_the_values_the_dns_client_expects() {
+        // The rules live in the local policy table, not the group policy one.
+        assert_eq!(
+            NRPT_POLICY_CONFIG_PATH,
+            r"SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig"
+        );
+        // `ConfigOptions` has to carry the bit which makes the DNS client use the servers of the
+        // rule, otherwise the namespaces are matched but resolved through the usual resolvers.
+        assert_eq!(NRPT_CONFIG_OPTION_OVERRIDE_DNS, 0x8);
+        assert_eq!(NRPT_RULE_VERSION, 1);
     }
 }

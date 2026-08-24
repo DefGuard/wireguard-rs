@@ -1,7 +1,7 @@
 use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError, bsd,
-    dns::{DnsConfig, clear_dns, configure_dns},
+    dns::{DnsConfig, clear_dns},
     utils::add_peer_routing,
     wgapi::{Kernel, WGApi},
 };

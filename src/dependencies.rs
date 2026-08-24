@@ -1,6 +1,8 @@
 use std::env;
 
-use crate::{dns::detect_dns_backend, error::WireguardInterfaceError, utils::get_command_path};
+#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
+use crate::dns::detect_dns_backend;
+use crate::{error::WireguardInterfaceError, utils::get_command_path};
 
 #[cfg(target_os = "linux")]
 const COMMANDS: [&str; 1] = ["ip"];

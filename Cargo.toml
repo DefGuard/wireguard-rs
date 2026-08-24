@@ -36,7 +36,10 @@ windows = { version = "0.62", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
+    "Win32_Security",
     "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
 ] }
 wireguard-nt = "0.5"
 
