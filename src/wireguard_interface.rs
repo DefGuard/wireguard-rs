@@ -1,6 +1,9 @@
 use std::net::IpAddr;
 
-use crate::{Host, InterfaceConfiguration, IpAddrMask, Key, Peer, error::WireguardInterfaceError};
+use crate::{
+    Host, InterfaceConfiguration, IpAddrMask, Key, Peer, dns::DnsConfig,
+    error::WireguardInterfaceError,
+};
 
 /// API for managing a WireGuard interface.
 ///
@@ -51,19 +54,36 @@ pub trait WireguardInterfaceApi {
 
     /// Sets the DNS configuration for the WireGuard interface.
     ///
-    /// This function takes a slice of DNS server addresses (`dns`) and search domains (`search_domains`) and configures the
-    /// WireGuard interface to use them. If the search domain vector is empty it sets the "exclusive" flag making the DNS servers a
-    /// preferred route for any domain. This method is equivalent to specifying the
-    /// DNS section in a WireGuard configuration file and using `wg-quick` to apply the
-    /// configuration.
+    /// [`DnsConfig`] describes which names should be resolved through the tunnel, so this can
+    /// set up proper split DNS: a set of domains resolved by the tunnel's DNS servers while
+    /// every other name keeps using the resolvers already configured on the system. See the
+    /// [`dns`](crate::dns) module for what each platform backend is able to express.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the DNS configuration is successfully set, or an
+    /// `Err(WireguardInterfaceError)` if there is an error during the configuration process.
+    fn set_dns(&self, config: &DnsConfig<'_>) -> Result<(), WireguardInterfaceError>;
+
+    /// Sets the DNS servers and search domains for the WireGuard interface.
+    ///
+    /// This function takes a slice of DNS server addresses (`dns`) and search domains
+    /// (`search_domains`) and configures the WireGuard interface to use them. If the search
+    /// domain vector is empty it sets the "exclusive" flag making the DNS servers a preferred
+    /// route for any domain. This method is equivalent to specifying the DNS section in a
+    /// WireGuard configuration file and using `wg-quick` to apply the configuration.
+    ///
+    /// Prefer [`set_dns`](Self::set_dns), which can also express domains that are resolved
+    /// through the tunnel without becoming search domains, and can keep the tunnel's DNS
+    /// servers from answering every other query.
     ///
     /// # Arguments
     ///
-    /// * `dns` - A slice of [`IpAddr`](std::net::IpAddr) representing the DNS server addresses to be set for
-    ///   the WireGuard interface.
+    /// * `dns` - A slice of [`IpAddr`](std::net::IpAddr) representing the DNS server addresses to
+    ///   be set for the WireGuard interface.
     ///
-    /// * `search_domains` - A slice of [`&str`](std::str) representing the search domains to be set for
-    ///   the WireGuard interface.
+    /// * `search_domains` - A slice of [`&str`](std::str) representing the search domains to be set
+    ///   for the WireGuard interface.
     ///
     /// # Returns
     ///
@@ -73,5 +93,7 @@ pub trait WireguardInterfaceApi {
         &self,
         dns: &[IpAddr],
         search_domains: &[&str],
-    ) -> Result<(), WireguardInterfaceError>;
+    ) -> Result<(), WireguardInterfaceError> {
+        self.set_dns(&DnsConfig::from_legacy(dns, search_domains))
+    }
 }

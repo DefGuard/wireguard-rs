@@ -1,6 +1,6 @@
 [package]
 name = "defguard_wireguard_rs"
-version = "0.11.2"
+version = "0.12.0"
 edition = "2024"
 rust-version = "1.91"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
@@ -36,7 +36,10 @@ windows = { version = "0.62", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
+    "Win32_Security",
     "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
 ] }
 wireguard-nt = "0.5"
 
@@ -47,9 +50,6 @@ netlink-packet-route = "0.33"
 netlink-packet-utils = "0.6"
 netlink-packet-wireguard = "0.5"
 netlink-sys = "0.9"
-
-[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-regex = "1.12"
 
 [features]
 default = ["serde"]

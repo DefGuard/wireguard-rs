@@ -1,9 +1,9 @@
-use std::net::IpAddr;
-
 use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
-    WireguardInterfaceError, netlink,
-    utils::{add_peer_routing, clean_fwmark_rules, clear_dns, configure_dns},
+    WireguardInterfaceError,
+    dns::{DnsConfig, clear_dns},
+    netlink,
+    utils::{add_peer_routing, clean_fwmark_rules},
     wgapi::{Kernel, WGApi},
 };
 
@@ -129,14 +129,17 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 debug!("Fwmark rules cleaned for interface {}", self.ifname);
             }
         }
-        debug!("Performing removal of interface {}", self.ifname);
-        netlink::delete_interface(&self.ifname)?;
+        // Clear the DNS configuration while the interface is still around, as
+        // systemd-resolved cannot revert the settings of a link which no longer exists.
         debug!(
-            "Interface {} removed successfully. Clearing the dns...",
+            "Clearing the DNS configuration of interface {}",
             self.ifname
         );
         clear_dns(&self.ifname)?;
         debug!("DNS cleared for interface {}", self.ifname);
+
+        debug!("Performing removal of interface {}", self.ifname);
+        netlink::delete_interface(&self.ifname)?;
 
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
@@ -169,21 +172,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         Ok(host)
     }
 
-    /// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
-    ///
-    /// It executes the `resolvconf` command with appropriate arguments to update DNS
-    /// configurations for the specified Wireguard interface. The DNS entries are filtered
-    /// for nameservers and search domains before being piped to the `resolvconf` command.
-    fn configure_dns(
-        &self,
-        dns: &[IpAddr],
-        search_domains: &[&str],
-    ) -> Result<(), WireguardInterfaceError> {
-        if dns.is_empty() {
-            warn!("Received empty DNS server list. Skipping DNS configuration...");
-            return Ok(());
-        }
-        configure_dns(&self.ifname, dns, search_domains)?;
-        Ok(())
+    /// Sets the DNS configuration for the interface.
+    fn set_dns(&self, config: &DnsConfig<'_>) -> Result<(), WireguardInterfaceError> {
+        config.configure_dns(&self.ifname)
     }
 }

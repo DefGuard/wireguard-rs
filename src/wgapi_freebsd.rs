@@ -1,9 +1,8 @@
-use std::net::IpAddr;
-
 use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError, bsd,
-    utils::{add_peer_routing, clear_dns, configure_dns},
+    dns::{DnsConfig, clear_dns},
+    utils::add_peer_routing,
     wgapi::{Kernel, WGApi},
 };
 
@@ -124,11 +123,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
+        // Clear the DNS configuration while the interface is still around.
+        clear_dns(&self.ifname)?;
+
         debug!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;
-        debug!("Interface {} removed successfully", &self.ifname);
-
-        clear_dns(&self.ifname)?;
 
         info!("Interface {} removed successfully", &self.ifname);
         Ok(())
@@ -165,21 +164,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         Ok(host)
     }
 
-    /// Sets DNS configuration for a Wireguard interface using the `resolvconf` command.
-    ///
-    /// It executes the `resolvconf` command with appropriate arguments to update DNS
-    /// configurations for the specified Wireguard interface. The DNS entries are filtered
-    /// for nameservers and search domains before being piped to the `resolvconf` command.
-    fn configure_dns(
-        &self,
-        dns: &[IpAddr],
-        search_domains: &[&str],
-    ) -> Result<(), WireguardInterfaceError> {
-        if dns.is_empty() {
-            warn!("Received empty DNS server list. Skipping DNS configuration...");
-            return Ok(());
-        }
-        configure_dns(&self.ifname, dns, search_domains)?;
-        Ok(())
+    /// Sets the DNS configuration for the interface using the `resolvconf` command.
+    fn set_dns(&self, config: &DnsConfig<'_>) -> Result<(), WireguardInterfaceError> {
+        config.configure_dns(&self.ifname)
     }
 }

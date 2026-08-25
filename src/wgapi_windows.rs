@@ -11,7 +11,10 @@ use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use thiserror::Error;
 use windows::{
     Win32::{
-        Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR},
+        Foundation::{
+            ERROR_BUFFER_OVERFLOW, ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_ITEMS, FreeLibrary,
+            NO_ERROR, WIN32_ERROR,
+        },
         NetworkManagement::{
             IpHelper::{
                 ConvertInterfaceGuidToLuid, DNS_INTERFACE_SETTINGS,
@@ -23,14 +26,23 @@ use windows::{
             Ndis::NET_LUID_LH,
         },
         Networking::WinSock::{ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC},
-        System::Com::CLSIDFromString,
+        System::{
+            Com::CLSIDFromString,
+            LibraryLoader::{GetProcAddress, LoadLibraryW},
+            Registry::{
+                HKEY, HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, KEY_WRITE, REG_DWORD, REG_MULTI_SZ,
+                REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ, REG_VALUE_TYPE, RegCreateKeyExW,
+                RegDeleteTreeW, RegEnumKeyExW, RegOpenKeyExW, RegSetValueExW,
+            },
+        },
     },
-    core::{GUID, PCSTR, PCWSTR, PSTR, PWSTR},
+    core::{GUID, Owned, PCSTR, PCWSTR, PSTR, PWSTR},
 };
-use wireguard_nt::Wireguard;
+use wireguard_nt::{Wireguard, WireguardPeer};
 
 use crate::{
     InterfaceConfiguration, WireguardInterfaceApi,
+    dns::{DnsConfig, nrpt},
     error::WireguardInterfaceError,
     host::Host,
     key::Key,
@@ -84,10 +96,11 @@ fn guid_from_str(s: &str) -> Result<GUID, WindowsError> {
     Ok(guid)
 }
 
-/// Returns the GUID of a network adapter given its name.
-/// Example adapter name: "Ethernet", "WireGuard".
-fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
-    debug!("Finding adapter {adapter_name}");
+/// Returns the friendly name and the adapter name of every network adapter on the host.
+///
+/// The adapter name is the interface's GUID in its `{...}` registry spelling, which is what
+/// [`get_adapter_guid`] parses and what the NRPT rule keys are named after.
+fn list_adapters() -> Result<Vec<(String, String)>, WindowsError> {
     // We have to call `GetAdaptersAddresses` twice - first call to just get the `buffer_size` to hold the adapters.
     // Before the second call we allocate the buffer with `buffer_size` capacity so that the call can actually
     // store the adapters in the buffer.
@@ -124,9 +137,8 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
         return Err(WindowsError::NonZeroReturnValue(result));
     }
 
-    // Find our adapter
+    let mut adapters = Vec::new();
     let mut current = buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
-    let mut guid: Option<GUID> = None;
     while !current.is_null() {
         // SAFETY:
         // `current` comes from the linked list allocated and initialized by
@@ -137,17 +149,30 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
         let adapter = unsafe { &*current };
 
         let friendly_name = unsafe { PCWSTR(adapter.FriendlyName.0).to_string()? };
-        if friendly_name == adapter_name {
-            let adapter_name_str = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
-            guid = Some(guid_from_str(&adapter_name_str)?);
-            info!("Found adapter {adapter_name}, GUID: {guid:?}");
-            break;
-        }
+        let adapter_name = unsafe { PCSTR(PSTR(adapter.AdapterName.0).0).to_string()? };
+        adapters.push((friendly_name, adapter_name));
 
         current = adapter.Next;
     }
 
-    guid.ok_or_else(|| WindowsError::AdapterNotFound(adapter_name.to_string()))
+    Ok(adapters)
+}
+
+/// Returns the GUID of a network adapter given its name.
+/// Example adapter name: "Ethernet", "WireGuard".
+fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
+    debug!("Finding adapter {adapter_name}");
+    let adapter = list_adapters()?
+        .into_iter()
+        .find_map(|(friendly_name, name)| (friendly_name == adapter_name).then_some(name));
+    match adapter {
+        Some(name) => {
+            let guid = guid_from_str(&name)?;
+            info!("Found adapter {adapter_name}, GUID: {guid:?}");
+            Ok(guid)
+        }
+        None => Err(WindowsError::AdapterNotFound(adapter_name.to_string())),
+    }
 }
 
 /// Sets both IPv4 and IPv6 MTU on specified interface.
@@ -199,8 +224,8 @@ fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError>
     Ok(())
 }
 
-impl From<wireguard_nt::WireguardPeer> for Peer {
-    fn from(peer: wireguard_nt::WireguardPeer) -> Self {
+impl From<WireguardPeer> for Peer {
+    fn from(peer: WireguardPeer) -> Self {
         Self {
             public_key: Key::new(peer.public_key),
             preshared_key: Some(Key::new(peer.preshared_key)),
@@ -239,6 +264,294 @@ fn str_to_wide_null_terminated(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(Some(0)).collect()
 }
 
+/// Formats a GUID the way it is written into a registry key name, without the enclosing braces.
+fn guid_to_string(guid: &GUID) -> String {
+    let [a, b, c, d, e, f, g, h] = guid.data4;
+    format!(
+        "{:08X}-{:04X}-{:04X}-{a:02X}{b:02X}-{c:02X}{d:02X}{e:02X}{f:02X}{g:02X}{h:02X}",
+        guid.data1, guid.data2, guid.data3
+    )
+}
+
+/// Views a wide string as the bytes the registry API expects.
+fn as_bytes(buffer: &[u16]) -> &[u8] {
+    // SAFETY: `u16` has no padding and no invalid bit patterns, and `u8` has an alignment of one,
+    // so any `[u16]` can be read as twice as many bytes.
+    unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), size_of_val(buffer)) }
+}
+
+/// Turns the status a registry call returns into a `Result`.
+fn check(status: WIN32_ERROR) -> Result<(), WindowsError> {
+    if status == NO_ERROR {
+        Ok(())
+    } else {
+        Err(WindowsError::NonZeroReturnValue(status.0))
+    }
+}
+
+/// Creates a registry key under `HKEY_LOCAL_MACHINE`, or opens it if it already exists.
+fn create_key(path: &str) -> Result<Owned<HKEY>, WindowsError> {
+    let path = str_to_wide_null_terminated(path);
+    let mut key = HKEY::default();
+    check(unsafe {
+        RegCreateKeyExW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(path.as_ptr()),
+            None,
+            PCWSTR::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_WRITE,
+            None,
+            &raw mut key,
+            None,
+        )
+    })?;
+    // SAFETY: the key was just opened by this call, so we own the handle.
+    Ok(unsafe { Owned::new(key) })
+}
+
+/// Opens a registry key under `HKEY_LOCAL_MACHINE`, returning `None` if it does not exist.
+fn open_key(path: &str, access: REG_SAM_FLAGS) -> Result<Option<Owned<HKEY>>, WindowsError> {
+    let path = str_to_wide_null_terminated(path);
+    let mut key = HKEY::default();
+    let status = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(path.as_ptr()),
+            None,
+            access,
+            &raw mut key,
+        )
+    };
+    if status == ERROR_FILE_NOT_FOUND {
+        return Ok(None);
+    }
+    check(status)?;
+    // SAFETY: the key was just opened by this call, so we own the handle.
+    Ok(Some(unsafe { Owned::new(key) }))
+}
+
+/// Writes one value into an open registry key.
+fn set_value(
+    key: HKEY,
+    name: &str,
+    value_type: REG_VALUE_TYPE,
+    data: &[u8],
+) -> Result<(), WindowsError> {
+    let name = str_to_wide_null_terminated(name);
+    check(unsafe { RegSetValueExW(key, PCWSTR(name.as_ptr()), None, value_type, Some(data)) })
+}
+
+/// Lists the names of the subkeys of an open registry key.
+fn subkey_names(key: HKEY) -> Result<Vec<String>, WindowsError> {
+    // Registry key names are limited to 255 characters.
+    const MAX_KEY_NAME_LEN: usize = 256;
+
+    let mut names = Vec::new();
+    let mut index = 0;
+    loop {
+        let mut buffer = [0u16; MAX_KEY_NAME_LEN];
+        // Holds the buffer size going in and the length of the name coming out, both in
+        // characters and without the terminating NUL for the latter.
+        let mut length = MAX_KEY_NAME_LEN as u32;
+        let status = unsafe {
+            RegEnumKeyExW(
+                key,
+                index,
+                Some(PWSTR(buffer.as_mut_ptr())),
+                &raw mut length,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        if status == ERROR_NO_MORE_ITEMS {
+            return Ok(names);
+        }
+        check(status)?;
+        names.push(String::from_utf16_lossy(&buffer[..length as usize]));
+        index += 1;
+    }
+}
+
+/// Creates the NRPT rules resolving `namespaces` through `servers`.
+fn write_nrpt_rules(
+    interface_id: &str,
+    namespaces: &[String],
+    servers: &[IpAddr],
+) -> Result<(), WindowsError> {
+    let servers = str_to_wide_null_terminated(&nrpt::servers_value(servers));
+
+    for (index, chunk) in namespaces.chunks(nrpt::MAX_NAMESPACES_PER_RULE).enumerate() {
+        let rule = nrpt::rule_key_name(interface_id, index);
+        debug!("Creating NRPT rule {rule} resolving {chunk:?} through the interface");
+        let key = create_key(&format!("{}\\{rule}", nrpt::POLICY_CONFIG_PATH))?;
+        set_value(*key, "Name", REG_MULTI_SZ, as_bytes(&nrpt::multi_sz(chunk)))?;
+        set_value(*key, "GenericDNSServers", REG_SZ, as_bytes(&servers))?;
+        set_value(
+            *key,
+            "ConfigOptions",
+            REG_DWORD,
+            &nrpt::CONFIG_OPTION_OVERRIDE_DNS.to_ne_bytes(),
+        )?;
+        set_value(
+            *key,
+            "Version",
+            REG_DWORD,
+            &nrpt::RULE_VERSION.to_ne_bytes(),
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Returns the policy table key together with the rules this crate owns under it, as pairs of
+/// registry key name and the interface the rule belongs to.
+fn our_nrpt_rules() -> Result<Option<(Owned<HKEY>, Vec<(String, String)>)>, WindowsError> {
+    let Some(policy_config) = open_key(nrpt::POLICY_CONFIG_PATH, KEY_ALL_ACCESS)? else {
+        debug!(
+            "{} does not exist, so there is no NRPT rule to remove",
+            nrpt::POLICY_CONFIG_PATH
+        );
+        return Ok(None);
+    };
+
+    // Collect the names before deleting anything, as removing a subkey shifts the indices of the
+    // ones enumerated after it.
+    let rules = subkey_names(*policy_config)?
+        .into_iter()
+        .filter_map(|name| {
+            let interface_id = nrpt::rule_key_interface_id(&name)?.to_string();
+            Some((name, interface_id))
+        })
+        .collect::<Vec<_>>();
+
+    Ok((!rules.is_empty()).then_some((policy_config, rules)))
+}
+
+/// Deletes the named rules from the policy table.
+fn delete_nrpt_rules(
+    policy_config: HKEY,
+    rules: impl IntoIterator<Item = String>,
+) -> Result<(), WindowsError> {
+    for rule in rules {
+        debug!("Removing NRPT rule {rule}");
+        let name = str_to_wide_null_terminated(&rule);
+        check(unsafe { RegDeleteTreeW(policy_config, PCWSTR(name.as_ptr())) })?;
+    }
+    Ok(())
+}
+
+/// Removes every NRPT rule belonging to the given interface.
+fn clear_nrpt_rules(interface_id: &str) -> Result<(), WindowsError> {
+    let Some((policy_config, rules)) = our_nrpt_rules()? else {
+        return Ok(());
+    };
+    delete_nrpt_rules(
+        *policy_config,
+        rules
+            .into_iter()
+            .filter(|(_, id)| id.eq_ignore_ascii_case(interface_id))
+            .map(|(name, _)| name),
+    )
+}
+
+/// Removes the NRPT rules of interfaces which no longer exist.
+fn sweep_orphaned_nrpt_rules() -> Result<(), WindowsError> {
+    // Look at the policy table before the adapters: it holds no rule of ours on almost every
+    // host, and then there is nothing to match them against.
+    let Some((policy_config, rules)) = our_nrpt_rules()? else {
+        return Ok(());
+    };
+
+    let live = list_adapters()?
+        .into_iter()
+        .map(|(_, adapter_name)| adapter_name.trim_matches(['{', '}']).to_string())
+        .collect::<Vec<_>>();
+
+    delete_nrpt_rules(
+        *policy_config,
+        rules
+            .into_iter()
+            .filter(|(_, id)| !live.iter().any(|guid| guid.eq_ignore_ascii_case(id)))
+            .map(|(name, _)| name),
+    )
+}
+
+/// Flushes the DNS resolver cache.
+fn flush_dns_cache() {
+    let library = str_to_wide_null_terminated("dnsapi.dll");
+    let module = match unsafe { LoadLibraryW(PCWSTR(library.as_ptr())) } {
+        Ok(module) => module,
+        Err(err) => {
+            warn!("Failed to load dnsapi.dll, skipping the DNS cache flush: {err}");
+            return;
+        }
+    };
+
+    if let Some(flush) =
+        unsafe { GetProcAddress(module, PCSTR(c"DnsFlushResolverCache".as_ptr().cast())) }
+    {
+        // SAFETY: `DnsFlushResolverCache` takes no argument and returns a BOOL.
+        let flush: unsafe extern "system" fn() -> i32 = unsafe { std::mem::transmute(flush) };
+        if unsafe { flush() } == 0 {
+            warn!(
+                "DnsFlushResolverCache reported a failure. Names looked up before the DNS \
+                configuration changed may keep resolving to stale addresses until their TTL \
+                expires."
+            );
+        } else {
+            debug!("DNS resolver cache flushed");
+        }
+    } else {
+        warn!("DnsFlushResolverCache was not found in dnsapi.dll, skipping the DNS cache flush");
+    }
+
+    if let Err(err) = unsafe { FreeLibrary(module) } {
+        debug!("Failed to unload dnsapi.dll: {err}");
+    }
+}
+
+/// Sets the DNS servers and the search list of an adapter.
+fn set_interface_dns(
+    guid: GUID,
+    servers: &[IpAddr],
+    search_domains: &[&str],
+) -> Result<(), WindowsError> {
+    // The buffer has to outlive every call below, which is why it is kept in its own binding.
+    let mut search_list_buffer = str_to_wide_null_terminated(&search_domains.join(","));
+    let search_list = PWSTR(search_list_buffer.as_mut_ptr());
+
+    for ipv6 in [false, true] {
+        let addresses = servers
+            .iter()
+            .filter(|address| address.is_ipv6() == ipv6)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let mut name_server = str_to_wide_null_terminated(&addresses.join(","));
+        let mut flags = DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST;
+        if ipv6 {
+            flags |= DNS_SETTING_IPV6;
+        }
+
+        let settings = DNS_INTERFACE_SETTINGS {
+            Version: DNS_INTERFACE_SETTINGS_VERSION1,
+            Flags: u64::from(flags),
+            NameServer: PWSTR(name_server.as_mut_ptr()),
+            SearchList: search_list,
+            ..Default::default()
+        };
+
+        let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
+        if status != NO_ERROR {
+            return Err(WindowsError::NonZeroReturnValue(status.0));
+        }
+    }
+
+    Ok(())
+}
+
 /// Manages interfaces created with Windows kernel using https://git.zx2c4.com/wireguard-nt.
 impl WireguardInterfaceApi for WGApi<Kernel> {
     fn create_interface(&mut self) -> Result<(), WireguardInterfaceError> {
@@ -255,6 +568,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                 .map_err(WindowsError::from)?
         };
         self.adapter = Some(adapter);
+
+        if let Err(err) = sweep_orphaned_nrpt_rules() {
+            warn!("Failed to remove the NRPT rules of interfaces which no longer exist: {err}");
+        }
 
         info!("Opened/created interface {}", self.ifname);
         Ok(())
@@ -369,7 +686,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             "Assigning addresses to adapter {}: {:?}",
             self.ifname, config.addresses
         );
-        let addresses: Vec<_> = config
+        let addresses = config
             .addresses
             .iter()
             .filter_map(|ip| match ip.address {
@@ -396,7 +713,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
                     }
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
         adapter
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
@@ -425,6 +742,20 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn remove_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
+
+        // NRPT rules outlive the adapter they were created for, so they have to be removed.
+        match get_adapter_guid(&self.ifname) {
+            Ok(guid) => {
+                clear_nrpt_rules(&guid_to_string(&guid))?;
+                flush_dns_cache();
+            }
+            Err(err) => debug!(
+                "Could not find adapter {} to clean up its NRPT rules, they will be removed the \
+                next time an interface is created: {err}",
+                self.ifname
+            ),
+        }
+
         self.adapter = None;
         info!("Interface {} removed successfully", self.ifname);
         Ok(())
@@ -455,66 +786,39 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         Ok(host)
     }
 
-    fn configure_dns(
-        &self,
-        dns: &[IpAddr],
-        search_domains: &[&str],
-    ) -> Result<(), WireguardInterfaceError> {
-        debug!(
-            "Configuring DNS for interface {}, using address: {dns:?}",
-            self.ifname
-        );
+    /// Sets the DNS configuration for the interface.
+    fn set_dns(&self, config: &DnsConfig<'_>) -> Result<(), WireguardInterfaceError> {
+        debug!("Configuring DNS for interface {}: {config:?}", self.ifname);
         let guid = get_adapter_guid(&self.ifname)?;
-        let (ipv4_dns_ips, ipv6_dns_ips): (Vec<&IpAddr>, Vec<&IpAddr>) =
-            dns.iter().partition(|ip| ip.is_ipv4());
-        let ipv4_dns_servers: Vec<String> = ipv4_dns_ips.iter().map(ToString::to_string).collect();
-        let ipv6_dns_servers: Vec<String> = ipv6_dns_ips.iter().map(ToString::to_string).collect();
+        let interface_id = guid_to_string(&guid);
 
-        let mut search_domains_vec = str_to_wide_null_terminated(&search_domains.join(","));
-        let search_domains_wide = PWSTR(search_domains_vec.as_mut_ptr());
+        // Replace whatever a previous connection of this interface left behind.
+        clear_nrpt_rules(&interface_id)?;
 
-        if !ipv4_dns_servers.is_empty() {
-            let dns_str = ipv4_dns_servers.join(",");
-            let mut wide = str_to_wide_null_terminated(&dns_str);
-            let name_server = PWSTR(wide.as_mut_ptr());
-
-            let settings = DNS_INTERFACE_SETTINGS {
-                Version: DNS_INTERFACE_SETTINGS_VERSION1,
-                Flags: u64::from(DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST),
-                NameServer: name_server,
-                SearchList: search_domains_wide,
-                ..Default::default()
-            };
-
-            let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
-            if status != NO_ERROR {
-                Err(WindowsError::NonZeroReturnValue(status.0))?;
-            }
+        let namespaces = config.nrpt_namespaces();
+        if namespaces.is_empty() {
+            debug!(
+                "No domain has to be resolved through interface {}, so no NRPT rule is created",
+                self.ifname
+            );
+        } else {
+            write_nrpt_rules(&interface_id, &namespaces, config.servers)?;
         }
-        if !ipv6_dns_servers.is_empty() {
-            let dns_str = ipv6_dns_servers.join(",");
-            let mut wide = str_to_wide_null_terminated(&dns_str);
-            let name_server = PWSTR(wide.as_mut_ptr());
 
-            let settings = DNS_INTERFACE_SETTINGS {
-                Version: DNS_INTERFACE_SETTINGS_VERSION1,
-                Flags: u64::from(
-                    DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST | DNS_SETTING_IPV6,
-                ),
-                NameServer: name_server,
-                SearchList: search_domains_wide,
-                ..Default::default()
-            };
+        // Leaving the servers on the adapter for a split DNS configuration would send unrelated
+        // queries to the tunnel, which is exactly what the rules above are there to prevent.
+        let servers: &[IpAddr] = if config.default_route {
+            config.servers
+        } else {
+            &[]
+        };
+        set_interface_dns(guid, servers, config.search_domains)?;
 
-            let status = unsafe { SetInterfaceDnsSettings(guid, &settings) };
-            if status != NO_ERROR {
-                Err(WindowsError::NonZeroReturnValue(status.0))?;
-            }
-        }
+        flush_dns_cache();
 
         info!(
-            "Configured DNS for interface {}, using address: {dns:?}",
-            self.ifname
+            "Configured DNS for interface {}, resolving {namespaces:?} through {:?}",
+            self.ifname, config.servers
         );
         Ok(())
     }
