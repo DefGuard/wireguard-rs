@@ -173,7 +173,7 @@ pub(crate) fn add_peer_routing(
     }
     let gateway_v6 = get_gateway(IpVersion::IPv6);
     if let Ok(Some(gateway)) = gateway_v6 {
-        debug!("Default gateway for IPv4: {gateway}");
+        debug!("Default gateway for IPv6: {gateway}");
     }
 
     debug!("Adding peer routing for interface: {ifname}");
