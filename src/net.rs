@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::IpVersion;
 
+const IPV4_BITS: u8 = 32;
+const IPV6_BITS: u8 = 128;
+
 /// IP address with CIDR.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
@@ -34,8 +37,8 @@ impl IpAddrMask {
     #[must_use]
     pub fn host(address: IpAddr) -> Self {
         let cidr = match address {
-            IpAddr::V4(_) => 32,
-            IpAddr::V6(_) => 128,
+            IpAddr::V4(_) => IPV4_BITS,
+            IpAddr::V6(_) => IPV6_BITS,
         };
         Self { address, cidr }
     }
@@ -47,20 +50,12 @@ impl IpAddrMask {
         match self.address {
             IpAddr::V4(ip) => {
                 let addr = u32::from(ip);
-                let bits = if self.cidr >= 32 {
-                    0
-                } else {
-                    u32::MAX >> self.cidr
-                };
+                let bits = u32::MAX.unbounded_shr(u32::from(self.cidr));
                 IpAddr::V4(Ipv4Addr::from(addr | bits))
             }
             IpAddr::V6(ip) => {
                 let addr = u128::from(ip);
-                let bits = if self.cidr >= 128 {
-                    0
-                } else {
-                    u128::MAX >> self.cidr
-                };
+                let bits = u128::MAX.unbounded_shr(u32::from(self.cidr));
                 IpAddr::V6(Ipv6Addr::from(addr | bits))
             }
         }
@@ -71,19 +66,13 @@ impl IpAddrMask {
     pub fn mask(&self) -> IpAddr {
         match self.address {
             IpAddr::V4(_) => {
-                let mask = if self.cidr == 0 {
-                    0
-                } else {
-                    u32::MAX << (32 - self.cidr)
-                };
+                let shift = Ipv4Addr::BITS - u32::from(self.cidr);
+                let mask = u32::MAX.unbounded_shl(shift);
                 IpAddr::V4(Ipv4Addr::from(mask))
             }
             IpAddr::V6(_) => {
-                let mask = if self.cidr == 0 {
-                    0
-                } else {
-                    u128::MAX << (128 - self.cidr)
-                };
+                let shift = Ipv6Addr::BITS - u32::from(self.cidr);
+                let mask = u128::MAX.unbounded_shl(shift);
                 IpAddr::V6(Ipv6Addr::from(mask))
             }
         }
@@ -93,9 +82,9 @@ impl IpAddrMask {
     #[must_use]
     pub fn is_host(&self) -> bool {
         if self.address.is_ipv4() {
-            self.cidr == 32
+            self.cidr == IPV4_BITS
         } else {
-            self.cidr == 128
+            self.cidr == IPV6_BITS
         }
     }
 
@@ -106,6 +95,27 @@ impl IpAddrMask {
             IpVersion::IPv4
         } else {
             IpVersion::IPv6
+        }
+    }
+
+    /// Zeroes host bits, turning the address into a network address.
+    #[must_use]
+    pub fn normalized(&self) -> Self {
+        let address = match self.address {
+            IpAddr::V4(ip) => {
+                let shift = Ipv4Addr::BITS - u32::from(self.cidr);
+                let mask = u32::MAX.unbounded_shl(shift);
+                IpAddr::V4(Ipv4Addr::from(ip.to_bits() & mask))
+            }
+            IpAddr::V6(ip) => {
+                let shift = Ipv6Addr::BITS - u32::from(self.cidr);
+                let mask = u128::MAX.unbounded_shl(shift);
+                IpAddr::V6(Ipv6Addr::from(ip.to_bits() & mask))
+            }
+        };
+        Self {
+            address,
+            cidr: self.cidr,
         }
     }
 
@@ -149,8 +159,8 @@ impl FromStr for IpAddrMask {
             let ip = left.parse().map_err(|_| IpAddrParseError)?;
             let cidr = right.parse().map_err(|_| IpAddrParseError)?;
             let max_cidr = match ip {
-                IpAddr::V4(_) => 32,
-                IpAddr::V6(_) => 128,
+                IpAddr::V4(_) => IPV4_BITS,
+                IpAddr::V6(_) => IPV6_BITS,
             };
             if cidr > max_cidr {
                 return Err(IpAddrParseError);
@@ -160,7 +170,7 @@ impl FromStr for IpAddrMask {
             let ip = ip_str.parse().map_err(|_| IpAddrParseError)?;
             Ok(IpAddrMask {
                 address: ip,
-                cidr: if ip.is_ipv4() { 32 } else { 128 },
+                cidr: if ip.is_ipv4() { IPV4_BITS } else { IPV6_BITS },
             })
         }
     }
@@ -265,5 +275,47 @@ mod tests {
                 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0, 0
             ))
         );
+    }
+
+    #[test]
+    fn normalize() {
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1)), 24);
+        let norm = ip.normalized();
+        assert_eq!(norm.address, IpAddr::V4(Ipv4Addr::new(192, 168, 0, 0)));
+        assert_eq!(norm.cidr, 24);
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(169, 254, 219, 59)), 16);
+        let norm = ip.normalized();
+        assert_eq!(norm.address, IpAddr::V4(Ipv4Addr::new(169, 254, 0, 0)));
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)), 32);
+        let norm = ip.normalized();
+        assert_eq!(norm.address, IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)));
+
+        let ip = IpAddrMask::new(IpAddr::V4(Ipv4Addr::new(12, 34, 56, 78)), 0);
+        let norm = ip.normalized();
+        assert_eq!(norm.address, IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    }
+
+    #[test]
+    fn normalize_v6() {
+        let ip = IpAddrMask::new(
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0x1428, 0x57ab)),
+            96,
+        );
+        let norm = ip.normalized();
+        assert_eq!(
+            norm.address,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 0))
+        );
+        assert_eq!(norm.cidr, 96);
+
+        let ip = IpAddrMask::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 128);
+        let norm = ip.normalized();
+        assert_eq!(norm.address, IpAddr::V6(Ipv6Addr::LOCALHOST));
+
+        let ip = IpAddrMask::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0);
+        let norm = ip.normalized();
+        assert_eq!(norm.address, IpAddr::V6(Ipv6Addr::UNSPECIFIED));
     }
 }
