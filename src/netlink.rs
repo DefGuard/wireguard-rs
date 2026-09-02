@@ -484,11 +484,10 @@ pub(crate) fn set_link_up(if_name: &str) -> NetlinkResult<()> {
     Ok(())
 }
 
-#[cfg(test)]
 /// Get default route for a given address family.
-pub(crate) fn get_gateway(address_family: AddressFamily) -> NetlinkResult<Option<IpAddr>> {
+pub(crate) fn get_gateway(ip_version: IpVersion) -> NetlinkResult<Option<IpAddr>> {
     let header = RouteHeader {
-        address_family,
+        address_family: ip_version.address_family(),
         table: RouteHeader::RT_TABLE_MAIN,
         // protocol: RouteProtocol::Boot, // doesn't filter
         // scope: RouteScope::Universe,   // doesn't filter
@@ -522,11 +521,68 @@ pub(crate) fn get_gateway(address_family: AddressFamily) -> NetlinkResult<Option
                 }
             }
         } else {
-            debug!("unknown nlmsg response")
+            debug!("unknown nlmsg response");
         }
     }
 
     Ok(None)
+}
+
+/// Convert an [`IpAddr`] into a netlink [`RouteAddress`].
+fn route_address(address: IpAddr) -> RouteAddress {
+    match address {
+        IpAddr::V4(ipv4) => RouteAddress::Inet(ipv4),
+        IpAddr::V6(ipv6) => RouteAddress::Inet6(ipv6),
+    }
+}
+
+/// Set a route to `dest` through `gateway`, replacing an existing one, if any.
+///
+/// When `is_blackhole` is set, traffic to `dest` is dropped and `gateway` is ignored.
+pub(crate) fn add_gateway(
+    dest: &IpAddrMask,
+    gateway: IpAddr,
+    is_blackhole: bool,
+) -> NetlinkResult<()> {
+    if !is_blackhole && dest.address.is_ipv4() != gateway.is_ipv4() {
+        error!("Destination {dest} and gateway {gateway} IP versions don't match");
+        return Err(NetlinkError::AddRouteError);
+    }
+
+    let mut message = RouteMessage::default();
+    message.header = RouteHeader {
+        address_family: dest.address_family(),
+        destination_prefix_length: dest.cidr,
+        table: RouteHeader::RT_TABLE_MAIN,
+        scope: RouteScope::Universe,
+        kind: if is_blackhole {
+            RouteType::BlackHole
+        } else {
+            RouteType::Unicast
+        },
+        protocol: RouteProtocol::Boot,
+        ..Default::default()
+    };
+    message
+        .attributes
+        .push(RouteAttribute::Destination(route_address(dest.address)));
+    if !is_blackhole {
+        message
+            .attributes
+            .push(RouteAttribute::Gateway(route_address(gateway)));
+    }
+
+    match netlink_request(
+        RouteNetlinkMessage::NewRoute(message),
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE,
+        NETLINK_ROUTE,
+    ) {
+        Ok(_msg) => Ok(()),
+        Err(err) => {
+            error!("Failed to set gateway for {dest}: {err}");
+            Err(NetlinkError::AddRouteError)
+        }
+    }
 }
 
 /// Add a route for an interface.
@@ -545,10 +601,6 @@ pub(crate) fn add_route(
         protocol: RouteProtocol::Boot,
         ..Default::default()
     };
-    let route_address = match address.address {
-        IpAddr::V4(ipv4) => RouteAddress::Inet(ipv4),
-        IpAddr::V6(ipv6) => RouteAddress::Inet6(ipv6),
-    };
     message.header = header;
     let Some(interface_index) = get_interface_index(ifname)? else {
         error!("Failed to add WireGuard interface route interface {ifname} index not found");
@@ -560,7 +612,7 @@ pub(crate) fn add_route(
         .push(RouteAttribute::Oif(interface_index));
     message
         .attributes
-        .push(RouteAttribute::Destination(route_address));
+        .push(RouteAttribute::Destination(route_address(address.address)));
     if let Some(table) = table {
         message.attributes.push(RouteAttribute::Table(table));
     }
@@ -856,7 +908,7 @@ mod tests {
         Err(NetlinkError::AttributeNotFound)
     }
 
-    #[ignore]
+    #[ignore = "destructive"]
     #[test]
     fn docker_networking() {
         const IF_NAME: &str = "wg0";
@@ -885,11 +937,12 @@ mod tests {
         delete_interface(IF_NAME).unwrap();
     }
 
-    #[ignore]
+    #[ignore = "destructive"]
     #[test]
     fn docker_peers() {
         use x25519_dalek::{EphemeralSecret, PublicKey};
 
+        const IF_NAME: &str = "wg0";
         const MAX_PEERS: usize = 1600;
 
         let secret = EphemeralSecret::random();
@@ -906,7 +959,6 @@ mod tests {
             host.peers.insert(key, peer);
         }
 
-        const IF_NAME: &str = "wg0";
         create_interface(IF_NAME).unwrap();
         set_host(IF_NAME, &host).unwrap();
 
@@ -917,10 +969,10 @@ mod tests {
         delete_interface(IF_NAME).unwrap();
     }
 
-    #[ignore]
+    #[ignore = "destructive"]
     #[test]
     fn docker_gateway() {
-        let gateway = get_gateway(AddressFamily::Inet).unwrap();
+        let gateway = get_gateway(IpVersion::IPv4).unwrap();
         assert!(gateway.is_some());
     }
 
@@ -928,7 +980,7 @@ mod tests {
     // - `ip link add dev wg0 type wireguard`
     // - `ip link set up dev wg0`
     // - `ip route add default dev wg0 scope link table 51820`
-    #[ignore]
+    #[ignore = "destructive"]
     #[test]
     fn docker_route() {
         let count = count_routes(IpVersion::IPv4, 51820).unwrap();

@@ -21,7 +21,7 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     dns::DnsConfig,
     error::WireguardInterfaceError,
-    utils::add_peer_routing,
+    utils::{add_peer_routing, configure_endpoints},
     wgapi::{Userspace, WGApi},
     wireguard_interface::WireguardInterfaceApi,
 };
@@ -243,6 +243,7 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
     ///   `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;
+        configure_endpoints(peers);
         Ok(())
     }
 

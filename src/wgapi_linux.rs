@@ -3,7 +3,7 @@ use crate::{
     WireguardInterfaceError,
     dns::{DnsConfig, clear_dns},
     netlink,
-    utils::{add_peer_routing, clean_fwmark_rules},
+    utils::{add_peer_routing, clean_fwmark_rules, configure_endpoints},
     wgapi::{Kernel, WGApi},
 };
 
@@ -64,12 +64,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Assign IP addresses to the interface.
         for address in &config.addresses {
-            debug!("Assigning address {address} to interface {}", self.ifname);
             self.assign_address(address)?;
-            debug!(
-                "Address {address} assigned to interface {} successfully",
-                self.ifname
-            );
         }
 
         // configure interface
@@ -108,6 +103,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     ///
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;
+        configure_endpoints(peers);
         Ok(())
     }
 
@@ -122,12 +118,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             self.ifname
         );
         trace!("WireGuard host configuration: {host:?}");
-        if let Some(fwmark) = host.fwmark {
-            if fwmark != 0 {
-                debug!("Cleaning fwmark rules for interface {}", self.ifname);
-                clean_fwmark_rules(fwmark)?;
-                debug!("Fwmark rules cleaned for interface {}", self.ifname);
-            }
+        if let Some(fwmark) = host.fwmark
+            && fwmark != 0
+        {
+            debug!("Cleaning fwmark rules for interface {}", self.ifname);
+            clean_fwmark_rules(fwmark)?;
+            debug!("Fwmark rules cleaned for interface {}", self.ifname);
         }
         // Clear the DNS configuration while the interface is still around, as
         // systemd-resolved cannot revert the settings of a link which no longer exists.

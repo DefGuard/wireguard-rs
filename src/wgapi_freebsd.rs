@@ -2,7 +2,7 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError, bsd,
     dns::{DnsConfig, clear_dns},
-    utils::add_peer_routing,
+    utils::{add_peer_routing, configure_endpoints},
     wgapi::{Kernel, WGApi},
 };
 
@@ -50,12 +50,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// ## Note:
     /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        debug!("Configuring peer routing for interface {}", self.ifname);
         add_peer_routing(peers, &self.ifname)?;
-        info!(
-            "Peer routing configured successfully for interface {}",
-            self.ifname
-        );
+        configure_endpoints(peers);
         Ok(())
     }
 
