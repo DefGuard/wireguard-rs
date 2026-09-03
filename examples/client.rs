@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, str::FromStr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
+};
 
 use defguard_wireguard_rs::{
     InterfaceConfiguration, WGApi, WireguardInterfaceApi, key::Key, net::IpAddrMask, peer::Peer,
@@ -7,6 +10,8 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 
 #[cfg(not(target_os = "netbsd"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     // Create new API object for interface
     let ifname: String = if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
         "wg0".into()
@@ -31,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("endpoint");
     // Your WireGuard server endpoint which client connects to
-    let endpoint: SocketAddr = "10.10.10.10:55001".parse().unwrap();
+    let endpoint = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 10, 10, 10)), 55001);
     // Peer endpoint and interval
     peer.endpoint = Some(endpoint);
     peer.persistent_keepalive_interval = Some(25);

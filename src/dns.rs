@@ -13,6 +13,7 @@ use std::io::{Cursor, Error as IoError};
 use std::net::IpAddr;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use std::{
+    fmt::Write as _,
     fs::{File, read_dir},
     io::Write,
     path::Path,
@@ -282,7 +283,7 @@ impl<'a> DnsConfig<'a> {
     fn resolvconf_stdin(&self) -> String {
         let mut stdin = String::new();
         for server in self.servers {
-            stdin.push_str(&format!("nameserver {server}\n"));
+            let _ = writeln!(stdin, "nameserver {server}");
         }
         // Routing-only domains have to be declared as search domains here, as that is the only way
         // of telling resolvconf which domains this interface resolves.
@@ -295,7 +296,7 @@ impl<'a> DnsConfig<'a> {
         if !domains.is_empty() {
             // resolv.conf(5) holds a single search list, and a second `search` line overrides the
             // first one rather than extending it.
-            stdin.push_str(&format!("search {}\n", domains.join(" ")));
+            let _ = writeln!(stdin, "search {}", domains.join(" "));
         }
         stdin
     }
@@ -478,16 +479,15 @@ fn systemd_resolved_available() -> bool {
         debug!("{RESOLVED_RUNTIME_DIR} does not exist, assuming systemd-resolved is not running");
         return false;
     }
-    match get_command_path(RESOLVECTL) {
-        Ok(Some(_)) => true,
-        _ => {
-            warn!(
-                "systemd-resolved appears to be running, but the `{RESOLVECTL}` command could \
-                not be found in PATH. Falling back to `{RESOLVCONF}`, which cannot configure \
-                split DNS on this host."
-            );
-            false
-        }
+    if let Ok(Some(_)) = get_command_path(RESOLVECTL) {
+        true
+    } else {
+        warn!(
+            "systemd-resolved appears to be running, but the `{RESOLVECTL}` command could not be \
+            found in PATH. Falling back to `{RESOLVCONF}`, which cannot configure split DNS on \
+            this host."
+        );
+        false
     }
 }
 
