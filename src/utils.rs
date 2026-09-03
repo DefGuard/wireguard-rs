@@ -1,3 +1,4 @@
+use std::net::{SocketAddr, ToSocketAddrs};
 #[cfg(any(
     feature = "check_dependencies",
     target_os = "freebsd",
@@ -5,20 +6,21 @@
     target_os = "netbsd"
 ))]
 use std::path::PathBuf;
+#[cfg(not(target_os = "windows"))]
 use std::{
     collections::HashSet,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 #[cfg(target_os = "linux")]
 use std::{fs::OpenOptions, io::Write};
 
-#[cfg(not(target_os = "windows"))]
-use crate::Peer;
+use crate::WireguardInterfaceError;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::bsd::{IoError, add_gateway, add_linked_route, delete_gateway, get_gateway};
 #[cfg(target_os = "linux")]
 use crate::netlink::{self, add_gateway, get_gateway};
-use crate::{IpVersion, WireguardInterfaceError, net::IpAddrMask};
+#[cfg(not(target_os = "windows"))]
+use crate::{IpVersion, Peer, net::IpAddrMask};
 
 #[cfg(target_os = "linux")]
 fn setup_default_route(ifname: &str, addr: &IpAddrMask) -> Result<(), WireguardInterfaceError> {
@@ -137,7 +139,7 @@ fn setup_default_route(ifname: &str, addr: &IpAddrMask) -> Result<(), WireguardI
 /// # Returns
 /// * `Ok(())` on success.
 /// * `Err(WireguardInterfaceError)` if any route setup fails.
-///
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn add_peer_routing(
     peers: &[Peer],
     ifname: &str,
@@ -221,6 +223,7 @@ pub(crate) fn add_peer_routing(
 }
 
 /// Condfigure peers with `endpoint` field set.
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn configure_endpoints(peers: &[Peer]) {
     let gateway_v4 = get_gateway(IpVersion::IPv4);
     if let Ok(Some(gateway)) = gateway_v4 {
