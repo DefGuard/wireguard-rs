@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::OsStr,
+    mem,
     net::IpAddr,
     os::windows::ffi::OsStrExt,
     str::FromStr,
@@ -17,11 +18,11 @@ use windows::{
         },
         NetworkManagement::{
             IpHelper::{
-                ConvertInterfaceGuidToLuid, DNS_INTERFACE_SETTINGS,
-                DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6, DNS_SETTING_NAMESERVER,
-                DNS_SETTING_SEARCHLIST, GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses,
-                GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry,
-                MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings, SetIpInterfaceEntry,
+                DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6,
+                DNS_SETTING_NAMESERVER, DNS_SETTING_SEARCHLIST, GAA_FLAG_INCLUDE_PREFIX,
+                GetAdaptersAddresses, GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH,
+                InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings,
+                SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
@@ -175,52 +176,44 @@ fn get_adapter_guid(adapter_name: &str) -> Result<GUID, WindowsError> {
     }
 }
 
-/// Sets both IPv4 and IPv6 MTU on specified interface.
-fn set_interface_mtu(interface_name: &str, mtu: u32) -> Result<(), WindowsError> {
-    debug!("Setting interface {interface_name} MTU to {mtu}");
-    let guid = get_adapter_guid(interface_name)?;
+/// Loads IP interface configuration for given LUID and IP family.
+fn get_ip_interface(
+    luid: NET_LUID_LH,
+    family: ADDRESS_FAMILY,
+) -> Result<MIB_IPINTERFACE_ROW, WIN32_ERROR> {
+    // InitializeIpInterfaceEntry has to be called before get/set operations.
+    let mut row = MIB_IPINTERFACE_ROW::default();
+    unsafe { InitializeIpInterfaceEntry(&mut row) };
 
-    // Convert interface GUID to LUID.
-    let mut luid = NET_LUID_LH::default();
-    let res = unsafe { ConvertInterfaceGuidToLuid(&guid, &mut luid) };
+    row.InterfaceLuid = luid;
+    row.Family = family;
+    let res = unsafe { GetIpInterfaceEntry(&mut row) };
     if res.0 != 0 {
-        error!(
-            "ConvertInterfaceGuidToLuid call failed, error value: {}",
-            res.0
-        );
+        return Err(res);
+    }
+    Ok(row)
+}
+
+/// Loads IP interface configuration for given LUID and IP family.
+fn update_ip_interface<F>(
+    luid: NET_LUID_LH,
+    family: ADDRESS_FAMILY,
+    update: F,
+) -> Result<(), WindowsError>
+where
+    F: FnOnce(&mut MIB_IPINTERFACE_ROW),
+{
+    let mut row = get_ip_interface(luid, family).map_err(|err| {
+        error!("GetIpInterfaceEntry call failed, error value: {}", err.0);
+        WindowsError::NonZeroReturnValue(err.0)
+    })?;
+
+    update(&mut row);
+    let res = unsafe { SetIpInterfaceEntry(&mut row) };
+    if res.0 != 0 {
+        error!("SetIpInterfaceEntry call failed, error value: {}", res.0);
         return Err(WindowsError::NonZeroReturnValue(res.0));
     }
-
-    // Helper function, sets MTU for given IP family.
-    fn set_mtu_for_family(luid: NET_LUID_LH, family: u16, mtu: u32) -> Result<(), WindowsError> {
-        // InitializeIpInterfaceEntry has to be called before get/set operations.
-        let mut row = MIB_IPINTERFACE_ROW::default();
-        unsafe { InitializeIpInterfaceEntry(&mut row) };
-
-        // Load current configuration.
-        row.InterfaceLuid = luid;
-        row.Family = ADDRESS_FAMILY(family);
-        let res = unsafe { GetIpInterfaceEntry(&mut row) };
-        if res.0 != 0 {
-            error!("GetIpInterfaceEntry call failed, error value: {}", res.0);
-            return Err(WindowsError::NonZeroReturnValue(res.0));
-        }
-
-        // Modify the configuration and apply.
-        row.NlMtu = mtu;
-        let res = unsafe { SetIpInterfaceEntry(&mut row) };
-        if res.0 != 0 {
-            error!("SetIpInterfaceEntry call failed, error value: {}", res.0);
-            return Err(WindowsError::NonZeroReturnValue(res.0));
-        }
-        Ok(())
-    }
-
-    // Set MTU for both IP addr families.
-    set_mtu_for_family(luid, AF_INET.0, mtu)?;
-    set_mtu_for_family(luid, AF_INET6.0, mtu)?;
-
-    info!("Set interface {interface_name} MTU to {mtu}");
     Ok(())
 }
 
@@ -494,7 +487,7 @@ fn flush_dns_cache() {
         unsafe { GetProcAddress(module, PCSTR(c"DnsFlushResolverCache".as_ptr().cast())) }
     {
         // SAFETY: `DnsFlushResolverCache` takes no argument and returns a BOOL.
-        let flush: unsafe extern "system" fn() -> i32 = unsafe { std::mem::transmute(flush) };
+        let flush: unsafe extern "system" fn() -> i32 = unsafe { mem::transmute(flush) };
         if unsafe { flush() } == 0 {
             warn!(
                 "DnsFlushResolverCache reported a failure. Names looked up before the DNS \
@@ -635,34 +628,27 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         // Check which IP families are available on this adapter before attempting
         // to create routes.
         let adapter_luid = adapter.get_luid();
+        let luid = unsafe { mem::transmute::<u64, NET_LUID_LH>(adapter_luid) };
         let mut ipv4_available = false;
         let mut ipv6_available = false;
         for (family_name, family) in [(IPV4_LABEL, AF_INET), (IPV6_LABEL, AF_INET6)] {
-            let mut row = MIB_IPINTERFACE_ROW::default();
-            unsafe { InitializeIpInterfaceEntry(&mut row) };
-            row.InterfaceLuid = unsafe { std::mem::transmute::<u64, NET_LUID_LH>(adapter_luid) };
-            row.Family = ADDRESS_FAMILY(family.0);
-            let err = unsafe { GetIpInterfaceEntry(&mut row) };
-            if err.0 == 0 {
-                debug!(
-                    "IP interface {family_name} for {ifname}: connected={conn}, if_index={idx}, mtu={mtu}",
-                    ifname = self.ifname,
-                    conn = row.Connected,
-                    idx = row.InterfaceIndex,
-                    mtu = row.NlMtu
-                );
-                if family == AF_INET {
-                    ipv4_available = true;
-                } else {
-                    ipv6_available = true;
+            match get_ip_interface(luid, family) {
+                Ok(row) => {
+                    debug!(
+                        "IP interface {family_name} for {}: connected={}, index={}, mtu={}",
+                        self.ifname, row.Connected, row.InterfaceIndex, row.NlMtu
+                    );
+                    if family == AF_INET {
+                        ipv4_available = true;
+                    } else {
+                        ipv6_available = true;
+                    }
                 }
-            } else {
-                info!(
-                    "IP interface {family_name} unavailable on {ifname} (luid={luid:#018x}): {err:#x} - skipping {family_name} routes",
-                    ifname = self.ifname,
-                    luid = adapter_luid,
-                    err = err.0
-                );
+                Err(err) => info!(
+                    "IP interface {family_name} unavailable on {} (luid={adapter_luid:#018x}): \
+                    {:#x} - skipping {family_name} routes",
+                    self.ifname, err.0
+                ),
             }
         }
         if !ipv4_available && !ipv6_available {
@@ -718,9 +704,38 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
 
-        // Set MTU
-        if let Some(mtu) = config.mtu {
-            set_interface_mtu(&self.ifname, mtu)?;
+        // `set_default_route` forces interface metric to 0 (the highest priority), but only for
+        // the IP family of the last address.
+        for (family_name, family, available) in [
+            (IPV4_LABEL, AF_INET, ipv4_available),
+            (IPV6_LABEL, AF_INET6, ipv6_available),
+        ] {
+            if !available {
+                continue;
+            }
+            let all_traffic = interface
+                .peers
+                .iter()
+                .flat_map(|peer| &peer.allowed_ips)
+                .any(|ip| ip.prefix_len() == 0 && ip.addr().is_ipv4() == (family == AF_INET));
+            debug!(
+                "Setting {family_name} metric on {} to {}, MTU to {:?}",
+                self.ifname,
+                if all_traffic { "0" } else { "auto" },
+                config.mtu
+            );
+            update_ip_interface(luid, family, |row| {
+                row.UseAutomaticMetric = !all_traffic;
+                if all_traffic {
+                    row.Metric = 0;
+                }
+                if let Some(mtu) = config.mtu {
+                    row.NlMtu = mtu;
+                }
+            })?;
+        }
+
+        if config.mtu.is_some() {
             // Turn it off and on again.
             adapter.down().map_err(WindowsError::from)?;
         }
@@ -807,7 +822,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
         // Leaving the servers on the adapter for a split DNS configuration would send unrelated
         // queries to the tunnel, which is exactly what the rules above are there to prevent.
-        let servers: &[IpAddr] = if config.default_route {
+        let servers = if config.default_route {
             config.servers
         } else {
             &[]
