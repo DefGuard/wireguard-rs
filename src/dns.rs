@@ -10,11 +10,11 @@
 
 #[cfg(target_os = "macos")]
 use std::io::{Cursor, Error as IoError};
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use std::{
     fmt::Write as _,
-    fs::{File, read_dir, read_to_string},
+    fs::{File, read_dir},
     io::Write,
     path::Path,
     process::Stdio,
@@ -197,16 +197,13 @@ impl<'a> DnsConfig<'a> {
             );
         }
 
-        let backend = detect_dns_backend()?;
-        match backend {
+        match detect_dns_backend()? {
             #[cfg(target_os = "linux")]
-            DnsBackend::SystemdResolved => self.configure_dns_resolved(ifname)?,
+            DnsBackend::SystemdResolved => self.configure_dns_resolved(ifname),
             DnsBackend::Openresolv { local_resolver } => {
-                self.configure_dns_resolvconf(ifname, local_resolver)?;
+                self.configure_dns_resolvconf(ifname, local_resolver)
             }
         }
-        warn_if_dns_unused(ifname, backend, self.servers);
-        Ok(())
     }
 
     /// Configures DNS through `resolvconf`.
@@ -438,10 +435,6 @@ const RESOLVECTL: &str = "resolvectl";
 /// Runtime directory of `systemd-resolved`; created when it starts, removed when it stops.
 const RESOLVED_RUNTIME_DIR: &str = "/run/systemd/resolve";
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-const RESOLV_CONF: &str = "/etc/resolv.conf";
-#[cfg(target_os = "linux")]
-const NSSWITCH_CONF: &str = "/etc/nsswitch.conf";
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 const IFACE_ORDER_PATH: &str = "/etc/resolvconf/interface-order";
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 const OPENRESOLV_CONF: &str = "/etc/resolvconf.conf";
@@ -495,90 +488,6 @@ fn systemd_resolved_available() -> bool {
             this host."
         );
         false
-    }
-}
-
-/// glibc queries 127.0.0.1 when `/etc/resolv.conf` lists no nameserver or cannot be read, so
-/// callers pass an empty string for an unreadable file.
-#[cfg_attr(
-    not(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd")),
-    allow(dead_code)
-)]
-fn resolv_conf_nameservers(resolv_conf: &str) -> Vec<IpAddr> {
-    let nameservers = resolv_conf
-        .lines()
-        .filter_map(|line| {
-            let mut words = line.split_whitespace();
-            if words.next()? != "nameserver" {
-                return None;
-            }
-            words.next()?.parse().ok()
-        })
-        .collect::<Vec<_>>();
-    if nameservers.is_empty() {
-        vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]
-    } else {
-        nameservers
-    }
-}
-
-/// glibc reaches `systemd-resolved` either through its stub listener at 127.0.0.53, or through
-/// `nss-resolve` when `resolve` comes before `dns` on the `hosts:` line.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn resolved_owns_resolution(nameservers: &[IpAddr], nsswitch: &str) -> bool {
-    let uses_stub = nameservers.contains(&IpAddr::V4(Ipv4Addr::new(127, 0, 0, 53)));
-    let uses_nss_resolve = nsswitch
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("hosts:"))
-        .is_some_and(|sources| {
-            let sources = sources.split_whitespace().collect::<Vec<_>>();
-            let position = |name: &str| sources.iter().position(|source| *source == name);
-            match (position("resolve"), position("dns")) {
-                (Some(resolve), Some(dns)) => resolve < dns,
-                (resolve, _) => resolve.is_some(),
-            }
-        });
-    uses_stub || uses_nss_resolve
-}
-
-/// Without a local resolver, `resolvconf` lists the tunnel's servers in `/etc/resolv.conf`. With
-/// one, `/etc/resolv.conf` points at the local resolver on a loopback address.
-#[cfg_attr(
-    not(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd")),
-    allow(dead_code)
-)]
-fn resolvconf_in_use(nameservers: &[IpAddr], servers: &[IpAddr], local_resolver: bool) -> bool {
-    nameservers.iter().any(|nameserver| {
-        servers.contains(nameserver) || (local_resolver && nameserver.is_loopback())
-    })
-}
-
-#[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
-fn warn_if_dns_unused(ifname: &str, backend: DnsBackend, servers: &[IpAddr]) {
-    let nameservers = resolv_conf_nameservers(&read_to_string(RESOLV_CONF).unwrap_or_default());
-    let (in_use, hint) = match backend {
-        #[cfg(target_os = "linux")]
-        DnsBackend::SystemdResolved => {
-            let nsswitch = read_to_string(NSSWITCH_CONF).unwrap_or_default();
-            (
-                resolved_owns_resolution(&nameservers, &nsswitch),
-                "If NetworkManager writes /etc/resolv.conf, set `dns=systemd-resolved` in the \
-                [main] section of the NetworkManager configuration and link /etc/resolv.conf to \
-                /run/systemd/resolve/stub-resolv.conf.",
-            )
-        }
-        DnsBackend::Openresolv { local_resolver } => (
-            resolvconf_in_use(&nameservers, servers, local_resolver),
-            "Make sure resolvconf writes /etc/resolv.conf. If NetworkManager writes it, set \
-            `rc-manager=resolvconf` in the [main] section of the NetworkManager configuration.",
-        ),
-    };
-    if !in_use {
-        warn!(
-            "DNS for interface {ifname} was configured through {backend:?}, but the system \
-            resolver sends queries to {nameservers:?} according to {RESOLV_CONF}, so the DNS \
-            servers and domains of {ifname} will not be used. {hint}"
-        );
     }
 }
 
