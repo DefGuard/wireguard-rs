@@ -1,3 +1,7 @@
+#[cfg(not(target_os = "windows"))]
+use std::collections::HashSet;
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::net::{SocketAddr, ToSocketAddrs};
 #[cfg(any(
     feature = "check_dependencies",
@@ -6,11 +10,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
     target_os = "netbsd"
 ))]
 use std::path::PathBuf;
-#[cfg(not(target_os = "windows"))]
-use std::{
-    collections::HashSet,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-};
 #[cfg(target_os = "linux")]
 use std::{fs::OpenOptions, io::Write};
 
@@ -18,7 +17,7 @@ use crate::WireguardInterfaceError;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::bsd::{IoError, add_gateway, add_linked_route, delete_gateway, get_gateway};
 #[cfg(target_os = "linux")]
-use crate::netlink::{self, add_gateway, get_gateway};
+use crate::netlink;
 #[cfg(not(target_os = "windows"))]
 use crate::{IpVersion, Peer, net::IpAddrMask};
 
@@ -154,7 +153,7 @@ pub(crate) fn add_peer_routing(
     // Gather allowed IPs and default routes
     for peer in peers {
         for addr in &peer.allowed_ips {
-            if addr.address.is_unspecified() && addr.cidr == 0 {
+            if addr.is_default_route() {
                 // Default route - store for later
                 if addr.address.is_ipv4() {
                     default_route_v4 = Some(addr);
@@ -222,114 +221,94 @@ pub(crate) fn add_peer_routing(
     Ok(())
 }
 
-/// Condfigure peers with `endpoint` field set.
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn configure_endpoints(peers: &[Peer]) {
-    let gateway_v4 = get_gateway(IpVersion::IPv4);
-    if let Ok(Some(gateway)) = gateway_v4 {
-        debug!("Default gateway for IPv4: {gateway}");
-    }
-    let gateway_v6 = get_gateway(IpVersion::IPv6);
-    if let Ok(Some(gateway)) = gateway_v6 {
-        debug!("Default gateway for IPv6: {gateway}");
-    }
+/// Route peer endpoints through the default gateway when allowed IPs contain a default route.
+///
+/// `peers` should be all peers of the interface. Routes added are tracked in `routes`;
+/// existing routes are kept and not tracked.
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+pub(crate) fn configure_endpoints(peers: &[Peer], routes: &mut HashSet<IpAddr>) {
+    remove_endpoint_routes(routes);
+
+    // Default gateway for each IP version with a default route in allowed IPs.
+    let has_default_route = |is_ipv4: bool| {
+        peers
+            .iter()
+            .flat_map(|peer| &peer.allowed_ips)
+            .any(|addr| addr.is_default_route() && addr.address.is_ipv4() == is_ipv4)
+    };
+    let gateway_v4 = has_default_route(true).then(|| get_gateway(IpVersion::IPv4));
+    let gateway_v6 = has_default_route(false).then(|| get_gateway(IpVersion::IPv6));
 
     for peer in peers {
-        // Logic below is valid only in case an endpoint has been configured for the peer.
         let Some(endpoint) = peer.endpoint else {
             continue;
         };
+        let endpoint_ip = endpoint.ip();
+        let (Some(gateway), localhost) = (match endpoint_ip {
+            IpAddr::V4(_) => (&gateway_v4, IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            IpAddr::V6(_) => (&gateway_v6, IpAddr::V6(Ipv6Addr::LOCALHOST)),
+        }) else {
+            continue;
+        };
+        if routes.contains(&endpoint_ip) {
+            continue;
+        }
 
-        let endpoint_ip = IpAddrMask::host(endpoint.ip());
-        // Note: unlike on BSD, there is no need to delete a gateway on Linux.
-        #[cfg(not(target_os = "linux"))]
-        match delete_gateway(&endpoint_ip) {
-            Ok(()) => {
-                debug!("Former route to {endpoint_ip} has been removed, if it existed.");
+        let dest = IpAddrMask::host(endpoint_ip);
+        let result = match gateway {
+            Ok(Some(gateway)) => {
+                debug!("Routing the traffic destined to {dest} through gateway {gateway}.");
+                add_gateway(&dest, *gateway, false)
+            }
+            Ok(None) => {
+                debug!(
+                    "Default gateway has not been found, routing the traffic destined to {dest} \
+                    through localhost as a blackhole route."
+                );
+                add_gateway(&dest, localhost, true)
             }
             Err(err) => {
-                debug!("Former route to {endpoint_ip} has not been removed: {err}");
+                error!("Failed to get default gateway for {dest}: {err}");
+                continue;
             }
+        };
+        match result {
+            Ok(()) => {
+                debug!("Route to {dest} has been added.");
+                routes.insert(endpoint_ip);
+            }
+            Err(IoError::Io(err)) if err.raw_os_error() == Some(libc::EEXIST) => {
+                debug!("Route to {dest} already exists, leaving it intact.");
+            }
+            Err(err) => error!("Failed to add route to {dest}: {err}"),
         }
+    }
+}
 
-        debug!("Default routes have been set, proceeding with further configuration.");
-        if endpoint.is_ipv6() {
-            debug!(
-                "Endpoint is an IPv6 address and a default IPv6 route is present in the allowed \
-                IPs; proceeding with further configuration."
-            );
-            match gateway_v6 {
-                Ok(Some(gateway)) => {
-                    debug!(
-                        "Default gateway for IPv6: {gateway}, routing the traffic destined to \
-                        {endpoint_ip} through it."
-                    );
-                    match add_gateway(&endpoint_ip, gateway, false) {
-                        Ok(()) => {
-                            debug!("Route to {endpoint_ip} has been added for gateway {gateway}");
-                        }
-                        Err(err) => {
-                            error!(
-                                "Failed to add route to {endpoint_ip} for gateway {gateway}: {err}"
-                            );
-                        }
-                    }
-                }
-                Ok(None) => {
-                    debug!(
-                        "Default gateway for IPv6 has not been found, routing the traffic destined \
-                        to {endpoint_ip} through localhost as a blackhole route."
-                    );
-                    match add_gateway(&endpoint_ip, IpAddr::V6(Ipv6Addr::LOCALHOST), true) {
-                        Ok(()) => debug!("Blackhole route to {endpoint_ip} has been added"),
-                        Err(err) => {
-                            error!("Failed to add blackhole route to {endpoint_ip}: {err}");
-                        }
-                    }
-                }
-                Err(ref err) => {
-                    error!("Failed to get gateway for {endpoint_ip}: {err}");
-                }
-            }
-        } else {
-            debug!(
-                "Endpoint is an IPv4 address and a default IPv4 route is present in the allowed \
-                IPs; proceeding with further configuration."
-            );
-            match gateway_v4 {
-                Ok(Some(gateway)) => {
-                    debug!(
-                        "Default gateway for IPv4: {gateway}, routing the traffic destined to \
-                        {endpoint_ip} through it."
-                    );
-                    match add_gateway(&endpoint_ip, gateway, false) {
-                        Ok(()) => {
-                            debug!("Added route to {endpoint_ip} for gateway {gateway}");
-                        }
-                        Err(err) => {
-                            error!(
-                                "Failed to add route to {endpoint_ip} for gateway {gateway}: {err}"
-                            );
-                        }
-                    }
-                }
-                Ok(None) => {
-                    debug!(
-                        "Default gateway for IPv4 has not been found, routing the traffic destined \
-                        to {endpoint_ip} through localhost as a blackhole route."
-                    );
-                    match add_gateway(&endpoint_ip, IpAddr::V4(Ipv4Addr::LOCALHOST), true) {
-                        Ok(()) => debug!("Blackhole route to {endpoint_ip} has been added"),
-                        Err(err) => {
-                            error!("Failed to add blackhole route to {endpoint_ip}: {err}");
-                        }
-                    }
-                }
-                Err(ref err) => {
-                    error!("Failed to get gateway for {endpoint_ip}: {err}");
-                }
-            }
-        }
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+fn delete_endpoint_route(endpoint_ip: IpAddr) {
+    let dest = IpAddrMask::host(endpoint_ip);
+    match delete_gateway(&dest) {
+        Ok(()) => debug!("Route to {dest} has been removed."),
+        Err(err) => warn!("Failed to remove route to {dest}: {err}"),
+    }
+}
+
+/// Remove a route to `endpoint_ip` added by [`configure_endpoints`].
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+pub(crate) fn remove_endpoint_route(endpoint_ip: IpAddr, routes: &mut HashSet<IpAddr>) {
+    if routes.remove(&endpoint_ip) {
+        delete_endpoint_route(endpoint_ip);
+    } else {
+        debug!("Route to {endpoint_ip} has not been added by us, leaving it intact.");
+    }
+}
+
+/// Remove all routes added by [`configure_endpoints`].
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+pub(crate) fn remove_endpoint_routes(routes: &mut HashSet<IpAddr>) {
+    for endpoint_ip in routes.drain() {
+        delete_endpoint_route(endpoint_ip);
     }
 }
 

@@ -3,7 +3,7 @@ use crate::{
     WireguardInterfaceError,
     dns::{DnsConfig, clear_dns},
     netlink,
-    utils::{add_peer_routing, clean_fwmark_rules, configure_endpoints},
+    utils::{add_peer_routing, clean_fwmark_rules},
     wgapi::{Kernel, WGApi},
 };
 
@@ -101,10 +101,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// - A rule pushing all traffic through the WireGuard interface is added with the exception of traffic marked with 51820 (default) fwmark which
     ///   is used for the WireGuard traffic itself (so it doesn't get stuck in a loop)
     ///
+    /// Endpoint routes aren't needed, as WireGuard traffic bypasses the tunnel thanks to fwmark.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
-        add_peer_routing(peers, &self.ifname)?;
-        configure_endpoints(peers);
-        Ok(())
+        add_peer_routing(peers, &self.ifname)
     }
 
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
@@ -171,5 +170,46 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Sets the DNS configuration for the interface.
     fn set_dns(&self, config: &DnsConfig<'_>) -> Result<(), WireguardInterfaceError> {
         config.configure_dns(&self.ifname)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use netlink_packet_route::route::RouteType;
+
+    use super::*;
+    use crate::IpVersion;
+
+    #[ignore = "destructive"]
+    #[test]
+    fn docker_endpoint_route_kept() {
+        const IF_NAME: &str = "wg0";
+        let endpoint = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1));
+        let dest = IpAddrMask::host(endpoint);
+
+        // Pre-existing route to the endpoint.
+        let gateway = netlink::get_gateway(IpVersion::IPv4).unwrap().unwrap();
+        netlink::add_gateway(&dest, gateway, true).unwrap();
+
+        let mut wgapi = WGApi::<Kernel>::new(IF_NAME).unwrap();
+        wgapi.create_interface().unwrap();
+        let mut peer = Peer::new(Key::new([1; 32]));
+        peer.endpoint = Some(SocketAddr::new(endpoint, 51820));
+        peer.allowed_ips
+            .push(IpAddrMask::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0));
+        let result = wgapi.configure_peer_routing(&[peer]);
+        let route = netlink::get_route(&dest).unwrap();
+
+        // Clean up before asserting, as all traffic is now routed through the interface.
+        if let Some(fwmark) = netlink::get_host(IF_NAME).unwrap().fwmark {
+            clean_fwmark_rules(fwmark).unwrap();
+        }
+        netlink::delete_interface(IF_NAME).unwrap();
+        netlink::delete_route(&dest).unwrap();
+
+        result.unwrap();
+        assert_eq!(route.unwrap().header.kind, RouteType::BlackHole);
     }
 }

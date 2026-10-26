@@ -88,6 +88,12 @@ impl IpAddrMask {
         }
     }
 
+    /// Returns `true` if the address is a default route (`0.0.0.0/0` or `::/0`).
+    #[must_use]
+    pub(crate) fn is_default_route(&self) -> bool {
+        self.address.is_unspecified() && self.cidr == 0
+    }
+
     /// Returns `IpVersion` for this address.
     #[must_use]
     pub fn ip_version(&self) -> IpVersion {

@@ -208,10 +208,9 @@ fn nrpt_namespaces_are_deduplicated_and_skip_empty_domains() {
 
 #[test]
 fn nrpt_namespaces_are_empty_without_domains() {
-    assert!(
-        DnsConfig::split_dns(&SERVERS, &[], &[])
-            .nrpt_namespaces()
-            .is_empty()
+    assert_eq!(
+        DnsConfig::split_dns(&SERVERS, &[], &[]).nrpt_namespaces(),
+        [] as [String; 0]
     );
 }
 

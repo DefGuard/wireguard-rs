@@ -485,12 +485,11 @@ pub(crate) fn set_link_up(if_name: &str) -> NetlinkResult<()> {
 }
 
 /// Get default route for a given address family.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn get_gateway(ip_version: IpVersion) -> NetlinkResult<Option<IpAddr>> {
     let header = RouteHeader {
         address_family: ip_version.address_family(),
         table: RouteHeader::RT_TABLE_MAIN,
-        // protocol: RouteProtocol::Boot, // doesn't filter
-        // scope: RouteScope::Universe,   // doesn't filter
         ..Default::default()
     };
     let mut message = RouteMessage::default();
@@ -536,9 +535,10 @@ fn route_address(address: IpAddr) -> RouteAddress {
     }
 }
 
-/// Set a route to `dest` through `gateway`, replacing an existing one, if any.
+/// Add a route to `dest` through `gateway`, keeping an existing one, if any.
 ///
 /// When `is_blackhole` is set, traffic to `dest` is dropped and `gateway` is ignored.
+#[allow(dead_code)]
 pub(crate) fn add_gateway(
     dest: &IpAddrMask,
     gateway: IpAddr,
@@ -574,15 +574,66 @@ pub(crate) fn add_gateway(
 
     match netlink_request(
         RouteNetlinkMessage::NewRoute(message),
-        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE,
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
         NETLINK_ROUTE,
     ) {
         Ok(_msg) => Ok(()),
+        Err(NetlinkError::FileAlreadyExists) => Ok(()),
         Err(err) => {
             error!("Failed to set gateway for {dest}: {err}");
             Err(NetlinkError::AddRouteError)
         }
     }
+}
+
+/// Find a route to `dest` in the main routing table.
+#[cfg(test)]
+pub(crate) fn get_route(dest: &IpAddrMask) -> NetlinkResult<Option<RouteMessage>> {
+    let mut message = RouteMessage::default();
+    message.header.address_family = dest.address_family();
+    message.header.table = RouteHeader::RT_TABLE_MAIN;
+    let responses = netlink_request(
+        RouteNetlinkMessage::GetRoute(message),
+        NLM_F_REQUEST | NLM_F_DUMP,
+        NETLINK_ROUTE,
+    )?;
+
+    let destination = RouteAttribute::Destination(route_address(dest.address));
+    for nlmsg in responses {
+        if let NetlinkMessage {
+            payload: NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewRoute(message)),
+            ..
+        } = nlmsg
+            && message.header.table == RouteHeader::RT_TABLE_MAIN
+            && message.header.destination_prefix_length == dest.cidr
+            && message.attributes.contains(&destination)
+        {
+            return Ok(Some(message));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Delete a route to `dest` from the main routing table.
+#[cfg(test)]
+pub(crate) fn delete_route(dest: &IpAddrMask) -> NetlinkResult<()> {
+    let mut message = RouteMessage::default();
+    message.header = RouteHeader {
+        address_family: dest.address_family(),
+        destination_prefix_length: dest.cidr,
+        table: RouteHeader::RT_TABLE_MAIN,
+        ..Default::default()
+    };
+    message
+        .attributes
+        .push(RouteAttribute::Destination(route_address(dest.address)));
+    netlink_request(
+        RouteNetlinkMessage::DelRoute(message),
+        NLM_F_REQUEST | NLM_F_ACK,
+        NETLINK_ROUTE,
+    )?;
+    Ok(())
 }
 
 /// Add a route for an interface.
@@ -811,6 +862,8 @@ pub(crate) fn set_mtu(if_name: &str, mtu: u32) -> NetlinkResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use super::*;
 
     /// Get IP addresses for an interface.
@@ -974,6 +1027,22 @@ mod tests {
     fn docker_gateway() {
         let gateway = get_gateway(IpVersion::IPv4).unwrap();
         assert!(gateway.is_some());
+    }
+
+    #[ignore = "destructive"]
+    #[test]
+    fn docker_add_gateway_keeps_route() {
+        let dest = IpAddrMask::host(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1)));
+        let gateway = get_gateway(IpVersion::IPv4).unwrap().unwrap();
+
+        // Pre-existing route.
+        add_gateway(&dest, gateway, true).unwrap();
+        let result = add_gateway(&dest, gateway, false);
+        let route = get_route(&dest).unwrap();
+        delete_route(&dest).unwrap();
+
+        result.unwrap();
+        assert_eq!(route.unwrap().header.kind, RouteType::BlackHole);
     }
 
     // For this test, execute:

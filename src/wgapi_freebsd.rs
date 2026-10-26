@@ -2,7 +2,7 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer, WireguardInterfaceApi,
     WireguardInterfaceError, bsd,
     dns::{DnsConfig, clear_dns},
-    utils::{add_peer_routing, configure_endpoints},
+    utils::add_peer_routing,
     wgapi::{Kernel, WGApi},
 };
 
@@ -51,8 +51,12 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     /// Based on ip type `<inet>` will be equal to `-inet` or `-inet6`
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;
-        configure_endpoints(peers);
+        self.add_endpoint_routes(peers);
         Ok(())
+    }
+
+    fn remove_endpoint_routing(&self, endpoint: &str) -> Result<(), WireguardInterfaceError> {
+        self.delete_endpoint_route(endpoint)
     }
 
     fn configure_interface(
@@ -121,6 +125,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         // Clear the DNS configuration while the interface is still around.
         clear_dns(&self.ifname)?;
+        self.delete_endpoint_routes();
 
         debug!("Removing interface {}", &self.ifname);
         bsd::delete_interface(&self.ifname)?;
