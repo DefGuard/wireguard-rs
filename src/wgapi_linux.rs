@@ -191,7 +191,7 @@ mod tests {
 
         // Pre-existing route to the endpoint.
         let gateway = netlink::get_gateway(IpVersion::IPv4).unwrap().unwrap();
-        netlink::add_gateway(&dest, gateway, true).unwrap();
+        netlink::add_gateway(&dest, gateway, true, false).unwrap();
 
         let mut wgapi = WGApi::<Kernel>::new(IF_NAME).unwrap();
         wgapi.create_interface().unwrap();

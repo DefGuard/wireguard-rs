@@ -1038,7 +1038,7 @@ mod tests {
 
         // Pre-existing route.
         add_gateway(&dest, gateway, true, false).unwrap();
-        let result = add_gateway(&dest, gateway, false);
+        let result = add_gateway(&dest, gateway, false, false);
         let route = get_route(&dest).unwrap();
         delete_route(&dest).unwrap();
 
