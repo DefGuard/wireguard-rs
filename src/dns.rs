@@ -11,12 +11,13 @@
 #[cfg(target_os = "macos")]
 use std::io::{Cursor, Error as IoError};
 use std::net::{IpAddr, Ipv4Addr};
+#[cfg(target_os = "linux")]
+use std::path::Path;
 #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "netbsd"))]
 use std::{
     fmt::Write as _,
     fs::{File, read_dir, read_to_string},
     io::Write,
-    path::Path,
     process::Stdio,
 };
 #[cfg(not(target_os = "windows"))]

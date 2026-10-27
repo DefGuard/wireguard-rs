@@ -8,6 +8,8 @@ use std::{
 
 use defguard_boringtun::device::{DeviceConfig, DeviceHandle};
 
+#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+use crate::bsd;
 #[cfg(any(
     target_os = "freebsd",
     target_os = "linux",
@@ -21,12 +23,10 @@ use crate::{
     Host, InterfaceConfiguration, IpAddrMask, Key, Peer,
     dns::DnsConfig,
     error::WireguardInterfaceError,
-    utils::{add_peer_routing, configure_endpoints},
+    utils::add_peer_routing,
     wgapi::{Userspace, WGApi},
     wireguard_interface::WireguardInterfaceApi,
 };
-#[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
-use crate::{bsd, utils::resolve};
 
 const SOCKET_TIMEOUT: Duration = Duration::new(3, 0);
 
@@ -243,26 +243,21 @@ impl WireguardInterfaceApi for WGApi<Userspace> {
     ///   `<gateway>`- Gateway extracted using `netstat -nr -f <inet>`.
     fn configure_peer_routing(&self, peers: &[Peer]) -> Result<(), WireguardInterfaceError> {
         add_peer_routing(peers, &self.ifname)?;
-        configure_endpoints(peers);
+        #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+        self.add_endpoint_routes(peers);
         Ok(())
     }
 
     #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
     fn remove_endpoint_routing(&self, endpoint: &str) -> Result<(), WireguardInterfaceError> {
-        debug!("Removing routing to {endpoint}, interface: {}", self.ifname);
-        let endpoint_addr = resolve(endpoint)?;
-        let host = IpAddrMask::host(endpoint_addr.ip());
-        match bsd::delete_gateway(&host) {
-            Ok(()) => debug!("Removed routing to {host}"),
-            Err(err) => debug!("Failed to remove routing to {host}: {err}"),
-        }
-
-        Ok(())
+        self.delete_endpoint_route(endpoint)
     }
 
     /// Remove WireGuard network interface.
     fn remove_interface(&self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
+        #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
+        self.delete_endpoint_routes();
         // `wireguard-go` should by design shut down if the socket is removed
         debug!(
             "Shutting down socket for interface {}, checking if the socket to remove exists...",
