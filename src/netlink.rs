@@ -543,6 +543,7 @@ pub(crate) fn add_gateway(
     dest: &IpAddrMask,
     gateway: IpAddr,
     is_blackhole: bool,
+    replace: bool,
 ) -> NetlinkResult<()> {
     if !is_blackhole && dest.address.is_ipv4() != gateway.is_ipv4() {
         error!("Destination {dest} and gateway {gateway} IP versions don't match");
@@ -574,7 +575,7 @@ pub(crate) fn add_gateway(
 
     match netlink_request(
         RouteNetlinkMessage::NewRoute(message),
-        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL,
+        NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | if replace { NLM_F_REPLACE } else { NLM_F_EXCL },
         NETLINK_ROUTE,
     ) {
         Ok(_msg) => Ok(()),
@@ -1036,7 +1037,7 @@ mod tests {
         let gateway = get_gateway(IpVersion::IPv4).unwrap().unwrap();
 
         // Pre-existing route.
-        add_gateway(&dest, gateway, true).unwrap();
+        add_gateway(&dest, gateway, true, false).unwrap();
         let result = add_gateway(&dest, gateway, false);
         let route = get_route(&dest).unwrap();
         delete_route(&dest).unwrap();
