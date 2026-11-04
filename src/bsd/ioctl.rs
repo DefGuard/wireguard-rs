@@ -30,7 +30,7 @@ pub const fn io(ty: u8, nr: u32) -> c_ulong {
 /// IOR — kernel to userspace (read)
 #[must_use]
 pub const fn ior<T>(ty: u8, nr: u32) -> c_ulong {
-    ioc(IOC_IN, ty, nr, mem::size_of::<T>() as u32)
+    ioc(IOC_OUT, ty, nr, mem::size_of::<T>() as u32)
 }
 
 /// IOW — userspace to kernel (write)
