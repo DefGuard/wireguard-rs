@@ -5,7 +5,7 @@ use std::{
     net::IpAddr,
     os::windows::ffi::OsStrExt,
     str::FromStr,
-    sync::{LazyLock, Mutex},
+    sync::{LazyLock, Mutex, MutexGuard, PoisonError},
 };
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
@@ -19,10 +19,10 @@ use windows::{
         NetworkManagement::{
             IpHelper::{
                 DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1, DNS_SETTING_IPV6,
-                DNS_SETTING_NAMESERVER, DNS_SETTING_SEARCHLIST, GAA_FLAG_INCLUDE_PREFIX,
-                GetAdaptersAddresses, GetIpInterfaceEntry, IP_ADAPTER_ADDRESSES_LH,
-                InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW, SetInterfaceDnsSettings,
-                SetIpInterfaceEntry,
+                DNS_SETTING_NAMESERVER, DNS_SETTING_REGISTRATION_ENABLED, DNS_SETTING_SEARCHLIST,
+                GAA_FLAG_INCLUDE_PREFIX, GetAdaptersAddresses, GetIpInterfaceEntry,
+                IP_ADAPTER_ADDRESSES_LH, InitializeIpInterfaceEntry, MIB_IPINTERFACE_ROW,
+                SetInterfaceDnsSettings, SetIpInterfaceEntry,
             },
             Ndis::NET_LUID_LH,
         },
@@ -63,6 +63,24 @@ static WIREGUARD_DLL: LazyLock<Mutex<Wireguard>> = LazyLock::new(|| {
             .expect("Failed to load wireguard.dll"),
     )
 });
+
+mod dns_leak_protection;
+mod dns_registration;
+
+/// DNS state of a Windows interface.
+#[derive(Default)]
+pub(crate) struct WindowsDns {
+    /// Addresses assigned to the adapter by `configure_interface`.
+    addresses: Mutex<Vec<IpAddr>>,
+    registration: dns_registration::DnsRegistration,
+    /// Present while DNS leak protection is enabled.
+    leak_protection: Mutex<Option<dns_leak_protection::DnsLeakProtection>>,
+}
+
+/// Locks a mutex, ignoring poisoning.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 const IPV4_LABEL: &str = "IPv4";
 const IPV6_LABEL: &str = "IPv6";
@@ -506,11 +524,13 @@ fn flush_dns_cache() {
     }
 }
 
-/// Sets the DNS servers and the search list of an adapter.
+/// Sets the DNS servers and the search list of an adapter, and whether Windows registers its
+/// addresses in DNS.
 fn set_interface_dns(
     guid: GUID,
     servers: &[IpAddr],
     search_domains: &[&str],
+    register: bool,
 ) -> Result<(), WindowsError> {
     // The buffer has to outlive every call below, which is why it is kept in its own binding.
     let mut search_list_buffer = str_to_wide_null_terminated(&search_domains.join(","));
@@ -523,7 +543,8 @@ fn set_interface_dns(
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         let mut name_server = str_to_wide_null_terminated(&addresses.join(","));
-        let mut flags = DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST;
+        let mut flags =
+            DNS_SETTING_NAMESERVER | DNS_SETTING_SEARCHLIST | DNS_SETTING_REGISTRATION_ENABLED;
         if ipv6 {
             flags |= DNS_SETTING_IPV6;
         }
@@ -533,6 +554,7 @@ fn set_interface_dns(
             Flags: u64::from(flags),
             NameServer: PWSTR(name_server.as_mut_ptr()),
             SearchList: search_list,
+            RegistrationEnabled: register.into(),
             ..Default::default()
         };
 
@@ -703,6 +725,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         adapter
             .set_default_route(&addresses, &interface)
             .map_err(WindowsError::from)?;
+        *lock(&self.windows_dns.addresses) = addresses.iter().map(IpNet::addr).collect();
 
         // `set_default_route` forces interface metric to 0 (the highest priority), but only for
         // the IP family of the last address.
@@ -757,6 +780,8 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
 
     fn remove_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
+        self.deregister_from_dns();
+        *lock(&self.windows_dns.leak_protection) = None;
 
         // NRPT rules outlive the adapter they were created for, so they have to be removed.
         match get_adapter_guid(&self.ifname) {
@@ -827,9 +852,14 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         } else {
             &[]
         };
-        set_interface_dns(guid, servers, config.search_domains)?;
+        // Without servers on the adapter, Windows would only send doomed registrations to its
+        // fallback servers; `update_dns_registration` registers through the NRPT servers instead.
+        set_interface_dns(guid, servers, config.search_domains, config.default_route)?;
 
         flush_dns_cache();
+
+        self.update_dns_registration(&interface_id, config, &namespaces);
+        self.update_dns_leak_protection(config);
 
         info!(
             "Configured DNS for interface {}, resolving {namespaces:?} through {:?}",
