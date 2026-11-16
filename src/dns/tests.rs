@@ -1,4 +1,4 @@
-use std::net::Ipv6Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use super::*;
 
@@ -308,13 +308,13 @@ fn registration_name_requires_a_dns_suffix() {
 #[test]
 fn only_routable_addresses_are_registered() {
     let addresses = [
-        "10.6.0.2".parse().unwrap(),
-        "10.6.0.2".parse().unwrap(),
-        "169.254.10.1".parse().unwrap(),
-        "127.0.0.1".parse().unwrap(),
-        "fd00::2".parse().unwrap(),
-        "fe80::1".parse().unwrap(),
-        "::1".parse().unwrap(),
+        IpAddr::V4(Ipv4Addr::new(10, 6, 0, 2)),
+        IpAddr::V4(Ipv4Addr::new(10, 6, 0, 2)),
+        IpAddr::V4(Ipv4Addr::new(169, 254, 10, 1)),
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2)),
+        IpAddr::V6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
     ];
     assert_eq!(
         registration::registrable_addresses(&addresses),
