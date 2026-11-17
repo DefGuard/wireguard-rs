@@ -1,4 +1,4 @@
-use std::net::Ipv6Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use super::*;
 
@@ -278,4 +278,99 @@ fn every_domain_becomes_a_namespace_of_its_own() {
     let namespaces = DnsConfig::split_dns(&SERVERS, &domains, &[]).nrpt_namespaces();
     assert_eq!(namespaces.len(), 120);
     assert_eq!(namespaces[119], ".d119.example.com");
+}
+
+#[test]
+fn registration_follows_the_policy_over_local_settings() {
+    assert!(registration::registration_enabled(None, None));
+    assert!(registration::registration_enabled(Some(1), Some(1)));
+    assert!(!registration::registration_enabled(Some(0), None));
+    assert!(!registration::registration_enabled(None, Some(1)));
+    assert!(registration::registration_enabled(None, Some(0)));
+}
+
+#[test]
+fn registration_name_requires_a_dns_suffix() {
+    assert_eq!(
+        registration::registration_name("host.corp.example.com"),
+        Some("host.corp.example.com")
+    );
+    assert_eq!(
+        registration::registration_name("host.example.org."),
+        Some("host.example.org")
+    );
+    assert_eq!(registration::registration_name("host"), None);
+    assert_eq!(registration::registration_name("host."), None);
+    assert_eq!(registration::registration_name(".example.org"), None);
+    assert_eq!(registration::registration_name(""), None);
+}
+
+#[test]
+fn only_routable_addresses_are_registered() {
+    let addresses = [
+        IpAddr::V4(Ipv4Addr::new(10, 6, 0, 2)),
+        IpAddr::V4(Ipv4Addr::new(10, 6, 0, 2)),
+        IpAddr::V4(Ipv4Addr::new(169, 254, 10, 1)),
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2)),
+        IpAddr::V6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+    ];
+    assert_eq!(
+        registration::registrable_addresses(&addresses),
+        [addresses[0], addresses[4]]
+    );
+}
+
+#[test]
+fn ip4_array_holds_the_count_and_the_ipv4_servers() {
+    let servers = [
+        IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+        IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 2)),
+    ];
+    assert_eq!(
+        registration::ip4_array(&servers),
+        Some(vec![
+            2,
+            u32::from_ne_bytes([10, 0, 0, 1]),
+            u32::from_ne_bytes([10, 0, 0, 2])
+        ])
+    );
+    assert_eq!(
+        registration::ip4_array(&[IpAddr::V6(Ipv6Addr::LOCALHOST)]),
+        None
+    );
+    assert_eq!(registration::ip4_array(&[]), None);
+}
+
+#[test]
+fn only_names_in_the_tunnel_namespaces_are_registered() {
+    let namespaces = DnsConfig::split_dns(&SERVERS, &["Corp.Example.com"], &["ad.example.org"])
+        .nrpt_namespaces();
+    assert!(registration::name_in_namespaces(
+        "HOST.corp.example.com",
+        &namespaces
+    ));
+    assert!(registration::name_in_namespaces(
+        "host.ad.example.org",
+        &namespaces
+    ));
+    assert!(!registration::name_in_namespaces(
+        "host.example.org",
+        &namespaces
+    ));
+    // A suffix match has to stop at a label boundary.
+    assert!(!registration::name_in_namespaces(
+        "host.notcorp.example.com",
+        &namespaces
+    ));
+    assert!(!registration::name_in_namespaces(
+        "host.corp.example.com",
+        &[]
+    ));
+    assert!(registration::name_in_namespaces(
+        "host.anything",
+        &[".".to_string()]
+    ));
 }

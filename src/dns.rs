@@ -766,5 +766,8 @@ fn network_services() -> Result<Vec<String>, IoError> {
 #[cfg(any(target_os = "windows", test))]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub(crate) mod nrpt;
+#[cfg(any(target_os = "windows", test))]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) mod registration;
 #[cfg(test)]
 mod tests;

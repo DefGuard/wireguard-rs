@@ -1,12 +1,11 @@
 [package]
 name = "defguard_wireguard_rs"
-version = "0.12.5"
+version = "0.12.6"
 edition = "2024"
 rust-version = "1.95"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
 license = "Apache-2.0"
 readme = "README.md"
-homepage = "https://github.com/DefGuard/wireguard-rs"
 repository = "https://github.com/DefGuard/wireguard-rs"
 keywords = ["wireguard", "network", "vpn"]
 categories = ["network-programming"]
@@ -33,13 +32,17 @@ libc = { version = "0.2", default-features = false }
 [target.'cfg(target_os = "windows")'.dependencies]
 ipnet = "2.11"
 windows = { version = "0.62", features = [
+    "Win32_NetworkManagement_Dns",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_WindowsFilteringPlatform",
     "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
+    "Win32_System_Rpc",
+    "Win32_System_SystemInformation",
 ] }
 wireguard-nt = "0.5"
 

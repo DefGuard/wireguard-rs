@@ -15,6 +15,8 @@ use wireguard_nt::Adapter;
 #[cfg(feature = "check_dependencies")]
 use crate::dependencies::check_external_dependencies;
 use crate::error::WireguardInterfaceError;
+#[cfg(target_os = "windows")]
+use crate::wgapi_windows::WindowsDns;
 #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
 use crate::{
     Peer,
@@ -34,6 +36,8 @@ pub struct WGApi<API = Kernel> {
     pub(super) device_handle: Option<DeviceHandle>,
     #[cfg(target_os = "windows")]
     pub(super) adapter: Option<Adapter>,
+    #[cfg(target_os = "windows")]
+    pub(super) windows_dns: WindowsDns,
     #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
     endpoint_routes: Mutex<HashSet<IpAddr>>,
     pub(super) _api: PhantomData<API>,
@@ -50,6 +54,8 @@ impl<API> WGApi<API> {
             device_handle: None,
             #[cfg(target_os = "windows")]
             adapter: None,
+            #[cfg(target_os = "windows")]
+            windows_dns: WindowsDns::default(),
             #[cfg(any(target_os = "freebsd", target_os = "macos", target_os = "netbsd"))]
             endpoint_routes: Mutex::default(),
             _api: PhantomData,
