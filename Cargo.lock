@@ -239,9 +239,9 @@ dependencies = [
 
 [[package]]
 name = "defguard_boringtun"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fa2a70b14430feb68aa2ffe2be259650c0eb1c182ee49c9c7edeae3a0a07cc6"
+checksum = "2d7d1fd27a0f1fdaa40966f3343fa074b7d38f9d8e50ecb94120d9425e88a55e"
 dependencies = [
  "aead",
  "base64",
@@ -568,9 +568,9 @@ dependencies = [
 
 [[package]]
 name = "nix"
-version = "0.31.3"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+checksum = "77730ed34f01f4990cb2ea67fec715ecebc6fab9a6396cf83c5529b13f581bdc"
 dependencies = [
  "bitflags",
  "cfg-if",
