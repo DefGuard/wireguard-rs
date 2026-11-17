@@ -6,7 +6,6 @@ rust-version = "1.95"
 description = "A unified multi-platform high-level API for managing WireGuard interfaces"
 license = "Apache-2.0"
 readme = "README.md"
-homepage = "https://github.com/DefGuard/wireguard-rs"
 repository = "https://github.com/DefGuard/wireguard-rs"
 keywords = ["wireguard", "network", "vpn"]
 categories = ["network-programming"]

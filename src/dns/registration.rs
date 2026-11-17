@@ -21,9 +21,8 @@ pub(crate) const DISABLE_DYNAMIC_UPDATE: &str = "DisableDynamicUpdate";
 /// TTL of the registered records, the Windows DNS client default.
 pub(crate) const RECORD_TTL: u32 = 1200;
 
-/// Tells whether the registry settings allow registration. `None` stands for a missing value.
-///
-/// The tunnel adapter's own setting is not consulted: `set_dns` manages it.
+/// Tells whether the registry allows registration; `None` is a missing value. The tunnel
+/// adapter's own setting is ignored, as `set_dns` manages it.
 pub(crate) fn registration_enabled(
     policy_enabled: Option<u32>,
     global_disabled: Option<u32>,
@@ -42,8 +41,8 @@ pub(crate) fn registration_name(fqdn: &str) -> Option<&str> {
     (!host.is_empty() && !suffix.is_empty()).then_some(name)
 }
 
-/// Tells whether `name` falls under one of the NRPT `namespaces`, i.e. whether the tunnel's
-/// servers answer for the host's zone.
+/// Tells whether `name` is under one of the NRPT `namespaces`, i.e. the tunnel's servers answer
+/// for the host's zone.
 pub(crate) fn name_in_namespaces(name: &str, namespaces: &[String]) -> bool {
     let name = format!(".{}", name.to_lowercase());
     namespaces
@@ -51,7 +50,7 @@ pub(crate) fn name_in_namespaces(name: &str, namespaces: &[String]) -> bool {
         .any(|namespace| namespace == "." || name.ends_with(namespace.as_str()))
 }
 
-/// Tells whether an address is worth registering, i.e. not link-local, loopback etc.
+/// Tells whether an address is worth registering: not link-local, loopback etc.
 fn registrable(address: &IpAddr) -> bool {
     !(address.is_unspecified()
         || address.is_loopback()
@@ -62,14 +61,22 @@ fn registrable(address: &IpAddr) -> bool {
         })
 }
 
+/// Appends the `new` addresses which `addresses` doesn't have yet.
+pub(crate) fn extend_unique(addresses: &mut Vec<IpAddr>, new: impl IntoIterator<Item = IpAddr>) {
+    for address in new {
+        if !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
+}
+
 /// Returns the registrable addresses, without duplicates.
 pub(crate) fn registrable_addresses(addresses: &[IpAddr]) -> Vec<IpAddr> {
     let mut registrable_addresses = Vec::new();
-    for address in addresses.iter().filter(|address| registrable(address)) {
-        if !registrable_addresses.contains(address) {
-            registrable_addresses.push(*address);
-        }
-    }
+    extend_unique(
+        &mut registrable_addresses,
+        addresses.iter().copied().filter(registrable),
+    );
     registrable_addresses
 }
 

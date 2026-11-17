@@ -3,6 +3,7 @@
 
 use std::{
     net::IpAddr,
+    ops::Deref,
     sync::{
         Arc, Mutex, MutexGuard,
         mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError},
@@ -150,7 +151,7 @@ fn record_list<'a>(name: PWSTR, addresses: impl Iterator<Item = &'a IpAddr>) -> 
 }
 
 /// Address records of the host in DNS.
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub(super) struct DnsRecords {
     name: String,
     addresses: Vec<IpAddr>,
@@ -159,11 +160,9 @@ pub(super) struct DnsRecords {
 }
 
 impl DnsRecords {
-    /// Adds and deletes address records of the name, in one update per address family. The
-    /// name's other records, e.g. of other adapters, stay.
+    /// Adds and deletes the name's address records, leaving its other records alone.
     ///
-    /// Uses the process credentials: the computer account under LocalSystem, as secure AD updates
-    /// need.
+    /// Secure AD updates authenticate as the process, i.e. the computer account under LocalSystem.
     fn update(&self, add: &[IpAddr], delete: &[IpAddr]) -> Result<(), WindowsError> {
         let mut name = str_to_wide_null_terminated(&self.name);
         let name = PWSTR(name.as_mut_ptr());
@@ -176,8 +175,7 @@ impl DnsRecords {
             }
             let head =
                 |records: &[DNS_RECORDW]| (!records.is_empty()).then(|| records.as_ptr().cast());
-            // SAFETY: all buffers outlive the call, and the server list is only read. The `W`
-            // variant reads `DNS_RECORDW`s.
+            // SAFETY: the buffers outlive the call, which only reads them, as `DNS_RECORDW`s.
             let status = unsafe {
                 DnsModifyRecordsInSet_W(
                     head(&add),
@@ -199,19 +197,77 @@ impl DnsRecords {
     }
 
     /// Deletes the records, logging the outcome.
-    fn delete(&self) {
+    fn delete(&self) -> Result<(), WindowsError> {
         let (name, addresses) = (&self.name, &self.addresses);
-        match self.update(&[], addresses) {
-            Ok(()) => info!("Deleted {name} {addresses:?} from DNS"),
-            Err(err) => warn!("Failed to delete {name} {addresses:?} from DNS: {err}"),
-        }
+        self.update(&[], addresses)
+            .inspect(|()| info!("Deleted {name} {addresses:?} from DNS"))
+            .inspect_err(|err| warn!("Failed to delete {name} {addresses:?} from DNS: {err}"))
     }
 }
 
-/// Deletes the `registered` records.
-fn retire(registered: &mut Option<DnsRecords>) {
-    if let Some(old) = registered.take() {
-        old.delete();
+/// Deletes the `registered` records, keeping them tracked if that fails.
+fn retire(registered: &mut Option<DnsRecords>) -> Result<(), WindowsError> {
+    if let Some(old) = registered {
+        old.delete()?;
+    }
+    *registered = None;
+    Ok(())
+}
+
+/// Merges `records` into `registered`, on the same target. Tracking extra records is harmless.
+fn track(registered: &mut Option<DnsRecords>, records: DnsRecords) {
+    match registered {
+        Some(old) => registration::extend_unique(&mut old.addresses, records.addresses),
+        None => *registered = Some(records),
+    }
+}
+
+/// Records that couldn't be deleted, for the next update on the same name and servers to take
+/// over. A live interface on that target would lose any addresses it shares with them.
+static ORPHANS: Mutex<Vec<DnsRecords>> = Mutex::new(Vec::new());
+
+/// Leaves `records` for a later update to delete.
+fn orphan(records: DnsRecords) {
+    debug!(
+        "Keeping {} {:?} to delete from DNS later",
+        records.name, records.addresses
+    );
+    lock(&ORPHANS).push(records);
+}
+
+/// Takes over the orphans on the same name and servers as `target`.
+fn adopt_orphans(registered: &mut Option<DnsRecords>, target: &DnsRecords) {
+    for orphan in lock(&ORPHANS).extract_if(.., |orphan| orphan.same_target(target)) {
+        track(registered, orphan);
+    }
+}
+
+/// Deletes the `registered` records and the orphans on their target.
+fn retire_with_orphans(registered: &mut Option<DnsRecords>) {
+    if let Some(target) = registered.clone() {
+        adopt_orphans(registered, &target);
+    }
+    // Already logged, and the records stay tracked.
+    let _ = retire(registered);
+}
+
+/// An interface's registered records, orphaned if any are left when it goes.
+#[derive(Default)]
+struct Registered(Mutex<Option<DnsRecords>>);
+
+impl Deref for Registered {
+    type Target = Mutex<Option<DnsRecords>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Drop for Registered {
+    fn drop(&mut self) {
+        if let Some(records) = lock(&self.0).take() {
+            orphan(records);
+        }
     }
 }
 
@@ -220,9 +276,8 @@ fn retire(registered: &mut Option<DnsRecords>) {
 pub(super) struct DnsRegistration {
     /// Dropping it cancels the update in progress.
     cancel: Mutex<Option<Sender<()>>>,
-    /// Records currently registered. Held locked across every DNS update, so that whoever takes
-    /// them sees the outcome of an update in flight.
-    registered: Arc<Mutex<Option<DnsRecords>>>,
+    /// Records possibly in DNS, locked across each update so whoever takes them sees its outcome.
+    registered: Arc<Registered>,
 }
 
 impl DnsRegistration {
@@ -254,22 +309,22 @@ fn spawn(name: &str, body: impl FnOnce() + Send + 'static) -> bool {
     }
 }
 
-/// Registers `records` in the background. Registered records under the same name on the same
-/// servers are updated in the same step, others deleted first.
-fn register(
-    records: DnsRecords,
-    registered: Arc<Mutex<Option<DnsRecords>>>,
-    cancelled: Receiver<()>,
-) {
+/// Registers `records` in the background, first deleting records on another target (orphaning
+/// them if that fails) and taking over orphans on this one.
+fn register(records: DnsRecords, registered: Arc<Registered>, cancelled: Receiver<()>) {
     let Some(mut current) = lock_unless_cancelled(&registered, &cancelled) else {
         return;
     };
     if current
         .as_ref()
         .is_some_and(|old| !old.same_target(&records))
+        && retire(&mut current).is_err()
+        && let Some(old) = current.take()
     {
-        retire(&mut current);
+        // Their servers may be unreachable now; that mustn't block the new registration.
+        orphan(old);
     }
+    adopt_orphans(&mut current, &records);
     drop(current);
 
     let name = &records.name;
@@ -290,7 +345,7 @@ fn register(
                 .copied()
                 .collect()
         });
-        // Adding the registered addresses again restores them if they were lost meanwhile.
+        // Re-adding registered addresses restores any lost meanwhile.
         match records.update(&records.addresses, &stale) {
             Ok(()) => {
                 info!(
@@ -300,20 +355,24 @@ fn register(
                 *current = Some(records);
                 return;
             }
-            Err(err) if attempt + 1 < REGISTRATION_DELAYS.len() => {
-                debug!("Failed to register {name} in DNS, retrying: {err}");
+            Err(err) => {
+                // Part of the update may have gone through.
+                track(&mut current, records.clone());
+                if attempt + 1 < REGISTRATION_DELAYS.len() {
+                    debug!("Failed to register {name} in DNS, retrying: {err}");
+                } else {
+                    warn!(
+                        "Gave up registering {name} in DNS, so the host may not be reachable by \
+                        name over the tunnel: {err}"
+                    );
+                }
             }
-            Err(err) => warn!(
-                "Gave up registering {name} in DNS, so the host may not be reachable by name \
-                over the tunnel: {err}"
-            ),
         }
     }
 }
 
 impl WGApi<Kernel> {
-    /// Returns the records to register for the interface: its addresses with the tunnel's
-    /// servers, if they serve the host's zone.
+    /// Returns the interface's records to register, if the tunnel's servers serve the host's zone.
     fn dns_records(
         &self,
         interface_id: &str,
@@ -366,8 +425,7 @@ impl WGApi<Kernel> {
         })
     }
 
-    /// Registers the interface in DNS as `config` requires, cancelling the update in progress and
-    /// deleting the registered records the new ones don't include.
+    /// Registers the interface in DNS as `config` requires, cancelling any update in progress.
     pub(super) fn update_dns_registration(
         &self,
         interface_id: &str,
@@ -402,7 +460,7 @@ impl WGApi<Kernel> {
                 let (sender, cancelled) = mpsc::channel();
                 if spawn("dns-registration", move || {
                     if let Some(mut current) = lock_unless_cancelled(&registered, &cancelled) {
-                        retire(&mut current);
+                        retire_with_orphans(&mut current);
                     }
                 }) {
                     *cancel = Some(sender);
@@ -411,8 +469,8 @@ impl WGApi<Kernel> {
         }
     }
 
-    /// Cancels the update in progress and deletes the registered records, waiting at most
-    /// [`DEREGISTRATION_TIMEOUT`]. Has to run while the tunnel is still up.
+    /// Cancels any update in progress and deletes the registered records, waiting at most
+    /// [`DEREGISTRATION_TIMEOUT`]. Must run while the tunnel is still up.
     pub(super) fn deregister_from_dns(&self) {
         let state = &self.windows_dns.registration;
         *lock(&state.cancel) = None;
@@ -424,7 +482,7 @@ impl WGApi<Kernel> {
         let (done, finished) = mpsc::channel();
         let spawned = spawn("dns-deregistration", move || {
             // Waits for an update in flight.
-            retire(&mut lock(&registered));
+            retire_with_orphans(&mut lock(&registered));
             let _ = done.send(());
         });
         if spawned && finished.recv_timeout(DEREGISTRATION_TIMEOUT).is_err() {

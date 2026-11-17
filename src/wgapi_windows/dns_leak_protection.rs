@@ -1,12 +1,11 @@
-//! DNS leak protection: Windows Filtering Platform filters blocking DNS queries which go neither
-//! through a tunnel nor to a tunnel's DNS servers or port-53 peers.
+//! DNS leak protection: Windows Filtering Platform filters blocking DNS that goes neither through
+//! a tunnel nor to its DNS servers or port-53 peers.
 //!
-//! The NRPT catch-all rule only steers the Windows DNS client. Applications sending DNS queries
-//! themselves (e.g. browsers' built-in resolvers, `nslookup`) would still reach the resolvers of
-//! the other adapters.
+//! NRPT only steers the Windows DNS client; apps resolving by themselves (browsers, `nslookup`)
+//! would still reach other adapters' resolvers.
 //!
-//! One set of filters serves all interfaces of the process: WFP lets a block in any sublayer
-//! override a permit in another, so per-interface filters would block each other's DNS.
+//! One filter set serves all interfaces: a block in any WFP sublayer overrides a permit in
+//! another, so per-interface filters would block each other's DNS.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -51,18 +50,18 @@ fn check_fwp(status: u32) -> Result<(), WindowsError> {
     check(WIN32_ERROR(status))
 }
 
-/// A tunnel, as far as leak protection is concerned.
+/// A tunnel's leak protection settings.
 #[derive(Default)]
 struct Tunnel {
     luid: u64,
     servers: Vec<IpAddr>,
     /// Peer endpoints on the DNS port, whose WireGuard traffic must not be blocked.
     endpoints: Vec<IpAddr>,
-    /// Whether the tunnel answers every query, which turns the protection on.
+    /// Full-tunnel DNS, which turns the protection on.
     full: bool,
 }
 
-/// Tunnels of the process, by `DnsLeakProtection` id, and the filters protecting them.
+/// Tunnels by `DnsLeakProtection` id, and the filters protecting them.
 struct State {
     tunnels: BTreeMap<u64, Tunnel>,
     filters: Option<Filters>,
@@ -96,7 +95,7 @@ impl State {
             return Ok(());
         }
 
-        // The old filters go only once the new ones are in place, and stay if they fail.
+        // The old filters go only once the new ones are in, and stay if those fail.
         let filters = Filters::new(luids, destinations)?;
         debug!(
             "DNS leak protection enabled for {} interface(s), allowing {:?}",
@@ -123,13 +122,13 @@ impl Default for DnsLeakProtection {
 }
 
 impl DnsLeakProtection {
-    /// Joins the interface, if it hasn't yet, and applies `change` to its entry.
+    /// Applies `change` to the interface's entry, adding it if needed.
     fn modify(&self, luid: u64, change: impl FnOnce(&mut Tunnel)) -> Result<(), WindowsError> {
         let mut state = lock(&STATE);
         let tunnel = state.tunnels.entry(self.id).or_default();
         tunnel.luid = luid;
         change(tunnel);
-        // Unconditionally, to retry a previously failed install.
+        // Also when unchanged, to retry a failed install.
         state.apply()
     }
 
@@ -146,7 +145,7 @@ impl DnsLeakProtection {
         self.modify(luid, |tunnel| tunnel.endpoints = endpoints)
     }
 
-    /// Takes the interface out, so that it neither enables the protection nor is exempt from it.
+    /// Removes the interface, which then neither enables the protection nor is exempt from it.
     pub(super) fn withdraw(&self) {
         let mut state = lock(&STATE);
         if state.tunnels.remove(&self.id).is_some()
@@ -164,11 +163,9 @@ impl Drop for DnsLeakProtection {
     }
 }
 
-/// Filters blocking DNS which goes neither through the given interfaces nor to the given
-/// destinations.
-///
-/// They belong to a dynamic WFP session, so Windows removes them when this is dropped, or when
-/// the process exits, even if it crashes.
+/// Filters blocking DNS that goes neither through the given interfaces nor to the given
+/// destinations. Being in a dynamic WFP session, they go when this is dropped or the process
+/// exits, even by crashing.
 struct Filters {
     engine: HANDLE,
     luids: BTreeSet<u64>,
@@ -194,7 +191,7 @@ impl Filters {
                 &raw mut engine,
             )
         })?;
-        // From here on, dropping `filters` closes the engine, discarding whatever was added.
+        // From here on, dropping `filters` closes the engine and discards what was added.
         let filters = Self {
             engine,
             luids,
@@ -220,7 +217,7 @@ impl Filters {
         };
         check_fwp(unsafe { FwpmSubLayerAdd0(self.engine, &raw const sublayer, None) })?;
 
-        // Condition values pointed to by the filters below have to outlive them.
+        // The filters point to these values, which must outlive them.
         let mut luids = self.luids.iter().copied().collect::<Vec<_>>();
         let mut ipv6_addresses = Vec::new();
         let mut ipv4_destinations = Vec::new();
@@ -359,8 +356,8 @@ fn condition(
 }
 
 impl WGApi<Kernel> {
-    /// Registers the interface's DNS setup with the leak protection. Split DNS interfaces take
-    /// part too, so that a full tunnel elsewhere doesn't block them.
+    /// Adds the interface's DNS settings to the leak protection. Split DNS interfaces join too,
+    /// so that a full tunnel elsewhere doesn't block them.
     pub(super) fn update_dns_leak_protection(
         &self,
         config: &DnsConfig<'_>,
