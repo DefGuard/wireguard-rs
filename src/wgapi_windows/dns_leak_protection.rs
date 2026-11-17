@@ -81,12 +81,16 @@ impl State {
             return Ok(());
         }
 
-        let luids: BTreeSet<u64> = self.tunnels.values().map(|tunnel| tunnel.luid).collect();
-        let destinations: BTreeSet<IpAddr> = self
+        let luids = self
+            .tunnels
+            .values()
+            .map(|tunnel| tunnel.luid)
+            .collect::<BTreeSet<_>>();
+        let destinations = self
             .tunnels
             .values()
             .flat_map(|tunnel| tunnel.servers.iter().chain(&tunnel.endpoints).copied())
-            .collect();
+            .collect::<BTreeSet<_>>();
         if self
             .filters
             .as_ref()
