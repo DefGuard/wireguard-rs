@@ -644,6 +644,11 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             private_key: Some(Key::from_str(&config.prvkey)?.as_array()),
             peers,
         };
+        // Before the peers go live, so that DNS leak protection doesn't block their handshakes.
+        self.windows_dns.leak_protection.set_endpoints(
+            adapter.get_luid(),
+            config.peers.iter().filter_map(|peer| peer.endpoint),
+        );
         adapter.set_config(&interface).map_err(WindowsError::from)?;
 
         // Check which IP families are available on this adapter before attempting

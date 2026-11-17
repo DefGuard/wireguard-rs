@@ -1,5 +1,5 @@
 //! DNS leak protection: Windows Filtering Platform filters blocking DNS queries which go neither
-//! through a tunnel nor to a tunnel's DNS servers.
+//! through a tunnel nor to a tunnel's DNS servers or port-53 peers.
 //!
 //! The NRPT catch-all rule only steers the Windows DNS client. Applications sending DNS queries
 //! themselves (e.g. browsers' built-in resolvers, `nslookup`) would still reach the resolvers of
@@ -10,7 +10,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     sync::{
         Mutex,
         atomic::{AtomicU64, Ordering},
@@ -51,11 +51,13 @@ fn check_fwp(status: u32) -> Result<(), WindowsError> {
     check(WIN32_ERROR(status))
 }
 
-/// A tunnel's DNS setup, as far as leak protection is concerned.
-#[derive(PartialEq)]
+/// A tunnel, as far as leak protection is concerned.
+#[derive(Clone, Default, PartialEq)]
 struct Tunnel {
     luid: u64,
     servers: Vec<IpAddr>,
+    /// Peer endpoints on the DNS port, whose WireGuard traffic must not be blocked.
+    endpoints: Vec<IpAddr>,
     /// Whether the tunnel answers every query, which turns the protection on.
     full: bool,
 }
@@ -81,26 +83,26 @@ impl State {
         }
 
         let luids: BTreeSet<u64> = self.tunnels.values().map(|tunnel| tunnel.luid).collect();
-        let servers: BTreeSet<IpAddr> = self
+        let destinations: BTreeSet<IpAddr> = self
             .tunnels
             .values()
-            .flat_map(|tunnel| tunnel.servers.iter().copied())
+            .flat_map(|tunnel| tunnel.servers.iter().chain(&tunnel.endpoints).copied())
             .collect();
         if self
             .filters
             .as_ref()
-            .is_some_and(|filters| filters.luids == luids && filters.servers == servers)
+            .is_some_and(|filters| filters.luids == luids && filters.destinations == destinations)
         {
             return;
         }
 
         // The new filters are in place before the old ones go.
-        self.filters = match Filters::new(luids, servers) {
+        self.filters = match Filters::new(luids, destinations) {
             Ok(filters) => {
                 debug!(
-                    "DNS leak protection enabled for {} interface(s), allowing servers {:?}",
+                    "DNS leak protection enabled for {} interface(s), allowing {:?}",
                     filters.luids.len(),
-                    filters.servers
+                    filters.destinations
                 );
                 Some(filters)
             }
@@ -130,12 +132,26 @@ impl Default for DnsLeakProtection {
 }
 
 impl DnsLeakProtection {
-    fn set(&self, tunnel: Tunnel) {
+    /// Joins the interface, if it hasn't yet, and applies `change` to its entry.
+    fn modify(&self, luid: u64, change: impl FnOnce(&mut Tunnel)) {
         let mut state = lock(&STATE);
-        if state.tunnels.get(&self.id) != Some(&tunnel) {
+        let current = state.tunnels.get(&self.id);
+        let mut tunnel = current.cloned().unwrap_or_default();
+        tunnel.luid = luid;
+        change(&mut tunnel);
+        if current != Some(&tunnel) {
             state.tunnels.insert(self.id, tunnel);
             state.apply();
         }
+    }
+
+    /// Exempts the WireGuard traffic of peers listening on the DNS port.
+    pub(super) fn set_endpoints(&self, luid: u64, endpoints: impl Iterator<Item = SocketAddr>) {
+        let endpoints = endpoints
+            .filter(|endpoint| endpoint.port() == DNS_PORT)
+            .map(|endpoint| endpoint.ip())
+            .collect();
+        self.modify(luid, |tunnel| tunnel.endpoints = endpoints);
     }
 
     /// Takes the interface out, so that it neither enables the protection nor is exempt from it.
@@ -153,21 +169,22 @@ impl Drop for DnsLeakProtection {
     }
 }
 
-/// Filters blocking DNS which goes neither through the given interfaces nor to the given servers.
+/// Filters blocking DNS which goes neither through the given interfaces nor to the given
+/// destinations.
 ///
 /// They belong to a dynamic WFP session, so Windows removes them when this is dropped, or when
 /// the process exits, even if it crashes.
 struct Filters {
     engine: HANDLE,
     luids: BTreeSet<u64>,
-    servers: BTreeSet<IpAddr>,
+    destinations: BTreeSet<IpAddr>,
 }
 
 // SAFETY: a WFP engine handle can be used and closed from any thread.
 unsafe impl Send for Filters {}
 
 impl Filters {
-    fn new(luids: BTreeSet<u64>, servers: BTreeSet<IpAddr>) -> Result<Self, WindowsError> {
+    fn new(luids: BTreeSet<u64>, destinations: BTreeSet<IpAddr>) -> Result<Self, WindowsError> {
         let session = FWPM_SESSION0 {
             flags: FWPM_SESSION_FLAG_DYNAMIC,
             ..Default::default()
@@ -186,7 +203,7 @@ impl Filters {
         let filters = Self {
             engine,
             luids,
-            servers,
+            destinations,
         };
 
         check_fwp(unsafe { FwpmTransactionBegin0(engine, 0) })?;
@@ -211,11 +228,11 @@ impl Filters {
         // Condition values pointed to by the filters below have to outlive them.
         let mut luids = self.luids.iter().copied().collect::<Vec<_>>();
         let mut ipv6_addresses = Vec::new();
-        let mut ipv4_servers = Vec::new();
-        for server in &self.servers {
-            match server {
+        let mut ipv4_destinations = Vec::new();
+        for destination in &self.destinations {
+            match destination {
                 // WFP takes IPv4 addresses in host byte order.
-                IpAddr::V4(address) => ipv4_servers.push(condition(
+                IpAddr::V4(address) => ipv4_destinations.push(condition(
                     FWPM_CONDITION_IP_REMOTE_ADDRESS,
                     FWP_UINT32,
                     FWP_CONDITION_VALUE0_0 {
@@ -227,7 +244,7 @@ impl Filters {
                 }),
             }
         }
-        let ipv6_servers = ipv6_addresses
+        let ipv6_destinations = ipv6_addresses
             .iter_mut()
             .map(|address| {
                 condition(
@@ -271,15 +288,15 @@ impl Filters {
         };
 
         // Conditions on the same field are ORed, conditions on different fields ANDed.
-        for (layer, servers) in [
-            (FWPM_LAYER_ALE_AUTH_CONNECT_V4, &ipv4_servers),
-            (FWPM_LAYER_ALE_AUTH_CONNECT_V6, &ipv6_servers),
+        for (layer, destinations) in [
+            (FWPM_LAYER_ALE_AUTH_CONNECT_V4, &ipv4_destinations),
+            (FWPM_LAYER_ALE_AUTH_CONNECT_V6, &ipv6_destinations),
         ] {
             self.add_filter(&sublayer, layer, FWP_ACTION_BLOCK, &[udp, tcp])?;
             self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, &tunnels)?;
             self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, &[loopback])?;
-            if !servers.is_empty() {
-                self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, servers)?;
+            if !destinations.is_empty() {
+                self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, destinations)?;
             }
         }
         Ok(())
@@ -359,10 +376,9 @@ impl WGApi<Kernel> {
             protection.withdraw();
             return;
         };
-        protection.set(Tunnel {
-            luid: adapter.get_luid(),
-            servers: config.servers.to_vec(),
-            full: config.default_route,
+        protection.modify(adapter.get_luid(), |tunnel| {
+            tunnel.servers = config.servers.to_vec();
+            tunnel.full = config.default_route;
         });
     }
 }
