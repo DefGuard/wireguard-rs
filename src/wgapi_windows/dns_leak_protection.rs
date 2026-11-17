@@ -1,11 +1,21 @@
-//! DNS leak protection: Windows Filtering Platform filters blocking DNS queries which neither go
-//! through the tunnel nor to its DNS servers.
+//! DNS leak protection: Windows Filtering Platform filters blocking DNS queries which go neither
+//! through a tunnel nor to a tunnel's DNS servers.
 //!
 //! The NRPT catch-all rule only steers the Windows DNS client. Applications sending DNS queries
 //! themselves (e.g. browsers' built-in resolvers, `nslookup`) would still reach the resolvers of
 //! the other adapters.
+//!
+//! One set of filters serves all interfaces of the process: WFP lets a block in any sublayer
+//! override a permit in another, so per-interface filters would block each other's DNS.
 
-use std::net::IpAddr;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    net::IpAddr,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use windows::{
     Win32::{
@@ -41,22 +51,123 @@ fn check_fwp(status: u32) -> Result<(), WindowsError> {
     check(WIN32_ERROR(status))
 }
 
-/// Filters blocking DNS which neither goes through the tunnel nor to its DNS servers.
+/// A tunnel's DNS setup, as far as leak protection is concerned.
+#[derive(PartialEq)]
+struct Tunnel {
+    luid: u64,
+    servers: Vec<IpAddr>,
+    /// Whether the tunnel answers every query, which turns the protection on.
+    full: bool,
+}
+
+/// Tunnels of the process, by `DnsLeakProtection` id, and the filters protecting them.
+struct State {
+    tunnels: BTreeMap<u64, Tunnel>,
+    filters: Option<Filters>,
+}
+
+static STATE: Mutex<State> = Mutex::new(State {
+    tunnels: BTreeMap::new(),
+    filters: None,
+});
+
+impl State {
+    fn apply(&mut self) {
+        if !self.tunnels.values().any(|tunnel| tunnel.full) {
+            if self.filters.take().is_some() {
+                debug!("DNS leak protection disabled");
+            }
+            return;
+        }
+
+        let luids: BTreeSet<u64> = self.tunnels.values().map(|tunnel| tunnel.luid).collect();
+        let servers: BTreeSet<IpAddr> = self
+            .tunnels
+            .values()
+            .flat_map(|tunnel| tunnel.servers.iter().copied())
+            .collect();
+        if self
+            .filters
+            .as_ref()
+            .is_some_and(|filters| filters.luids == luids && filters.servers == servers)
+        {
+            return;
+        }
+
+        // The new filters are in place before the old ones go.
+        self.filters = match Filters::new(luids, servers) {
+            Ok(filters) => {
+                debug!(
+                    "DNS leak protection enabled for {} interface(s), allowing servers {:?}",
+                    filters.luids.len(),
+                    filters.servers
+                );
+                Some(filters)
+            }
+            Err(err) => {
+                warn!(
+                    "Failed to enable DNS leak protection, DNS queries may bypass the tunnels: \
+                    {err}"
+                );
+                None
+            }
+        };
+    }
+}
+
+/// An interface's part in the DNS leak protection, withdrawn when dropped.
+pub(super) struct DnsLeakProtection {
+    id: u64,
+}
+
+impl Default for DnsLeakProtection {
+    fn default() -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        Self {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+}
+
+impl DnsLeakProtection {
+    fn set(&self, tunnel: Tunnel) {
+        let mut state = lock(&STATE);
+        if state.tunnels.get(&self.id) != Some(&tunnel) {
+            state.tunnels.insert(self.id, tunnel);
+            state.apply();
+        }
+    }
+
+    /// Takes the interface out, so that it neither enables the protection nor is exempt from it.
+    pub(super) fn withdraw(&self) {
+        let mut state = lock(&STATE);
+        if state.tunnels.remove(&self.id).is_some() {
+            state.apply();
+        }
+    }
+}
+
+impl Drop for DnsLeakProtection {
+    fn drop(&mut self) {
+        self.withdraw();
+    }
+}
+
+/// Filters blocking DNS which goes neither through the given interfaces nor to the given servers.
 ///
 /// They belong to a dynamic WFP session, so Windows removes them when this is dropped, or when
 /// the process exits, even if it crashes.
-pub(super) struct DnsLeakProtection {
+struct Filters {
     engine: HANDLE,
-    interface_luid: u64,
-    servers: Vec<IpAddr>,
+    luids: BTreeSet<u64>,
+    servers: BTreeSet<IpAddr>,
 }
 
 // SAFETY: a WFP engine handle can be used and closed from any thread.
-unsafe impl Send for DnsLeakProtection {}
+unsafe impl Send for Filters {}
 
-impl DnsLeakProtection {
-    /// Installs the filters for the interface with the given LUID and its DNS `servers`.
-    fn new(interface_luid: u64, servers: &[IpAddr]) -> Result<Self, WindowsError> {
+impl Filters {
+    fn new(luids: BTreeSet<u64>, servers: BTreeSet<IpAddr>) -> Result<Self, WindowsError> {
         let session = FWPM_SESSION0 {
             flags: FWPM_SESSION_FLAG_DYNAMIC,
             ..Default::default()
@@ -71,17 +182,17 @@ impl DnsLeakProtection {
                 &raw mut engine,
             )
         })?;
-        // From here on, dropping `protection` closes the engine, discarding whatever was added.
-        let protection = Self {
+        // From here on, dropping `filters` closes the engine, discarding whatever was added.
+        let filters = Self {
             engine,
-            interface_luid,
-            servers: servers.to_vec(),
+            luids,
+            servers,
         };
 
         check_fwp(unsafe { FwpmTransactionBegin0(engine, 0) })?;
-        protection.add_filters()?;
+        filters.add_filters()?;
         check_fwp(unsafe { FwpmTransactionCommit0(engine) })?;
-        Ok(protection)
+        Ok(filters)
     }
 
     fn add_filters(&self) -> Result<(), WindowsError> {
@@ -98,7 +209,7 @@ impl DnsLeakProtection {
         check_fwp(unsafe { FwpmSubLayerAdd0(self.engine, &raw const sublayer, None) })?;
 
         // Condition values pointed to by the filters below have to outlive them.
-        let mut interface_luid = self.interface_luid;
+        let mut luids = self.luids.iter().copied().collect::<Vec<_>>();
         let mut ipv6_addresses = Vec::new();
         let mut ipv4_servers = Vec::new();
         for server in &self.servers {
@@ -128,12 +239,17 @@ impl DnsLeakProtection {
                 )
             })
             .collect::<Vec<_>>();
+        let tunnels = luids
+            .iter_mut()
+            .map(|luid| {
+                condition(
+                    FWPM_CONDITION_IP_LOCAL_INTERFACE,
+                    FWP_UINT64,
+                    FWP_CONDITION_VALUE0_0 { uint64: luid },
+                )
+            })
+            .collect::<Vec<_>>();
 
-        let port = condition(
-            FWPM_CONDITION_IP_REMOTE_PORT,
-            FWP_UINT16,
-            FWP_CONDITION_VALUE0_0 { uint16: DNS_PORT },
-        );
         let [udp, tcp] = [IPPROTO_UDP, IPPROTO_TCP].map(|protocol| {
             condition(
                 FWPM_CONDITION_IP_PROTOCOL,
@@ -143,13 +259,6 @@ impl DnsLeakProtection {
                 },
             )
         });
-        let tunnel = condition(
-            FWPM_CONDITION_IP_LOCAL_INTERFACE,
-            FWP_UINT64,
-            FWP_CONDITION_VALUE0_0 {
-                uint64: &raw mut interface_luid,
-            },
-        );
         let loopback = FWPM_FILTER_CONDITION0 {
             matchType: FWP_MATCH_FLAGS_ALL_SET,
             ..condition(
@@ -166,25 +275,30 @@ impl DnsLeakProtection {
             (FWPM_LAYER_ALE_AUTH_CONNECT_V4, &ipv4_servers),
             (FWPM_LAYER_ALE_AUTH_CONNECT_V6, &ipv6_servers),
         ] {
-            self.add_filter(&sublayer, layer, FWP_ACTION_BLOCK, &mut [port, udp, tcp])?;
-            self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, &mut [port, tunnel])?;
-            self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, &mut [port, loopback])?;
+            self.add_filter(&sublayer, layer, FWP_ACTION_BLOCK, &[udp, tcp])?;
+            self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, &tunnels)?;
+            self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, &[loopback])?;
             if !servers.is_empty() {
-                let mut conditions = vec![port];
-                conditions.extend_from_slice(servers);
-                self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, &mut conditions)?;
+                self.add_filter(&sublayer, layer, FWP_ACTION_PERMIT, servers)?;
             }
         }
         Ok(())
     }
 
+    /// Adds a filter matching DNS traffic and the `conditions`.
     fn add_filter(
         &self,
         sublayer: &FWPM_SUBLAYER0,
         layer: GUID,
         action: FWP_ACTION_TYPE,
-        conditions: &mut [FWPM_FILTER_CONDITION0],
+        conditions: &[FWPM_FILTER_CONDITION0],
     ) -> Result<(), WindowsError> {
+        let port = condition(
+            FWPM_CONDITION_IP_REMOTE_PORT,
+            FWP_UINT16,
+            FWP_CONDITION_VALUE0_0 { uint16: DNS_PORT },
+        );
+        let mut conditions = [&[port], conditions].concat();
         // Within our sublayer, permits outweigh the block.
         let weight = if action == FWP_ACTION_PERMIT { 10 } else { 1 };
         let filter = FWPM_FILTER0 {
@@ -208,7 +322,7 @@ impl DnsLeakProtection {
     }
 }
 
-impl Drop for DnsLeakProtection {
+impl Drop for Filters {
     fn drop(&mut self) {
         if let Err(err) = check_fwp(unsafe { FwpmEngineClose0(self.engine) }) {
             warn!("Failed to close the WFP engine, DNS leak protection may remain active: {err}");
@@ -233,41 +347,22 @@ fn condition(
 }
 
 impl WGApi<Kernel> {
-    /// Blocks DNS outside the tunnel when it answers every query, lifts the block otherwise.
+    /// Registers the interface's DNS setup with the leak protection. Split DNS interfaces take
+    /// part too, so that a full tunnel elsewhere doesn't block them.
     pub(super) fn update_dns_leak_protection(&self, config: &DnsConfig<'_>) {
-        let mut protection = lock(&self.windows_dns.leak_protection);
-        if !config.default_route {
-            *protection = None;
-            return;
-        }
+        let protection = &self.windows_dns.leak_protection;
         let Some(adapter) = &self.adapter else {
             warn!(
-                "Interface {} has no adapter, so DNS leak protection is not enabled",
+                "Interface {} has no adapter, so it is left out of DNS leak protection",
                 self.ifname
             );
-            *protection = None;
+            protection.withdraw();
             return;
         };
-        let luid = adapter.get_luid();
-        if protection.as_ref().is_some_and(|current| {
-            current.interface_luid == luid && current.servers == config.servers
-        }) {
-            return;
-        }
-        // The new filters are in place before the old ones go.
-        *protection = match DnsLeakProtection::new(luid, config.servers) {
-            Ok(new) => {
-                debug!("DNS leak protection enabled for interface {}", self.ifname);
-                Some(new)
-            }
-            Err(err) => {
-                warn!(
-                    "Failed to enable DNS leak protection for interface {}, DNS queries may \
-                    bypass the tunnel: {err}",
-                    self.ifname
-                );
-                None
-            }
-        };
+        protection.set(Tunnel {
+            luid: adapter.get_luid(),
+            servers: config.servers.to_vec(),
+            full: config.default_route,
+        });
     }
 }

@@ -73,8 +73,7 @@ pub(crate) struct WindowsDns {
     /// Addresses assigned to the adapter by `configure_interface`.
     addresses: Mutex<Vec<IpAddr>>,
     registration: dns_registration::DnsRegistration,
-    /// Present while DNS leak protection is enabled.
-    leak_protection: Mutex<Option<dns_leak_protection::DnsLeakProtection>>,
+    leak_protection: dns_leak_protection::DnsLeakProtection,
 }
 
 /// Locks a mutex, ignoring poisoning.
@@ -781,7 +780,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
     fn remove_interface(&mut self) -> Result<(), WireguardInterfaceError> {
         debug!("Removing interface {}", self.ifname);
         self.deregister_from_dns();
-        *lock(&self.windows_dns.leak_protection) = None;
+        self.windows_dns.leak_protection.withdraw();
 
         // NRPT rules outlive the adapter they were created for, so they have to be removed.
         match get_adapter_guid(&self.ifname) {
