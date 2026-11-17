@@ -17,7 +17,7 @@ use windows::{
         NetworkManagement::Dns::{
             DNS_A_DATA, DNS_AAAA_DATA, DNS_RECORDW, DNS_RECORDW_0, DNS_RECORDW_1, DNS_TYPE,
             DNS_TYPE_A, DNS_TYPE_AAAA, DNS_UPDATE_SECURITY_USE_DEFAULT, DnsCharSetUnicode,
-            DnsModifyRecordsInSet_W, DnsReplaceRecordSetW, IP6_ADDRESS,
+            DnsModifyRecordsInSet_W, IP6_ADDRESS,
         },
         System::{
             Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RegGetValueW},
@@ -121,13 +121,32 @@ fn record_data(address: IpAddr) -> (DNS_TYPE, usize, DNS_RECORDW_1) {
     }
 }
 
-/// Kind of DNS dynamic update.
-#[derive(Clone, Copy)]
-enum DnsUpdate {
-    /// Replace the address records of the name.
-    Replace,
-    /// Delete the given address records of the name.
-    Delete,
+/// Builds a linked list of address records of `name`.
+fn record_list<'a>(name: PWSTR, addresses: impl Iterator<Item = &'a IpAddr>) -> Vec<DNS_RECORDW> {
+    let mut records = addresses
+        .map(|address| {
+            let (record_type, length, data) = record_data(*address);
+            DNS_RECORDW {
+                pName: name,
+                wType: record_type.0,
+                wDataLength: length as u16,
+                // `CharSet` is bits 3-4.
+                Flags: DNS_RECORDW_0 {
+                    DW: (DnsCharSetUnicode.0 as u32) << 3,
+                },
+                dwTtl: registration::RECORD_TTL,
+                Data: data,
+                ..Default::default()
+            }
+        })
+        .collect::<Vec<_>>();
+    // The buffer stays put when the vector itself moves.
+    let base = records.as_mut_ptr();
+    for index in 1..records.len() {
+        // SAFETY: both indices are within the vector.
+        unsafe { (*base.add(index - 1)).pNext = base.add(index) };
+    }
+    records
 }
 
 /// Address records of the host in DNS.
@@ -140,88 +159,58 @@ pub(super) struct DnsRecords {
 }
 
 impl DnsRecords {
-    /// Sends the update, one record set per address family.
+    /// Adds and deletes address records of the name, in one update per address family. The
+    /// name's other records, e.g. of other adapters, stay.
     ///
     /// Uses the process credentials: the computer account under LocalSystem, as secure AD updates
     /// need.
-    fn update(&self, update: DnsUpdate) -> Result<(), WindowsError> {
+    fn update(&self, add: &[IpAddr], delete: &[IpAddr]) -> Result<(), WindowsError> {
         let mut name = str_to_wide_null_terminated(&self.name);
-        let (ipv4, ipv6): (Vec<_>, Vec<_>) = self.addresses.iter().partition(|a| a.is_ipv4());
-        for addresses in [ipv4, ipv6] {
-            if addresses.is_empty() {
+        let name = PWSTR(name.as_mut_ptr());
+        let servers = Some(self.servers.as_ptr().cast_mut().cast());
+        for ipv4 in [true, false] {
+            let add = record_list(name, add.iter().filter(|a| a.is_ipv4() == ipv4));
+            let delete = record_list(name, delete.iter().filter(|a| a.is_ipv4() == ipv4));
+            if add.is_empty() && delete.is_empty() {
                 continue;
             }
-            let mut records = addresses
-                .iter()
-                .map(|address| {
-                    let (record_type, length, data) = record_data(*address);
-                    DNS_RECORDW {
-                        pName: PWSTR(name.as_mut_ptr()),
-                        wType: record_type.0,
-                        wDataLength: length as u16,
-                        // `CharSet` is bits 3-4.
-                        Flags: DNS_RECORDW_0 {
-                            DW: (DnsCharSetUnicode.0 as u32) << 3,
-                        },
-                        dwTtl: registration::RECORD_TTL,
-                        Data: data,
-                        ..Default::default()
-                    }
-                })
-                .collect::<Vec<_>>();
-            // Link the records now that the vector won't move.
-            let base = records.as_mut_ptr();
-            for index in 1..records.len() {
-                // SAFETY: both indices are within the vector.
-                unsafe { (*base.add(index - 1)).pNext = base.add(index) };
-            }
-
-            let records = records.as_ptr().cast();
-            let servers = Some(self.servers.as_ptr().cast_mut().cast());
+            let head =
+                |records: &[DNS_RECORDW]| (!records.is_empty()).then(|| records.as_ptr().cast());
             // SAFETY: all buffers outlive the call, and the server list is only read. The `W`
-            // variants read `DNS_RECORDW`s.
+            // variant reads `DNS_RECORDW`s.
             let status = unsafe {
-                match update {
-                    DnsUpdate::Replace => DnsReplaceRecordSetW(
-                        records,
-                        DNS_UPDATE_SECURITY_USE_DEFAULT,
-                        None,
-                        servers,
-                        None,
-                    ),
-                    DnsUpdate::Delete => DnsModifyRecordsInSet_W(
-                        None,
-                        Some(records),
-                        DNS_UPDATE_SECURITY_USE_DEFAULT,
-                        None,
-                        servers,
-                        None,
-                    ),
-                }
+                DnsModifyRecordsInSet_W(
+                    head(&add),
+                    head(&delete),
+                    DNS_UPDATE_SECURITY_USE_DEFAULT,
+                    None,
+                    servers,
+                    None,
+                )
             };
             check(WIN32_ERROR(status as u32))?;
         }
         Ok(())
     }
 
-    /// Tells whether registering `other` replaces these records: same name, same servers.
-    fn replaced_by(&self, other: &Self) -> bool {
+    /// Tells whether `other` is registered under the same name with the same servers.
+    fn same_target(&self, other: &Self) -> bool {
         self.name.eq_ignore_ascii_case(&other.name) && self.servers == other.servers
     }
 
     /// Deletes the records, logging the outcome.
     fn delete(&self) {
-        let name = &self.name;
-        match self.update(DnsUpdate::Delete) {
-            Ok(()) => info!("Deleted {name} from DNS"),
-            Err(err) => warn!("Failed to delete {name} from DNS: {err}"),
+        let (name, addresses) = (&self.name, &self.addresses);
+        match self.update(&[], addresses) {
+            Ok(()) => info!("Deleted {name} {addresses:?} from DNS"),
+            Err(err) => warn!("Failed to delete {name} {addresses:?} from DNS: {err}"),
         }
     }
 }
 
-/// Deletes the `registered` records, unless registering `new` replaces them.
-fn retire(registered: &mut Option<DnsRecords>, new: Option<&DnsRecords>) {
-    if let Some(old) = registered.take_if(|old| !new.is_some_and(|new| old.replaced_by(new))) {
+/// Deletes the `registered` records.
+fn retire(registered: &mut Option<DnsRecords>) {
+    if let Some(old) = registered.take() {
         old.delete();
     }
 }
@@ -265,8 +254,8 @@ fn spawn(name: &str, body: impl FnOnce() + Send + 'static) -> bool {
     }
 }
 
-/// Registers `records` in the background, after deleting the registered records they don't
-/// replace.
+/// Registers `records` in the background. Registered records under the same name on the same
+/// servers are updated in the same step, others deleted first.
 fn register(
     records: DnsRecords,
     registered: Arc<Mutex<Option<DnsRecords>>>,
@@ -275,7 +264,12 @@ fn register(
     let Some(mut current) = lock_unless_cancelled(&registered, &cancelled) else {
         return;
     };
-    retire(&mut current, Some(&records));
+    if current
+        .as_ref()
+        .is_some_and(|old| !old.same_target(&records))
+    {
+        retire(&mut current);
+    }
     drop(current);
 
     let name = &records.name;
@@ -289,7 +283,15 @@ fn register(
             debug!("Registration of {name} in DNS cancelled");
             return;
         };
-        match records.update(DnsUpdate::Replace) {
+        let stale = current.as_ref().map_or_else(Vec::new, |old| {
+            old.addresses
+                .iter()
+                .filter(|address| !records.addresses.contains(address))
+                .copied()
+                .collect()
+        });
+        // Adding the registered addresses again restores them if they were lost meanwhile.
+        match records.update(&records.addresses, &stale) {
             Ok(()) => {
                 info!(
                     "Registered {name} in DNS with addresses {:?}",
@@ -365,7 +367,7 @@ impl WGApi<Kernel> {
     }
 
     /// Registers the interface in DNS as `config` requires, cancelling the update in progress and
-    /// deleting the registered records the new ones don't replace.
+    /// deleting the registered records the new ones don't include.
     pub(super) fn update_dns_registration(
         &self,
         interface_id: &str,
@@ -400,7 +402,7 @@ impl WGApi<Kernel> {
                 let (sender, cancelled) = mpsc::channel();
                 if spawn("dns-registration", move || {
                     if let Some(mut current) = lock_unless_cancelled(&registered, &cancelled) {
-                        retire(&mut current, None);
+                        retire(&mut current);
                     }
                 }) {
                     *cancel = Some(sender);
@@ -422,7 +424,7 @@ impl WGApi<Kernel> {
         let (done, finished) = mpsc::channel();
         let spawned = spawn("dns-deregistration", move || {
             // Waits for an update in flight.
-            retire(&mut lock(&registered), None);
+            retire(&mut lock(&registered));
             let _ = done.send(());
         });
         if spawned && finished.recv_timeout(DEREGISTRATION_TIMEOUT).is_err() {
