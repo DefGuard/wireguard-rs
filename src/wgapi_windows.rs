@@ -836,8 +836,10 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let guid = get_adapter_guid(&self.ifname)?;
         let interface_id = guid_to_string(&guid);
 
-        // First, so that a failure changes nothing and full-tunnel DNS never goes live unprotected.
-        self.update_dns_leak_protection(config)?;
+        // Block leaks before full-tunnel DNS goes live; unblock only once split DNS is in place.
+        if config.default_route {
+            self.update_dns_leak_protection(config)?;
+        }
 
         // Replace whatever a previous connection of this interface left behind.
         clear_nrpt_rules(&interface_id)?;
@@ -852,19 +854,21 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
             write_nrpt_rules(&interface_id, &namespaces, config.servers)?;
         }
 
-        // Leaving the servers on the adapter for a split DNS configuration would send unrelated
-        // queries to the tunnel, which is exactly what the rules above are there to prevent.
+        // Split DNS keeps the servers off the adapter, or unrelated queries would go to the tunnel.
         let servers = if config.default_route {
             config.servers
         } else {
             &[]
         };
-        // Without servers on the adapter, Windows would only send doomed registrations to its
-        // fallback servers; `update_dns_registration` registers through the NRPT servers instead.
+        // Windows can't register with no adapter servers; split DNS is registered by the library.
         set_interface_dns(guid, servers, config.search_domains, config.default_route)?;
 
         flush_dns_cache();
 
+        // Split DNS is in place, so a failure above has left the protection on.
+        if !config.default_route {
+            self.update_dns_leak_protection(config)?;
+        }
         self.update_dns_registration(&interface_id, config, &namespaces);
 
         info!(
