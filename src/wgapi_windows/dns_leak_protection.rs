@@ -52,7 +52,7 @@ fn check_fwp(status: u32) -> Result<(), WindowsError> {
 }
 
 /// A tunnel, as far as leak protection is concerned.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Default)]
 struct Tunnel {
     luid: u64,
     servers: Vec<IpAddr>,
@@ -74,12 +74,12 @@ static STATE: Mutex<State> = Mutex::new(State {
 });
 
 impl State {
-    fn apply(&mut self) {
+    fn apply(&mut self) -> Result<(), WindowsError> {
         if !self.tunnels.values().any(|tunnel| tunnel.full) {
             if self.filters.take().is_some() {
                 debug!("DNS leak protection disabled");
             }
-            return;
+            return Ok(());
         }
 
         let luids: BTreeSet<u64> = self.tunnels.values().map(|tunnel| tunnel.luid).collect();
@@ -93,27 +93,18 @@ impl State {
             .as_ref()
             .is_some_and(|filters| filters.luids == luids && filters.destinations == destinations)
         {
-            return;
+            return Ok(());
         }
 
-        // The new filters are in place before the old ones go.
-        self.filters = match Filters::new(luids, destinations) {
-            Ok(filters) => {
-                debug!(
-                    "DNS leak protection enabled for {} interface(s), allowing {:?}",
-                    filters.luids.len(),
-                    filters.destinations
-                );
-                Some(filters)
-            }
-            Err(err) => {
-                warn!(
-                    "Failed to enable DNS leak protection, DNS queries may bypass the tunnels: \
-                    {err}"
-                );
-                None
-            }
-        };
+        // The old filters go only once the new ones are in place, and stay if they fail.
+        let filters = Filters::new(luids, destinations)?;
+        debug!(
+            "DNS leak protection enabled for {} interface(s), allowing {:?}",
+            filters.luids.len(),
+            filters.destinations
+        );
+        self.filters = Some(filters);
+        Ok(())
     }
 }
 
@@ -133,32 +124,36 @@ impl Default for DnsLeakProtection {
 
 impl DnsLeakProtection {
     /// Joins the interface, if it hasn't yet, and applies `change` to its entry.
-    fn modify(&self, luid: u64, change: impl FnOnce(&mut Tunnel)) {
+    fn modify(&self, luid: u64, change: impl FnOnce(&mut Tunnel)) -> Result<(), WindowsError> {
         let mut state = lock(&STATE);
-        let current = state.tunnels.get(&self.id);
-        let mut tunnel = current.cloned().unwrap_or_default();
+        let tunnel = state.tunnels.entry(self.id).or_default();
         tunnel.luid = luid;
-        change(&mut tunnel);
-        if current != Some(&tunnel) {
-            state.tunnels.insert(self.id, tunnel);
-            state.apply();
-        }
+        change(tunnel);
+        // Unconditionally, to retry a previously failed install.
+        state.apply()
     }
 
     /// Exempts the WireGuard traffic of peers listening on the DNS port.
-    pub(super) fn set_endpoints(&self, luid: u64, endpoints: impl Iterator<Item = SocketAddr>) {
+    pub(super) fn set_endpoints(
+        &self,
+        luid: u64,
+        endpoints: impl Iterator<Item = SocketAddr>,
+    ) -> Result<(), WindowsError> {
         let endpoints = endpoints
             .filter(|endpoint| endpoint.port() == DNS_PORT)
             .map(|endpoint| endpoint.ip())
             .collect();
-        self.modify(luid, |tunnel| tunnel.endpoints = endpoints);
+        self.modify(luid, |tunnel| tunnel.endpoints = endpoints)
     }
 
     /// Takes the interface out, so that it neither enables the protection nor is exempt from it.
     pub(super) fn withdraw(&self) {
         let mut state = lock(&STATE);
-        if state.tunnels.remove(&self.id).is_some() {
-            state.apply();
+        if state.tunnels.remove(&self.id).is_some()
+            && let Err(err) = state.apply()
+        {
+            // The previous filters stay, still exempting this interface.
+            warn!("Failed to update DNS leak protection after removing an interface: {err}");
         }
     }
 }
@@ -366,19 +361,19 @@ fn condition(
 impl WGApi<Kernel> {
     /// Registers the interface's DNS setup with the leak protection. Split DNS interfaces take
     /// part too, so that a full tunnel elsewhere doesn't block them.
-    pub(super) fn update_dns_leak_protection(&self, config: &DnsConfig<'_>) {
-        let protection = &self.windows_dns.leak_protection;
-        let Some(adapter) = &self.adapter else {
-            warn!(
-                "Interface {} has no adapter, so it is left out of DNS leak protection",
-                self.ifname
-            );
-            protection.withdraw();
-            return;
-        };
-        protection.modify(adapter.get_luid(), |tunnel| {
-            tunnel.servers = config.servers.to_vec();
-            tunnel.full = config.default_route;
-        });
+    pub(super) fn update_dns_leak_protection(
+        &self,
+        config: &DnsConfig<'_>,
+    ) -> Result<(), WindowsError> {
+        let adapter = self
+            .adapter
+            .as_ref()
+            .ok_or_else(|| WindowsError::AdapterNotFound(self.ifname.clone()))?;
+        self.windows_dns
+            .leak_protection
+            .modify(adapter.get_luid(), |tunnel| {
+                tunnel.servers = config.servers.to_vec();
+                tunnel.full = config.default_route;
+            })
     }
 }

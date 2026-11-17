@@ -648,7 +648,7 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         self.windows_dns.leak_protection.set_endpoints(
             adapter.get_luid(),
             config.peers.iter().filter_map(|peer| peer.endpoint),
-        );
+        )?;
         adapter.set_config(&interface).map_err(WindowsError::from)?;
 
         // Check which IP families are available on this adapter before attempting
@@ -836,6 +836,9 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         let guid = get_adapter_guid(&self.ifname)?;
         let interface_id = guid_to_string(&guid);
 
+        // First, so that a failure changes nothing and full-tunnel DNS never goes live unprotected.
+        self.update_dns_leak_protection(config)?;
+
         // Replace whatever a previous connection of this interface left behind.
         clear_nrpt_rules(&interface_id)?;
 
@@ -863,7 +866,6 @@ impl WireguardInterfaceApi for WGApi<Kernel> {
         flush_dns_cache();
 
         self.update_dns_registration(&interface_id, config, &namespaces);
-        self.update_dns_leak_protection(config);
 
         info!(
             "Configured DNS for interface {}, resolving {namespaces:?} through {:?}",
